@@ -22,6 +22,8 @@ export default defineConfig({
 					name: 'ripple-server',
 					include: ['packages/ripple/tests/server/**/*.test.ripple'],
 					environment: 'node',
+					setupFiles: ['packages/ripple/tests/setup-server.js'],
+					globals: true,
 				},
 				plugins: [ripple({ excludeRippleExternalModules: true })],
 				resolve: process.env.VITEST ? { conditions: ['default'] } : undefined,
@@ -78,6 +80,21 @@ export default defineConfig({
 					globals: true,
 				},
 				plugins: [ripple({ excludeRippleExternalModules: true })],
+				resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
+			},
+			{
+				test: {
+					name: 'ripple-hydration',
+					include: ['packages/ripple/tests/hydration/**/*.test.js'],
+					environment: 'jsdom',
+					setupFiles: ['packages/ripple/tests/setup-hydration.js'],
+					globalSetup: ['packages/ripple/tests/hydration/build-components.js'],
+					globals: true,
+				},
+				plugins: [ripple({ excludeRippleExternalModules: true })],
+				// Use browser conditions for client code, but server-compiled
+				// components may import from 'ripple' which needs server runtime
+				// This is a limitation - reactive server components need different setup
 				resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
 			},
 		],

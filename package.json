@@ -32,6 +32,7 @@
     "@ripple-ts/eslint-plugin": "workspace:*",
     "eslint": "catalog:default",
     "type-fest": "catalog:default",
+    "source-map": "catalog:default",
     "vitest": "catalog:default"
   },
   "dependencies": {

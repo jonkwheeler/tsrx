@@ -1,6 +1,6 @@
 {
   "name": "@ripple-ts/eslint-plugin",
-  "version": "0.2.206",
+  "version": "0.2.207",
   "description": "ESLint plugin for Ripple",
   "type": "module",
   "main": "src/index.ts",

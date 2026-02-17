@@ -127,7 +127,7 @@ You'll need [Node.js](https://nodejs.org/) and
 
 ### Development Workflow
 
-Since Ripple is in early development, the build process may evolve. Currently:
+Since Ripple is in development, the build process may evolve. Currently:
 
 - Run development builds and watch for changes as needed
 - Test your changes thoroughly

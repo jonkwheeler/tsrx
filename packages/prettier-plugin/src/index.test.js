@@ -4771,5 +4771,223 @@ if (@status === 'a') @status = 'b'; else if (@status === 'b') @status = 'c'; els
 				expect(result).toBeWithNewline(expected);
 			});
 		});
+
+		it('should not move comments before if statement into the test condition', async () => {
+			const input = `component App() {
+  <div id="second-top-block">
+    // <div>
+    if (true) {
+      <div>{'b is true'}</div>
+    }
+    // <div>
+    // <div>
+    // if (@b) {
+    // <span>nested</span>
+    // }
+    // </div>
+    // </div>
+    // <div />
+    // </div>
+    // <div id="sibling-block">{'Sibling'}</div>
+  </div>
+}`;
+			const expected = `component App() {
+  <div id="second-top-block">
+    // <div>
+    if (true) {
+      <div>{'b is true'}</div>
+    }
+    // <div>
+    // <div>
+    // if (@b) {
+    // <span>nested</span>
+    // }
+    // </div>
+    // </div>
+    // <div />
+    // </div>
+    // <div id="sibling-block">{'Sibling'}</div>
+  </div>
+}`;
+
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
+
+		it('should not move comments before while statement into the test condition', async () => {
+			const input = `function test() {
+  let i = 0;
+  // comment before while
+  while (i < 10) {
+    i++;
+  }
+}`;
+			const expected = `function test() {
+  let i = 0;
+  // comment before while
+  while (i < 10) {
+    i++;
+  }
+}`;
+
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
+
+		it('should not move comments before for-of statement into the right expression', async () => {
+			const input = `function test() {
+  // comment before for-of
+  for (const item of items) {
+    console.log(item);
+  }
+}`;
+			const expected = `function test() {
+  // comment before for-of
+  for (const item of items) {
+    console.log(item);
+  }
+}`;
+
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
+
+		it('should not move comments before switch statement into the discriminant', async () => {
+			const input = `function test() {
+  let x = 1;
+  // comment before switch
+  switch (x) {
+    case 1:
+      console.log('one');
+  }
+}`;
+			const expected = `function test() {
+  let x = 1;
+  // comment before switch
+  switch (x) {
+    case 1:
+      console.log('one');
+  }
+}`;
+
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
+
+		it('should handle multiple comments before if statement', async () => {
+			const input = `function test() {
+  // comment 1
+  // comment 2
+  if (true) {
+    console.log('test');
+  }
+}`;
+			const expected = `function test() {
+  // comment 1
+  // comment 2
+  if (true) {
+    console.log('test');
+  }
+}`;
+
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
+
+		it('should handle comments before try/catch blocks', async () => {
+			const input = `function test() {
+  // comment before try
+  try {
+    doSomething();
+  } catch (e) {
+    console.error(e);
+  }
+}`;
+			const expected = `function test() {
+  // comment before try
+  try {
+    doSomething();
+  } catch (e) {
+    console.error(e);
+  }
+}`;
+
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
+
+		it('should handle comments before try/catch/finally blocks', async () => {
+			const input = `function test() {
+  // comment before try
+  try {
+    doSomething();
+  } catch (e) {
+    console.error(e);
+  } finally {
+    cleanup();
+  }
+}`;
+			const expected = `function test() {
+  // comment before try
+  try {
+    doSomething();
+  } catch (e) {
+    console.error(e);
+  } finally {
+    cleanup();
+  }
+}`;
+
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
+
+		it('should handle comments inside try/catch blocks', async () => {
+			const input = `function test() {
+  try {
+    // comment inside try
+    doSomething();
+  } catch (e) {
+    // comment inside catch
+    console.error(e);
+  }
+}`;
+			const expected = `function test() {
+  try {
+    // comment inside try
+    doSomething();
+  } catch (e) {
+    // comment inside catch
+    console.error(e);
+  }
+}`;
+
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
+
+		it('should handle block comments with try/catch', async () => {
+			const input = `function test() {
+  /* block comment before try */
+  try {
+    doSomething();
+  } catch (e) {
+    /* block comment in catch */
+    console.error(e);
+  }
+}`;
+			const expected = `function test() {
+  /* block comment before try */
+  try {
+    doSomething();
+  } catch (e) {
+    /* block comment in catch */
+    console.error(e);
+  }
+}`;
+
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
 	});
 });

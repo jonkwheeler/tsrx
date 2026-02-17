@@ -491,7 +491,81 @@ block.c; // context
 ### Prettier plugin
 
 The Prettier plugin (`packages/prettier-plugin/src/index.js`) formats `.ripple`
-files. When encountering `/* Unknown: NodeType */` in formatter output:
+files using **AST-based formatting**, not string manipulation.
+
+#### Architecture
+
+The plugin exports three objects required by Prettier:
+
+| Export      | Purpose                                                            |
+| ----------- | ------------------------------------------------------------------ |
+| `languages` | Declares `.ripple` extension and parser name                       |
+| `parsers`   | Uses Ripple's compiler (`parse()`) to create ESTree-compatible AST |
+| `printers`  | Contains `print`, `embed`, and `getVisitorKeys` functions          |
+
+**AST-based approach:**
+
+- Parser produces ESTree AST with Ripple extensions (Component, Element,
+  TrackedExpression, etc.)
+- Printer recursively walks AST nodes via `printRippleNode()` switch statement
+- Uses Prettier's `doc.builders` API (`concat`, `join`, `group`, `indent`, `line`,
+  `hardline`, `softline`, `ifBreak`)
+
+#### Comment handling
+
+Comments are attached to AST nodes and printed via three mechanisms:
+
+| Comment Type      | Property                | Handling                                  |
+| ----------------- | ----------------------- | ----------------------------------------- |
+| Leading comments  | `node.leadingComments`  | Printed before node content               |
+| Trailing comments | `node.trailingComments` | Inline via `lineSuffix()` or on next line |
+| Inner comments    | `node.innerComments`    | Printed inside empty blocks/elements      |
+
+Element-level comment helpers:
+
+- `getElementLeadingComments(node)` - extracts comments for JSX elements
+- `createElementLevelCommentParts(comments)` - formats with proper spacing
+
+#### Options
+
+Prettier options are accessed from the `options` parameter:
+
+| Option                   | Helper function         | Usage                                |
+| ------------------------ | ----------------------- | ------------------------------------ |
+| `singleQuote`            | `formatStringLiteral()` | Quote style for string literals      |
+| `jsxSingleQuote`         | —                       | Quote style for JSX attribute values |
+| `semi`                   | `semi()`                | Semicolon insertion                  |
+| `trailingComma`          | `shouldPrintComma()`    | Trailing commas in arrays/objects    |
+| `useTabs` / `tabWidth`   | `createIndent()`        | Indentation style                    |
+| `singleAttributePerLine` | —                       | JSX attribute line breaking          |
+| `bracketSameLine`        | —                       | JSX closing bracket position         |
+
+#### Context passing via `args`
+
+The `args` parameter passes context for conditional formatting:
+
+```javascript
+// Examples of context flags
+{
+  isInAttribute: true;
+} // Compact object formatting in attributes
+{
+  isInArray: true;
+} // Array element context
+{
+  allowInlineObject: true;
+} // Allow single-line objects
+{
+  isConditionalTest: true;
+} // Binary/logical in conditional test
+{
+  suppressLeadingComments: true;
+} // Skip comment printing
+```
+
+#### Adding new node types
+
+When encountering `/* Unknown: NodeType */` in formatter output:
 
 1. **Identify the missing node type** from the comment (e.g., `TSDeclareFunction`)
 2. **Add a case** in the `printRippleNode` switch statement:
@@ -504,11 +578,12 @@ files. When encountering `/* Unknown: NodeType */` in formatter output:
    `printFunctionDeclaration` as reference)
 4. **Add a test** in `packages/prettier-plugin/src/index.test.js`
 
-Common patterns:
+#### Common patterns
 
 - Use `path.call(print, 'childNode')` to recursively print child nodes
 - Use `concat([...])` to join parts, `group()` for line breaking
 - Check `node.typeParameters`, `node.returnType` for TypeScript annotations
+- All functions use JSDoc type annotations with proper types (no `any`/`unknown`)
 
 ### Testing
 

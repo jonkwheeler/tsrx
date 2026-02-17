@@ -1,10 +1,9 @@
-# Reusable workflow for GitHub Copilot agent environment setup
-# This workflow is called by Copilot agents to set up the development environment
+# GitHub Copilot agent environment setup
+# See: https://gh.io/copilot/actions-setup-steps
 
 name: Copilot Setup Steps
 
-on:
-  workflow_call:
+on: workflow_dispatch
 
 jobs:
   copilot-setup-steps:

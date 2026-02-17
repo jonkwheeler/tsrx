@@ -2887,6 +2887,30 @@ const items = [] as unknown[];`;
 			expect(result).toBeWithNewline(expected);
 		});
 
+		it('should format TSDeclareFunction (function overload signatures)', async () => {
+			const input = `export function test(arg: string): string;
+export function test(arg: number): string;
+export function test(arg: string | number): string {
+  return String(arg);
+}`;
+			const expected = `export function test(arg: string): string;
+export function test(arg: number): string;
+export function test(arg: string | number): string {
+  return String(arg);
+}`;
+			const result = await format(input);
+			expect(result).toBeWithNewline(expected);
+		});
+
+		it('should preserve declare modifier on ambient function declarations', async () => {
+			const input = `declare function doSomething(x: string): void;
+declare function processData<T>(data: T): Promise<T>;`;
+			const expected = `declare function doSomething(x: string): void;
+declare function processData<T>(data: T): Promise<T>;`;
+			const result = await format(input);
+			expect(result).toBeWithNewline(expected);
+		});
+
 		it('should retain templated declarations', async () => {
 			const expected = `function Wrapper() {
   return {

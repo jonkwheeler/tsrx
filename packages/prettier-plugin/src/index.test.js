@@ -2911,6 +2911,40 @@ declare function processData<T>(data: T): Promise<T>;`;
 			expect(result).toBeWithNewline(expected);
 		});
 
+		it('should preserve generics on method shorthand in object literals', async () => {
+			const input = `function getBuilder() {
+  return {
+    build<T>(): T {
+      return 'test' as unknown as T;
+    },
+  };
+}`;
+			const expected = `function getBuilder() {
+  return {
+    build<T>(): T {
+      return 'test' as unknown as T;
+    },
+  };
+}`;
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
+
+		it('should preserve multiple generics on method shorthand', async () => {
+			const input = `const obj = {
+  method<V, T, U>(): { build: () => V; data: T; key: U } {
+    return null as any;
+  },
+};`;
+			const expected = `const obj = {
+  method<V, T, U>(): { build: () => V; data: T; key: U } {
+    return null as any;
+  },
+};`;
+			const result = await format(input, { singleQuote: true });
+			expect(result).toBeWithNewline(expected);
+		});
+
 		it('should retain templated declarations', async () => {
 			const expected = `function Wrapper() {
   return {

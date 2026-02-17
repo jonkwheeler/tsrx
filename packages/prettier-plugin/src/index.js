@@ -4144,6 +4144,11 @@ function printProperty(node, path, options, print) {
 
 		methodParts.push(...printKey(node, path, options, print));
 
+		// Handle type parameters (generics)
+		if (funcValue.typeParameters) {
+			methodParts.push(path.call(print, 'value', 'typeParameters'));
+		}
+
 		if (is_component) {
 			methodParts.push(
 				path.call((childPath) => print(childPath, { skipComponentLabel: true }), 'value'),

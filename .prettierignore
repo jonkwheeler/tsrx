@@ -15,3 +15,6 @@ packages/ripple/tests/hydration/compiled/
 # Editor/IDE generated files
 **/.cache/
 **/coverage/
+
+# Generated test files
+packages/ripple/tests/hydration/compiled/

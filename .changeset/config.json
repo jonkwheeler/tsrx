@@ -28,6 +28,7 @@
     "@ripple-ts/textmate",
     "@ripple-ts/nvim-plugin",
     "@ripple-ts/tree-sitter",
+    "@ripple-ts/intellij-plugin",
     "@ripple-ts/vscode-plugin",
     "@ripple-ts/sublime-text-plugin",
     "@ripple-ts/zed-plugin"

@@ -25,6 +25,7 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
+    "@ripple-ts/tree-sitter",
     "@ripple-ts/nvim-plugin",
     "@ripple-ts/intellij-plugin",
     "@ripple-ts/vscode-plugin",

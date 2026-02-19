@@ -5,6 +5,7 @@
   "description": "",
   "author": "Dominic Gannaway",
   "license": "MIT",
+  "packageManager": "pnpm@10.18.2",
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=10.18.2",

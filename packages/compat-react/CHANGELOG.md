@@ -1,5 +1,12 @@
 # @ripple-ts/compat-react
 
+## 0.2.210
+
+### Patch Changes
+
+- Updated dependencies []:
+  - ripple@0.2.210
+
 ## 0.2.209
 
 ### Patch Changes

@@ -26,6 +26,7 @@
     "@tsrx/react": "workspace:*",
     "@tsrx/ripple": "workspace:*",
     "@tsrx/solid": "workspace:*",
+    "@tsrx/vue": "workspace:*",
     "prettier": "catalog:",
     "shiki": "catalog:"
   },

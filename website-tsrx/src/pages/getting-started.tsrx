@@ -60,7 +60,7 @@ const VUE_VITE_CONFIG_HTML = [
 	'<span class="ln">13</span> <span class="br">}</span><span class="br">)</span>;',
 ].join('\n');
 
-const RSPACK_INSTALL_HTML = [
+const REACT_RSPACK_INSTALL_HTML = [
 	'<span class="ln">1</span> <span class="fn">pnpm</span> <span class="prop">install</span> <span class="str">@tsrx/react</span> <span class="str">@tsrx/rspack-plugin-react</span>',
 ].join('\n');
 
@@ -68,7 +68,11 @@ const PREACT_RSPACK_INSTALL_HTML = [
 	'<span class="ln">1</span> <span class="fn">pnpm</span> <span class="prop">install</span> <span class="str">@tsrx/preact</span> <span class="str">@tsrx/rspack-plugin-preact</span>',
 ].join('\n');
 
-const RSPACK_CONFIG_HTML = [
+const SOLID_RSPACK_INSTALL_HTML = [
+	'<span class="ln">1</span> <span class="fn">pnpm</span> <span class="prop">install</span> <span class="str">@tsrx/solid</span> <span class="str">@tsrx/rspack-plugin-solid</span>',
+].join('\n');
+
+const REACT_RSPACK_CONFIG_HTML = [
 	'<span class="ln">1</span> <span class="kw-export">import</span> <span class="br">{</span> <span class="prop">TsrxReactRspackPlugin</span> <span class="br">}</span> <span class="kw-export">from</span> <span class="str">\'@tsrx/rspack-plugin-react\'</span>;',
 	'<span class="ln">2</span>',
 	'<span class="ln">3</span> <span class="kw-export">export default</span> <span class="br">{</span>',
@@ -81,6 +85,14 @@ const PREACT_RSPACK_CONFIG_HTML = [
 	'<span class="ln">2</span>',
 	'<span class="ln">3</span> <span class="kw-export">export default</span> <span class="br">{</span>',
 	'<span class="ln">4</span>   <span class="prop">plugins</span>: <span class="br">[</span><span class="kw">new</span> <span class="fn">TsrxPreactRspackPlugin</span><span class="br">(</span><span class="br">)</span><span class="br">]</span>,',
+	'<span class="ln">5</span> <span class="br">}</span>;',
+].join('\n');
+
+const SOLID_RSPACK_CONFIG_HTML = [
+	'<span class="ln">1</span> <span class="kw-export">import</span> <span class="br">{</span> <span class="prop">TsrxSolidRspackPlugin</span> <span class="br">}</span> <span class="kw-export">from</span> <span class="str">\'@tsrx/rspack-plugin-solid\'</span>;',
+	'<span class="ln">2</span>',
+	'<span class="ln">3</span> <span class="kw-export">export default</span> <span class="br">{</span>',
+	'<span class="ln">4</span>   <span class="prop">plugins</span>: <span class="br">[</span><span class="kw">new</span> <span class="fn">TsrxSolidRspackPlugin</span><span class="br">(</span><span class="br">)</span><span class="br">]</span>,',
 	'<span class="ln">5</span> <span class="br">}</span>;',
 ].join('\n');
 
@@ -149,6 +161,7 @@ const NAV_GROUPS = [
 			{ id: 'preact-vite', label: 'Preact + Vite' },
 			{ id: 'preact-rspack', label: 'Preact + Rspack' },
 			{ id: 'solid-vite', label: 'Solid + Vite' },
+			{ id: 'solid-rspack', label: 'Solid + Rspack' },
 			{ id: 'vue-vite', label: 'Vue + Vite' },
 			{ id: 'ripple', label: 'Ripple' },
 		],
@@ -320,11 +333,11 @@ export component GettingStartedPage() {
 						<h2 class="section-heading">{'React + Rspack'}</h2>
 						<p class="section-body">{'Install the compiler and Rspack plugin:'}</p>
 						<pre class="code-block">
-							<code>{html RSPACK_INSTALL_HTML}</code>
+							<code>{html REACT_RSPACK_INSTALL_HTML}</code>
 						</pre>
 						<p class="section-body">{'Then add the plugin to your Rspack config:'}</p>
 						<pre class="code-block">
-							<code>{html RSPACK_CONFIG_HTML}</code>
+							<code>{html REACT_RSPACK_CONFIG_HTML}</code>
 						</pre>
 						<p class="section-body">
 							{'The plugin chains '}
@@ -370,6 +383,31 @@ export component GettingStartedPage() {
 						<pre class="code-block">
 							<code>{html SOLID_VITE_CONFIG_HTML}</code>
 						</pre>
+					</section>
+
+					<section class="doc-section" id="solid-rspack">
+						<h2 class="section-heading">{'Solid + Rspack'}</h2>
+						<p class="section-body">{'Install the Solid compiler and Rspack plugin:'}</p>
+						<pre class="code-block">
+							<code>{html SOLID_RSPACK_INSTALL_HTML}</code>
+						</pre>
+						<p class="section-body">{'Then add the plugin to your Rspack config:'}</p>
+						<pre class="code-block">
+							<code>{html SOLID_RSPACK_CONFIG_HTML}</code>
+						</pre>
+						<p class="section-body">
+							{'The plugin compiles '}
+							<code class="inline-code">{'.tsrx'}</code>
+							{' files with '}
+							<code class="inline-code">{'@tsrx/solid'}</code>
+							{' and then chains '}
+							<code class="inline-code">{'babel-loader'}</code>
+							{' with Solid\'s Babel preset for the final JSX transform. In development mode it also enables '}
+							<code class="inline-code">{'solid-refresh/babel'}</code>
+							{' automatically, while per-component '}
+							<code class="inline-code">{'<style>'}</code>
+							{' blocks still flow through Rspack\'s built-in CSS module type.'}
+						</p>
 					</section>
 
 					<section class="doc-section" id="vue-vite">

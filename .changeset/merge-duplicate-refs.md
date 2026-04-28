@@ -1,9 +1,9 @@
 ---
-'@tsrx/core': minor
-'@tsrx/react': minor
-'@tsrx/preact': minor
-'@tsrx/solid': minor
-'@tsrx/vue': minor
+'@tsrx/core': patch
+'@tsrx/react': patch
+'@tsrx/preact': patch
+'@tsrx/solid': patch
+'@tsrx/vue': patch
 ---
 
 Compile-time merge for multiple ref expressions, plus a diagnostic for duplicate `ref={...}` attributes.

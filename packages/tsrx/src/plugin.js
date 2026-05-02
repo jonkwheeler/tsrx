@@ -250,6 +250,13 @@ export function TSRXPlugin(config) {
 				this.#filename = tsrx_options?.filename || null;
 			}
 
+			#resetTokenStartToCurrentPosition() {
+				if (this.start !== this.pos) {
+					this.start = this.pos;
+					this.startLoc = this.curPosition();
+				}
+			}
+
 			#previousNonWhitespaceChar() {
 				let index = this.pos - 1;
 				while (index >= 0) {
@@ -1765,6 +1772,7 @@ export function TSRXPlugin(config) {
 								break;
 							}
 							// If not a comment, fall through to default case
+							this.#resetTokenStartToCurrentPosition();
 							this.context.push(b_stat);
 							this.exprAllowed = true;
 							return original.readToken.call(this, ch);
@@ -1784,6 +1792,7 @@ export function TSRXPlugin(config) {
 									this.#path.at(-1)?.type === 'Component' ||
 									this.#path.at(-1)?.type === 'Element')
 							) {
+								this.#resetTokenStartToCurrentPosition();
 								return original.readToken.call(this, ch);
 							}
 							this.raise(
@@ -1808,6 +1817,7 @@ export function TSRXPlugin(config) {
 							} else if (ch === 32 || ch === 9) {
 								++this.pos;
 							} else {
+								this.#resetTokenStartToCurrentPosition();
 								this.context.push(b_stat);
 								this.exprAllowed = true;
 								return original.readToken.call(this, ch);

@@ -3174,14 +3174,6 @@
         },
         {
           "type": "SYMBOL",
-          "name": "style_member_expression"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "style_subscript_expression"
-        },
-        {
-          "type": "SYMBOL",
           "name": "function_expression"
         },
         {
@@ -3260,52 +3252,6 @@
             "type": "SYMBOL",
             "name": "identifier"
           }
-        }
-      ]
-    },
-    "style_member_expression": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "#style"
-        },
-        {
-          "type": "STRING",
-          "value": "."
-        },
-        {
-          "type": "FIELD",
-          "name": "property",
-          "content": {
-            "type": "SYMBOL",
-            "name": "identifier"
-          }
-        }
-      ]
-    },
-    "style_subscript_expression": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "#style"
-        },
-        {
-          "type": "STRING",
-          "value": "["
-        },
-        {
-          "type": "FIELD",
-          "name": "index",
-          "content": {
-            "type": "SYMBOL",
-            "name": "expression"
-          }
-        },
-        {
-          "type": "STRING",
-          "value": "]"
         }
       ]
     },
@@ -5951,6 +5897,10 @@
                   ]
                 },
                 {
+                  "type": "SYMBOL",
+                  "name": "style_directive"
+                },
+                {
                   "type": "REPEAT1",
                   "content": {
                     "type": "SYMBOL",
@@ -5967,6 +5917,19 @@
         {
           "type": "STRING",
           "value": "}"
+        }
+      ]
+    },
+    "style_directive": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "style"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "string"
         }
       ]
     },

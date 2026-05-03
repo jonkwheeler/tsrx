@@ -3,7 +3,7 @@ import { DIAGNOSTIC_CODES } from '../../src/diagnostics.js';
 
 /**
  * @typedef {{
- *   compile: (source: string, filename?: string, options?: any) => { code: string, css: { code: string, hash: string } | null, errors: Array<{ message: string, code?: string }> },
+ *   compile: (source: string, filename?: string, options?: any) => { code: string, css: string, cssHash: string | null, errors: Array<{ message: string, code?: string }> },
  *   name: string,
  *   classAttrName: 'class' | 'className',
  * }} CompileHarness
@@ -1560,7 +1560,7 @@ export function optionalFn(bar: string, baz?: string) {
 
 	describe(`[${name}] scoped CSS`, () => {
 		it('applies the scope hash to host elements and emits the hashed stylesheet', () => {
-			const { code, css } = compile(
+			const { code, css, cssHash } = compile(
 				`export component App() {
 					<div>{'Hello world'}</div>
 
@@ -1571,15 +1571,15 @@ export function optionalFn(bar: string, baz?: string) {
 				'App.tsrx',
 			);
 
-			expect(css).not.toBeNull();
+			expect(css).not.toBe('');
 			expect(code).toContain("{'Hello world'}");
-			expect(code).toContain(`${classAttrName}="${css?.hash}"`);
-			expect(css?.code).toContain(`.div.${css?.hash}`);
-			expect(css?.code).toContain('color: red;');
+			expect(code).toContain(`${classAttrName}="${cssHash}"`);
+			expect(css).toContain(`.div.${cssHash}`);
+			expect(css).toContain('color: red;');
 		});
 
 		it('applies the scope hash inside a <tsx> block', () => {
-			const { code, css } = compile(
+			const { code, css, cssHash } = compile(
 				`component Card() {
 					<tsx>
 						<div class="card">
@@ -1607,12 +1607,12 @@ export function optionalFn(bar: string, baz?: string) {
 				'Card.tsrx',
 			);
 
-			expect(css).not.toBeNull();
-			expect(count_substring(code, `${classAttrName}="card ${css?.hash}"`)).toBe(2);
+			expect(css).not.toBe('');
+			expect(count_substring(code, `${classAttrName}="card ${cssHash}"`)).toBe(2);
 		});
 
 		it('applies the scope hash inside fragment shorthand', () => {
-			const { code, css } = compile(
+			const { code, css, cssHash } = compile(
 				`component Card() {
 					<>
 						<div class="card">
@@ -1640,12 +1640,12 @@ export function optionalFn(bar: string, baz?: string) {
 				'Card.tsrx',
 			);
 
-			expect(css).not.toBeNull();
-			expect(count_substring(code, `${classAttrName}="card ${css?.hash}"`)).toBe(2);
+			expect(css).not.toBe('');
+			expect(count_substring(code, `${classAttrName}="card ${cssHash}"`)).toBe(2);
 		});
 
 		it('does not apply scoped css hashes to composite components', () => {
-			const { code, css } = compile(
+			const { code, css, cssHash } = compile(
 				`component Child() {
 					<div>{'Hello world'}</div>
 				}
@@ -1661,8 +1661,8 @@ export function optionalFn(bar: string, baz?: string) {
 				'App.tsrx',
 			);
 
-			expect(css).not.toBeNull();
-			expect(code).toContain(`<div ${classAttrName}="${css?.hash}">{'Styled content'}</div>`);
+			expect(css).not.toBe('');
+			expect(code).toContain(`<div ${classAttrName}="${cssHash}">{'Styled content'}</div>`);
 			expect(code).not.toMatch(/<Child\s+class(Name)?="/);
 		});
 
@@ -1671,7 +1671,7 @@ export function optionalFn(bar: string, baz?: string) {
 			// attribute — every target passes prop names through unchanged,
 			// so the assertion is cross-platform regardless of the host-
 			// element class attribute shape.
-			const { code, css } = compile(
+			const { code, css, cssHash } = compile(
 				`component Badge({ className }: { className?: string }) {
 					<span class={['badge', className ?? '']}>{'New'}</span>
 
@@ -1690,14 +1690,14 @@ export function optionalFn(bar: string, baz?: string) {
 				'App.tsrx',
 			);
 
-			expect(css).not.toBeNull();
-			const app_hash = css?.hash.split(' ').find((h) => code.includes(`${h} highlight`));
+			expect(css).not.toBe('');
+			const app_hash = cssHash.split(' ').find((h) => code.includes(`${h} highlight`));
 			expect(app_hash).toBeTruthy();
 			expect(code).toMatch(new RegExp(`className=["']${app_hash} highlight["']`));
 		});
 
 		it('passes {style} through a composite component prop when the element has children', () => {
-			const { code, css } = compile(
+			const { code, css, cssHash } = compile(
 				`component Child({ className }: { className?: string }) {
 						<span class={className}>"hello world"</span>
 					}
@@ -1712,14 +1712,14 @@ export function optionalFn(bar: string, baz?: string) {
 				'App.tsrx',
 			);
 
-			expect(css).not.toBeNull();
-			const app_hash = css?.hash.split(' ').find((h) => code.includes(`${h} container`));
+			expect(css).not.toBe('');
+			const app_hash = cssHash.split(' ').find((h) => code.includes(`${h} container`));
 			expect(app_hash).toBeTruthy();
 			expect(code).toMatch(new RegExp(`className=["']${app_hash} container["']`));
 		});
 
 		it('passes hyphenated {style} class names through a composite component prop', () => {
-			const { code, css } = compile(
+			const { code, css, cssHash } = compile(
 				`export component App() {
 						<Child cls={style 'accent-tone'} />
 
@@ -1730,7 +1730,7 @@ export function optionalFn(bar: string, baz?: string) {
 				'App.tsrx',
 			);
 
-			expect(css).not.toBeNull();
+			expect(css).not.toBe('');
 			expect(code).toContain('accent-tone');
 		});
 	});

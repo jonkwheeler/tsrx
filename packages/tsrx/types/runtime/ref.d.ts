@@ -14,11 +14,7 @@ export type RefValue<T = Element> =
 	| undefined;
 
 export type MergeableRef<T> =
-	| MergeableRefCallback<T>
-	| MergeableRefObject<T>
-	| MergeableVueRef<T>
-	| null
-	| undefined;
+	MergeableRefCallback<T> | MergeableRefObject<T> | MergeableVueRef<T> | null | undefined;
 
 export function mergeRefs<T = any>(...refs: Array<MergeableRef<T>>): (node: T | null) => () => void;
 export function isRefProp(value: unknown): boolean;

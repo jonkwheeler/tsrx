@@ -160,8 +160,8 @@ catalogs:
       specifier: ^10.27.0
       version: 10.29.1
     prettier:
-      specifier: ^3.8.4
-      version: 3.8.4
+      specifier: ^3.9.6
+      version: 3.9.6
     prompts:
       specifier: ^2.4.2
       version: 2.4.2
@@ -319,7 +319,7 @@ importers:
         version: 0.18.12
       prettier:
         specifier: catalog:default
-        version: 3.8.4
+        version: 3.9.6
       rulesync:
         specifier: catalog:default
         version: 8.17.0(supports-color@7.2.0)(valibot@1.4.2(typescript@5.9.3))
@@ -740,7 +740,7 @@ importers:
         version: 9.3.0
       prettier:
         specifier: catalog:default
-        version: 3.8.4
+        version: 3.9.6
       prompts:
         specifier: catalog:default
         version: 2.4.2
@@ -874,7 +874,7 @@ importers:
         version: 24.11.0
       prettier:
         specifier: catalog:default
-        version: 3.8.4
+        version: 3.9.6
 
   packages/ripple:
     dependencies:
@@ -1100,7 +1100,7 @@ importers:
         version: link:../prettier-plugin
       prettier:
         specifier: catalog:default
-        version: 3.8.4
+        version: 3.9.6
       zod:
         specifier: catalog:default
         version: 4.3.6
@@ -1746,7 +1746,7 @@ importers:
         version: link:../packages/tsrx-vue
       prettier:
         specifier: 'catalog:'
-        version: 3.8.4
+        version: 3.9.6
       shiki:
         specifier: 'catalog:'
         version: 4.0.1
@@ -6289,8 +6289,8 @@ packages:
     engines: {node: '>=10.13.0'}
     hasBin: true
 
-  prettier@3.8.4:
-    resolution: {integrity: sha512-N2MylSdi48+5N/6S5j+maeHbUSIzzZ5uOcX5Hm4QpV8Dkb1HFjfAKTKX6yNPJQD9AhcT3ifHNB66tWTTJDi11Q==}
+  prettier@3.9.6:
+    resolution: {integrity: sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -10865,6 +10865,10 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.4
 
+  fdir@6.5.0(picomatch@4.0.5):
+    optionalDependencies:
+      picomatch: 4.0.5
+
   figures@6.1.0:
     dependencies:
       is-unicode-supported: 2.1.0
@@ -12098,7 +12102,7 @@ snapshots:
 
   prettier@2.8.8: {}
 
-  prettier@3.8.4: {}
+  prettier@3.9.6: {}
 
   pretty-ms@9.3.0:
     dependencies:
@@ -12790,8 +12794,8 @@ snapshots:
 
   tinyglobby@0.2.17:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.4)
-      picomatch: 4.0.4
+      fdir: 6.5.0(picomatch@4.0.5)
+      picomatch: 4.0.5
 
   tinyrainbow@3.1.0: {}
 

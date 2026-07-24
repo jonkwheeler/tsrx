@@ -2,9 +2,7 @@ import type { ComponentType, JSX, VNode } from 'preact';
 
 type DynamicIntrinsicElements = JSX.IntrinsicElements;
 export type DynamicElementType =
-	| keyof DynamicIntrinsicElements
-	| ComponentType<any>
-	| (string & {});
+	keyof DynamicIntrinsicElements | ComponentType<any> | (string & {});
 type DynamicTarget<T> = Exclude<T, null | undefined | false>;
 type DynamicComponentProps<T> = [T] extends [never]
 	? Record<string, unknown>

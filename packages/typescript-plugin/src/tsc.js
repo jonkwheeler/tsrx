@@ -18,10 +18,11 @@ runTsc(
 		extraExtensionsToRemove: ['.tsrx'],
 	},
 	(ts, create_program_options) => {
-		const compiler_options = /** @type {import('typescript').CompilerOptions & {
-		 *  configFile?: import('typescript').TsConfigSourceFile,
-		 *  configFilePath?: string,
-		 * }} */ (create_program_options.options);
+		const compiler_options =
+			/** @type {import('typescript').CompilerOptions & {
+			 *  configFile?: import('typescript').TsConfigSourceFile,
+			 *  configFilePath?: string,
+			 * }} */ (create_program_options.options);
 		return [
 			getRippleLanguagePlugin({
 				ts,

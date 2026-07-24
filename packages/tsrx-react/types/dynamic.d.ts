@@ -6,9 +6,7 @@ type DataAttributes = {
 
 type DynamicIntrinsicElements = JSX.IntrinsicElements;
 export type DynamicElementType =
-	| keyof DynamicIntrinsicElements
-	| JSXElementConstructor<any>
-	| (string & {});
+	keyof DynamicIntrinsicElements | JSXElementConstructor<any> | (string & {});
 type DynamicTarget<T> = Exclude<T, null | undefined | false>;
 type DynamicIntrinsicProps = {
 	[T in keyof DynamicIntrinsicElements]: DynamicIntrinsicElements[T] &

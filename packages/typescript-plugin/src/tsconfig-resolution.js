@@ -145,9 +145,10 @@ export function load_tsconfig_layers(ts, host, config_file_name) {
 
 		const raw_source = host.readFile(normalized_path);
 		const source_file = ts.readJsonConfigFile(normalized_path, host.readFile);
-		const source_file_with_diagnostics = /** @type {typeof source_file & {
-		 * 	parseDiagnostics: readonly import('typescript').Diagnostic[],
-		 * }} */ (source_file);
+		const source_file_with_diagnostics =
+			/** @type {typeof source_file & {
+			 * 	parseDiagnostics: readonly import('typescript').Diagnostic[],
+			 * }} */ (source_file);
 		/** @type {import('typescript').Diagnostic[]} */
 		const parse_diagnostics = [...source_file_with_diagnostics.parseDiagnostics];
 		const converted_config = ts.convertToObject(source_file, parse_diagnostics);

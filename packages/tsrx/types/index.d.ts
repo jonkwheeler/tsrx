@@ -461,10 +461,7 @@ declare module 'estree' {
 
 	/** A `@if`/`@for`/`@switch`/`@try` template control-flow directive. */
 	type JSXTemplateDirective =
-		| JSXIfExpression
-		| JSXForExpression
-		| JSXSwitchExpression
-		| JSXTryExpression;
+		JSXIfExpression | JSXForExpression | JSXSwitchExpression | JSXTryExpression;
 
 	/** A statement-form template directive after its parser node has been retyped. */
 	type JSXTemplateStatement =
@@ -810,9 +807,7 @@ declare module 'estree-jsx' {
 
 	/** A child accepted while TSRX JSX is being lowered to standard ESTree JSX. */
 	type JSXTransformChild =
-		| JSXElement['children'][number]
-		| AST.TSRXJSXElement
-		| AST.TSRXJSXFragment;
+		JSXElement['children'][number] | AST.TSRXJSXElement | AST.TSRXJSXFragment;
 
 	interface JSXAttribute {
 		shorthand: boolean;

@@ -1677,8 +1677,7 @@ export namespace Parse {
 		 * Parse JSX namespaced name (ns:name)
 		 */
 		jsx_parseNamespacedName():
-			| ESTreeJSX.JSXNamespacedName
-			| ReturnType<Parser['jsx_parseIdentifier']>;
+			ESTreeJSX.JSXNamespacedName | ReturnType<Parser['jsx_parseIdentifier']>;
 
 		/**
 		 * Parse JSX element name (identifier, member, namespaced, or a dynamic
@@ -1695,8 +1694,7 @@ export namespace Parse {
 		 * @returns Attribute value (expression, string, or element)
 		 */
 		jsx_parseAttributeValue():
-			| ESTreeJSX.JSXExpressionContainer
-			| ReturnType<Parser['parseExprAtom']>;
+			ESTreeJSX.JSXExpressionContainer | ReturnType<Parser['parseExprAtom']>;
 
 		/**
 		 * Parse JSX empty expression (for {})

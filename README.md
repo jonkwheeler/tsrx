@@ -101,7 +101,7 @@ build integrations for Vite, Rspack, Turbopack, and Bun, plus Prettier, ESLint,
 TypeScript, language-server, and editor tooling.
 
 Install the
-[TSRX VSCode extension](https://marketplace.visualstudio.com/items?itemName=TSRX.tsrx-vscode-plugin)
+[TSRX Syntax for VS Code](https://marketplace.visualstudio.com/items?itemName=TSRX.tsrx-vscode-plugin)
 for syntax highlighting, diagnostics, navigation, completions, formatting, and
 TypeScript integration. Integrations for Zed, Neovim, IntelliJ, and Sublime Text
 are also maintained here.

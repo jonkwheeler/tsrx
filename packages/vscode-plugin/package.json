@@ -1,6 +1,6 @@
 {
   "name": "@tsrx/vscode-plugin",
-  "displayName": "TSRX for VS Code",
+  "displayName": "TSRX Syntax for VS Code",
   "publisher": "TSRX",
   "description": "TSRX JavaScript/TypeScript language support",
   "version": "2.0.75",

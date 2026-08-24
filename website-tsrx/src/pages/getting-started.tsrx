@@ -845,7 +845,7 @@ export function GettingStartedPage() @{
 								<code class="inline-code">@tsrx/typescript-plugin</code>
 								when you want TypeScript itself to understand
 								<code class="inline-code">.tsrx</code>
-								files, especially outside the TSRX VS Code extension: other editors,
+								files, especially outside TSRX Syntax for VS Code: other editors,
 								<code class="inline-code">tsserver</code>
 								, and command-line
 								<code class="inline-code">tsc</code>
@@ -868,7 +868,7 @@ export function GettingStartedPage() @{
 							</pre>
 							<p class="section-body">
 								The plugin turns TSRX into virtual TypeScript for diagnostics, navigation,
-								completions, and type checking. If you already use the TSRX VS Code extension, this
+								completions, and type checking. If you already use TSRX Syntax for VS Code, this
 								manual setup is optional because the extension runs the language tooling for you.
 							</p>
 							<h3 class="subsection-heading">Command-line type checking</h3>
@@ -910,7 +910,7 @@ export function GettingStartedPage() @{
 									href="https://marketplace.visualstudio.com/items?itemName=TSRX.tsrx-vscode-plugin"
 									target="_blank"
 									rel="noopener noreferrer"
-								>TSRX for VS Code</a>
+								>TSRX Syntax for VS Code</a>
 								from the Visual Studio Code Marketplace for diagnostics, navigation, completions,
 								and TypeScript-aware editor support. Pair it with the official Prettier extension if
 								you want format-on-save support inside the editor.

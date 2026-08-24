@@ -37,7 +37,7 @@ const { log, logError } = createLogging('[TSRX Language Server]');
  * `documentFormattingProvider`. Because they run against the virtual TS/CSS code
  * rather than the `.tsrx` source, their edits don't map back and formatting is a
  * no-op — yet the capability still makes the language client contribute a
- * "TSRX for VS Code" entry to "Format Document With…" that silently does nothing.
+ * "TSRX Syntax for VS Code" entry to "Format Document With…" that silently does nothing.
  * Formatting for `.tsrx` is owned by Prettier + @tsrx/prettier-plugin (configured
  * as the default `[tsrx]` formatter in the VS Code extension), so we drop these
  * capabilities to keep Prettier as the single, working formatter. On-type

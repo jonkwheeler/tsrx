@@ -8,7 +8,7 @@ project, generates TypeScript virtual code, and maps language-service results ba
 to TSRX source.
 
 The
-[TSRX VSCode extension](https://marketplace.visualstudio.com/items?itemName=TSRX.tsrx-vscode-plugin)
+[TSRX Syntax for VS Code](https://marketplace.visualstudio.com/items?itemName=TSRX.tsrx-vscode-plugin)
 already bundles this plugin through `@tsrx/language-server`; no separate VS Code
 configuration is needed.
 

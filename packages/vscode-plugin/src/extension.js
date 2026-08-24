@@ -1,5 +1,5 @@
 /**
- * TSRX VSCode Extension
+ * TSRX Syntax for VS Code
  *
  * This extension provides language support for TSRX files (.tsrx) by:
  * 1. Starting a Volar-based language server (language-server) for TSRX syntax and semantics
@@ -202,7 +202,7 @@ export async function activate(context) {
 		// Configure Prettier to handle .tsrx files. This sets Prettier as the default
 		// formatter for `[tsrx]`, so "Format Document" routes to it directly. We deliberately
 		// do not register our own DocumentFormattingEditProvider: it would show up as a second,
-		// redundant "TSRX for VS Code" entry in "Format Document With…" alongside the one the
+		// redundant "TSRX Syntax for VS Code" entry in "Format Document With…" alongside the one the
 		// language client already contributes (volar-service-typescript / -css), and it broke
 		// whenever the Prettier extension's format command was unavailable.
 		await configurePrettier();

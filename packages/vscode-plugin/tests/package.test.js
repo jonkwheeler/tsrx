@@ -10,7 +10,7 @@ describe('@tsrx/vscode-plugin package contract', () => {
 	it('uses the TSRX marketplace identity', () => {
 		expect(package_json).toMatchObject({
 			name: '@tsrx/vscode-plugin',
-			displayName: 'TSRX for VS Code',
+			displayName: 'TSRX Syntax for VS Code',
 			publisher: 'TSRX',
 		});
 		expect(package_json.scripts['pkg-name-release']).toContain('name tsrx-vscode-plugin');

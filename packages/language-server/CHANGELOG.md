@@ -1,5 +1,12 @@
 # @tsrx/language-server
 
+## 0.3.125
+
+### Patch Changes
+
+- Publish an npm-compatible manifest with resolved workspace and catalog
+  dependency ranges.
+
 ## 0.3.124
 
 ### Patch Changes

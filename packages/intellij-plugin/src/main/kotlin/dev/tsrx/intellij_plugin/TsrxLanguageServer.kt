@@ -21,7 +21,7 @@ internal object TsrxLanguageServer {
 	private const val LSP_PACKAGE = "@tsrx/language-server"
 	private const val LSP_BIN = "tsrx-language-server"
 	private const val LSP_VERSION_RESOURCE = "/lsp-version.txt"
-	private const val FALLBACK_VERSION = "0.3.124"
+	private const val FALLBACK_VERSION = "0.3.125"
 	private val requiredVersion: String by lazy { readRequiredVersion() }
 	private val VERSION_PATTERN = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"")
 	private val ROOT_MARKERS = listOf("package.json", "pnpm-workspace.yaml", ".git")

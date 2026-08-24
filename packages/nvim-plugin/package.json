@@ -12,7 +12,7 @@
     "directory": "packages/nvim-plugin"
   },
   "config": {
-    "@tsrx/language-server": "0.3.124"
+    "@tsrx/language-server": "0.3.125"
   },
   "files": [
     "lua",

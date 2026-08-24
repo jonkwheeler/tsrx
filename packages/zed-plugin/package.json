@@ -13,7 +13,7 @@
   "author": "Dominic Gannaway",
   "license": "MIT",
   "config": {
-    "@tsrx/language-server": "0.3.124"
+    "@tsrx/language-server": "0.3.125"
   },
   "packageManager": "pnpm@11.15.1"
 }

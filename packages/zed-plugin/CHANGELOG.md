@@ -1,5 +1,12 @@
 # @tsrx/zed-plugin
 
+## 0.0.87
+
+### Patch Changes
+
+- Move the TSRX Zed extension source and grammar to `tsrx-org/tsrx` and use the
+  renamed TSRX language server, grammar, and language identifiers.
+
 ## 0.0.86
 
 ### Patch Changes

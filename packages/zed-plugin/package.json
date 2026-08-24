@@ -1,6 +1,6 @@
 {
   "name": "@tsrx/zed-plugin",
-  "version": "0.0.86",
+  "version": "0.0.87",
   "description": "Zed editor support for TSRX",
   "private": true,
   "main": "index.js",

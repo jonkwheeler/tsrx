@@ -5,10 +5,12 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const zedPluginPath = join(root, 'packages/zed-plugin/package.json');
 const extensionTomlPath = join(root, 'packages/zed-plugin/extension.toml');
+const cargoTomlPath = join(root, 'packages/zed-plugin/Cargo.toml');
 const lsPath = join(root, 'packages/language-server/package.json');
 
 const zedPlugin = JSON.parse(readFileSync(zedPluginPath, 'utf8'));
 let extensionToml = readFileSync(extensionTomlPath, 'utf8');
+let cargoToml = readFileSync(cargoTomlPath, 'utf8');
 const ls = JSON.parse(readFileSync(lsPath, 'utf8'));
 
 const keys = Object.keys(zedPlugin.config ?? {});
@@ -48,4 +50,17 @@ if (extensionVersion !== zedPlugin.version) {
 	await import('./sync-zed-grammar-rev.js');
 } else {
 	console.log(`zed extension.toml version already at ${zedPlugin.version}, skipping`);
+}
+
+const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+if (!cargoVersion) {
+	throw new Error(`Could not find a package version in ${cargoTomlPath}`);
+}
+
+if (cargoVersion !== zedPlugin.version) {
+	cargoToml = cargoToml.replace(/^version\s*=\s*"[^"]+"/m, `version = "${zedPlugin.version}"`);
+	writeFileSync(cargoTomlPath, cargoToml);
+	console.log(`zed Cargo.toml version: ${cargoVersion} → ${zedPlugin.version}`);
+} else {
+	console.log(`zed Cargo.toml version already at ${zedPlugin.version}, skipping`);
 }

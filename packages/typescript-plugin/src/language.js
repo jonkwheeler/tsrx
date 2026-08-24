@@ -1372,18 +1372,3 @@ export function _reset_for_test() {
 	invalidateCompilerResolutionCaches();
 	invalidateTypeDefinitionCaches();
 }
-
-// Compatibility aliases for consumers of earlier @tsrx/typescript-plugin
-// releases. New code should use the target-neutral TSRX names above.
-/** @deprecated Use `TSRX_EXTENSIONS`. */
-export const RIPPLE_EXTENSIONS = TSRX_EXTENSIONS;
-/** @deprecated Use `is_tsrx_file`. */
-export const is_ripple_file = is_tsrx_file;
-/** @deprecated Use `getTsrxLanguagePlugin`. */
-export const getRippleLanguagePlugin = getTsrxLanguagePlugin;
-/** @deprecated Use `path2TsrxCompilerPathMap`. */
-export const path2RipplePathMap = path2TsrxCompilerPathMap;
-/** @deprecated Use `getTsrxCompilerDirForFile`. */
-export const getRippleDirForFile = get_compiler_dir_for_file;
-/** @deprecated Use `is_ripple_target_file`. */
-export const is_ripple_platform_file = is_ripple_target_file;

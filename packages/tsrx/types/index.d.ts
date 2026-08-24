@@ -1631,8 +1631,6 @@ export interface Binding {
 	metadata: {
 		pattern?: AST.Identifier;
 		is_tsrx_object?: boolean;
-		/** @deprecated Use `is_tsrx_object`. */
-		is_ripple_object?: boolean;
 		is_template_value?: boolean;
 		lazy_array_source?: string;
 		lazy_array_index?: number;

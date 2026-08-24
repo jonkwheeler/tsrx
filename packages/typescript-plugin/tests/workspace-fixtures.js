@@ -249,9 +249,9 @@ export const WORKSPACE_CONFIGS = {
 			name: '@tsrx/fixture-ripple-only-project',
 			private: true,
 			devDependencies: {
-				'@tsrx/ripple': 'workspace:*',
-				'@ripple-ts/vite-plugin': 'workspace:*',
-				ripple: 'workspace:*',
+				'@tsrx/ripple': '*',
+				'@ripple-ts/vite-plugin': '*',
+				ripple: '*',
 			},
 		},
 		compilers: ['ripple'],
@@ -339,9 +339,9 @@ export const WORKSPACE_CONFIGS = {
 			name: '@tsrx/fixture-ripple-project',
 			private: true,
 			devDependencies: {
-				'@tsrx/ripple': 'workspace:*',
-				'@ripple-ts/vite-plugin': 'workspace:*',
-				ripple: 'workspace:*',
+				'@tsrx/ripple': '*',
+				'@ripple-ts/vite-plugin': '*',
+				ripple: '*',
 			},
 		},
 		compilers: ['ripple', 'react'],
@@ -422,7 +422,7 @@ export const WORKSPACE_CONFIGS = {
 		'consumer-tsrx-compiler',
 		'declared',
 		{
-			package_json: { devDependencies: { '@tsrx/ripple': 'workspace:*' } },
+			package_json: { devDependencies: { '@tsrx/ripple': '*' } },
 			config: { compilers: ['ripple', 'react'] },
 		},
 	),
@@ -456,7 +456,7 @@ export const WORKSPACE_CONFIGS = {
 		package_json: {
 			name: '@tsrx/fixture-inherited-declaration-project',
 			private: true,
-			devDependencies: { '@tsrx/ripple': 'workspace:*' },
+			devDependencies: { '@tsrx/ripple': '*' },
 		},
 		compilers: ['ripple'],
 		declared_compilers: [

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@tsrx/ripple": "workspace:*",
-    "@ripple-ts/vite-plugin": "workspace:*"
+    "@tsrx/ripple": "catalog:default",
+    "@ripple-ts/vite-plugin": "catalog:default"
   }
 }

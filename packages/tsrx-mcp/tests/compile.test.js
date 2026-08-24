@@ -59,7 +59,7 @@ describe('@tsrx/mcp compile helpers', () => {
 						private: true,
 						type: 'module',
 						dependencies: {
-							[compilerPackage]: 'workspace:*',
+							[compilerPackage]: '*',
 						},
 					},
 					null,
@@ -123,7 +123,7 @@ describe('@tsrx/mcp compile helpers', () => {
 							private: true,
 							type: 'module',
 							devDependencies: {
-								[pluginPackage]: 'workspace:*',
+								[pluginPackage]: '*',
 							},
 						},
 						null,

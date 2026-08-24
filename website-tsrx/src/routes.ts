@@ -1,6 +1,6 @@
 import { RenderRoute, ServerRoute } from '@ripple-ts/vite-plugin';
 import { compile as compile_preact } from '@tsrx/preact';
-import * as ripple_prettier_plugin from '@tsrx/prettier-plugin';
+import * as tsrx_prettier_plugin from '@tsrx/prettier-plugin';
 import { compile as compile_react } from '@tsrx/react';
 import { compile as compile_ripple } from '@tsrx/ripple';
 import { compile as compile_solid } from '@tsrx/solid';
@@ -143,7 +143,7 @@ async function compile_target(target: CompileTarget, source: string) {
 async function format_tsrx(source: string) {
 	return await format(source, {
 		parser: 'tsrx',
-		plugins: [ripple_prettier_plugin as any],
+		plugins: [tsrx_prettier_plugin as any],
 		useTabs: false,
 		tabWidth: 2,
 		singleQuote: true,

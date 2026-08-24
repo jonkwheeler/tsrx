@@ -358,7 +358,7 @@ export function TSRXPlugin(config) {
 			constructor(options, input) {
 				super(options, input);
 				this.context ??= [b_stat];
-				const tsrx_options = options?.tsrxOptions ?? options?.rippleOptions;
+				const tsrx_options = options?.tsrxOptions;
 				this.#collect = tsrx_options?.collect === true || tsrx_options?.loose === true;
 				this.#loose = tsrx_options?.loose === true;
 				this.#errors = tsrx_options?.errors;

@@ -33,3 +33,5 @@ grammars/tree-sitter/src/node-types.json
 # Editor/IDE generated files
 **/.cache/
 **/coverage/
+packages/zed-plugin/extension.wasm
+packages/zed-plugin/grammars/

@@ -229,6 +229,3 @@ export function createTsrxLanguageServer() {
 
 	return { connection, server };
 }
-
-/** @deprecated Use `createTsrxLanguageServer`. */
-export const createRippleLanguageServer = createTsrxLanguageServer;

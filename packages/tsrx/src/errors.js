@@ -57,12 +57,7 @@ export function error(message, filename, node, errors, comments, code) {
  */
 function is_error_suppress_comment(comment) {
 	const text = comment.value.trim();
-	return (
-		text.startsWith('@tsrx-ignore') ||
-		text.startsWith('@tsrx-expect-error') ||
-		text.startsWith('@ripple-ignore') ||
-		text.startsWith('@ripple-expect-error')
-	);
+	return text.startsWith('@tsrx-ignore') || text.startsWith('@tsrx-expect-error');
 }
 
 /**

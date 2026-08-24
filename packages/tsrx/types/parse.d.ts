@@ -193,13 +193,6 @@ export namespace Parse {
 			errors: CoreCompiler.CompileError[] | undefined;
 			filename: string | undefined;
 		};
-		/** @deprecated Use `tsrxOptions`. */
-		rippleOptions?: {
-			collect: boolean;
-			loose: boolean;
-			errors: CoreCompiler.CompileError[] | undefined;
-			filename: string | undefined;
-		};
 		// The type has "latest" but it's converted to 1e8 at runtime
 		// and if (ecmaVersion >= 2015) { ecmaVersion -= 2009 }
 		// so we're making it always a number to reflect the runtime values

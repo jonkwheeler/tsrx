@@ -2,16 +2,16 @@
 /** @import { LanguageServicePluginInstance } from '@volar/language-server' */
 
 import { getVirtualCode, getWordFromPosition, createLogging } from './utils.js';
-const { log } = createLogging('[Ripple Document Highlight Plugin]');
+const { log } = createLogging('[TSRX Document Highlight Plugin]');
 
 /**
- * Document Highlight plugin for Ripple
- * Provides word highlighting (grey background) for custom Ripple keywords like 'pending'
+ * Document Highlight plugin for TSRX.
+ * Provides word highlighting (grey background) for custom TSRX keywords like `pending`.
  * @returns {LanguageServicePlugin}
  */
 export function createDocumentHighlightPlugin() {
 	return {
-		name: 'ripple-document-highlight',
+		name: 'tsrx-document-highlight',
 		capabilities: {
 			documentHighlightProvider: true,
 		},
@@ -34,7 +34,7 @@ export function createDocumentHighlightPlugin() {
 			if (!originalProvideDocumentHighlights) {
 				log(
 					"'typescript-semantic plugin' was not found or has no 'provideDocumentHighlights'. \
-					Document highlights will be limited to custom Ripple keywords only.",
+					Document highlights will be limited to custom TSRX keywords only.",
 				);
 			}
 
@@ -58,19 +58,19 @@ export function createDocumentHighlightPlugin() {
 
 					const { virtualCode } = getVirtualCode(document, context);
 
-					if (virtualCode.languageId !== 'ripple') {
+					if (virtualCode.languageId !== 'tsrx') {
 						log(`Skipping highlight processing in the '${virtualCode.languageId}' context`);
 						return tsHighlights;
 					}
 
-					// Check if we're on a custom Ripple keyword
+					// Check if we're on a custom TSRX keyword.
 					const offset = document.offsetAt(position);
 					const text = document.getText();
 
 					// Find word boundaries
 					const { word } = getWordFromPosition(text, offset);
 
-					// If the word is a Ripple keyword, find all occurrences in the document
+					// If the word is a TSRX keyword, find all occurrences in the document.
 
 					const regex = new RegExp(`\\b${word}\\b`, 'g');
 					let match;

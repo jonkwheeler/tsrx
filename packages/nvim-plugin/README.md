@@ -1,38 +1,30 @@
-# Ripple Neovim Plugin
+# TSRX Neovim Plugin
 
-Neovim integration for the [Ripple](https://github.com/trueadm/ripple) language.
+Neovim integration for `.tsrx` files, including Tree-sitter highlighting and
+`@tsrx/language-server` integration.
 
 ## Requirements
 
 - Neovim 0.11 or newer
 - [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter)
-- Node.js v18 or newer
+- Node.js 22 or newer
 
 ## Installation
 
-<details>
-<summary>with lazy.nvim</summary>
+With `lazy.nvim`:
 
 ```lua
 {
-  "Ripple-TS/ripple",
+  "tsrx-org/tsrx",
   config = function(plugin)
     vim.opt.rtp:append(plugin.dir .. "/packages/nvim-plugin")
-    require("ripple").setup(plugin)
+    require("tsrx").setup(plugin)
   end
 }
 ```
 
-</details>
+The plugin uses a project-local or global `tsrx-language-server` when available.
+Otherwise, it installs the exact `@tsrx/language-server` version pinned in this
+package's `config` field.
 
-If you're using another plugin manager and wish to share installation
-instructions, please consider opening a PR.
-
-### Tree-sitter
-
-`require("ripple").setup()` registers the Ripple parser with `nvim-treesitter` and
-points it at the bundled grammar source:
-
-- Repository: `https://github.com/trueadm/ripple`
-- Subdirectory: `grammars/tree-sitter`
-- Files: `src/parser.c`, `src/scanner.c`
+The Tree-sitter parser is built from `grammars/tree-sitter` in this repository.

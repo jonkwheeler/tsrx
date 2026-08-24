@@ -1,10 +1,10 @@
 {
-  "name": "lsp-ripple-language-server",
+  "name": "lsp-tsrx-language-server",
   "version": "1.0.0",
   "scripts": {
     "update-lockfile": "npm install --lockfile-only"
   },
   "dependencies": {
-    "@ripple-ts/language-server": "0.2.208"
+    "@tsrx/language-server": "0.3.124"
   }
 }

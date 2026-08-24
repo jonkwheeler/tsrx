@@ -1,18 +1,18 @@
 {
   "name": "@tsrx/eslint-parser",
   "version": "0.3.124",
-  "description": "ESLint parser for Ripple (.tsrx files)",
+  "description": "ESLint parser for TSRX (.tsrx files)",
   "type": "module",
   "main": "src/index.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ripple-TS/ripple.git",
+    "url": "git+https://github.com/tsrx-org/tsrx.git",
     "directory": "packages/eslint-parser"
   },
   "bugs": {
-    "url": "https://github.com/Ripple-TS/ripple/issues"
+    "url": "https://github.com/tsrx-org/tsrx/issues"
   },
-  "homepage": "https://ripple-ts.com",
+  "homepage": "https://tsrx.dev/",
   "publishConfig": {
     "access": "public"
   },
@@ -25,7 +25,7 @@
   "keywords": [
     "eslint",
     "parser",
-    "ripple"
+    "tsrx"
   ],
   "author": "Dominic Gannaway",
   "license": "MIT",

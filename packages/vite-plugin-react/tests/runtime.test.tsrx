@@ -71,7 +71,7 @@ second
 
 function JsxTextIfElseTrueApp() @{
 	@if (true) {
-		<>Hello Ripple</>
+		<>Hello first branch</>
 	} @else {
 		<>Hello React</>
 	}
@@ -79,7 +79,7 @@ function JsxTextIfElseTrueApp() @{
 
 function JsxTextIfElseFalseApp() @{
 	@if (false) {
-		<>Hello Ripple</>
+		<>Hello first branch</>
 	} @else {
 		<>Hello React</>
 	}
@@ -1061,7 +1061,7 @@ describe('tsrx-react runtime', () => {
 
 	it('renders bare JSX text in if-else branches', async () => {
 		await render(JsxTextIfElseApp);
-		expect(text('.jsx-text-if-then')).toBe('Hello Ripple');
+		expect(text('.jsx-text-if-then')).toBe('Hello first branch');
 		expect(text('.jsx-text-if-else')).toBe('Hello React');
 	});
 

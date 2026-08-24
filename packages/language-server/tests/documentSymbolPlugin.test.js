@@ -9,7 +9,7 @@ import {
 } from './setup.js';
 
 describe('document symbol plugin', () => {
-	it('returns mapped Ripple symbols through the Volar language service', async () => {
+	it('returns mapped TSRX symbols through the Volar language service', async () => {
 		const source = `type Mode = 'idle' | 'active';
 
 interface Props {

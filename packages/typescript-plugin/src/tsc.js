@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createRequire } from 'node:module';
-import { getRippleLanguagePlugin } from './language.js';
+import { getTsrxLanguagePlugin } from './language.js';
 
 const require = createRequire(import.meta.url);
 const { runTsc } = /** @type {typeof import('@volar/typescript/lib/quickstart/runTsc.js')} */ (
@@ -24,7 +24,7 @@ runTsc(
 			 *  configFilePath?: string,
 			 * }} */ (create_program_options.options);
 		return [
-			getRippleLanguagePlugin({
+			getTsrxLanguagePlugin({
 				ts,
 				configFileName: compiler_options.configFile?.fileName ?? compiler_options.configFilePath,
 				configHost: ts.sys,

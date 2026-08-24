@@ -1,4 +1,4 @@
 {
-  "name": "ripple-monorepo",
+  "name": "tsrx-monorepo",
   "install": "bash .cursor/install.sh"
 }

@@ -1,0 +1,5 @@
+<idea-plugin>
+	<extensions defaultExtensionNs="com.intellij.platform.lsp">
+		<serverSupportProvider implementation="dev.tsrx.intellij_plugin.TsrxLspServerSupportProvider"/>
+	</extensions>
+</idea-plugin>

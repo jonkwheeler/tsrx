@@ -2,26 +2,26 @@
   "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
   "grammars": [
     {
-      "name": "ripple",
-      "camelcase": "Ripple",
-      "title": "Ripple",
+      "name": "tsrx",
+      "camelcase": "Tsrx",
+      "title": "TSRX",
       "scope": "source.tsrx",
-      "file-types": ["ripple"],
-      "injection-regex": "^ripple$",
-      "class-name": "TreeSitterRipple"
+      "file-types": ["tsrx"],
+      "injection-regex": "^tsrx$",
+      "class-name": "TreeSitterTsrx"
     }
   ],
   "metadata": {
     "version": "0.1.0",
     "license": "MIT",
-    "description": "Ripple grammar for tree-sitter",
+    "description": "TSRX grammar for tree-sitter",
     "authors": [
       {
-        "name": "Ripple"
+        "name": "TSRX"
       }
     ],
     "links": {
-      "repository": "https://github.com/trueadm/ripple/grammars/tree-sitter"
+      "repository": "https://github.com/tsrx-org/tsrx/tree/main/grammars/tree-sitter"
     }
   },
   "bindings": {

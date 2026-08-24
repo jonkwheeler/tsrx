@@ -20,11 +20,12 @@ const ROOT_EXTERNAL_PACKAGES = [
 
 export default defineConfig({
 	inlineOnly: false,
+	dts: false,
 	entry: ['src/server.js', 'src/language-server.js'],
 	format: ['cjs'],
 	outExtensions: () => ({ js: '.js' }),
 	platform: 'node',
-	target: 'node20',
+	target: 'node22',
 	outDir: 'dist',
 	sourcemap: isDev,
 	outputOptions: {

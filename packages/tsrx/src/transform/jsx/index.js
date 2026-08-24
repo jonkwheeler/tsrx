@@ -268,7 +268,7 @@ function wrap_in_native_tsrx_fragment(node) {
 }
 
 /**
- * An AUTHORED `<> … </>` fragment (not a compiler-generated wrapper, nor a Ripple
+ * An AUTHORED `<> … </>` fragment (not a compiler-generated wrapper, nor a TSRX
  * code-block-chain wrapper). These are kept verbatim in the output instead of
  * being unwrapped to their single child.
  * @param {AST.Node | null | undefined} node
@@ -2362,7 +2362,7 @@ function prepare_tsrx_fragment_styles(node, transform_context) {
 		const region_hash = sheet.hash;
 		sheet.hash = css.hash;
 		// `prune_css` inside marks the matching selectors as used/scoped; selectors
-		// that match no element render commented out, like the Ripple target.
+		// that match no element render commented out, matching target behavior.
 		apply_css_definition_metadata(
 			node,
 			sheet,

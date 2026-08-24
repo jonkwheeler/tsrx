@@ -10,7 +10,7 @@ import {
 	charAllowedWordRegex,
 	DEBUG,
 } from '@tsrx/typescript-plugin/src/utils.js';
-import { is_ripple_platform_file } from '@tsrx/typescript-plugin/src/language.js';
+import { is_ripple_target_file } from '@tsrx/typescript-plugin/src/language.js';
 
 const IMPORT_EXPORT_REGEX = {
 	import: {
@@ -24,7 +24,7 @@ const IMPORT_EXPORT_REGEX = {
 	from: /from\s*['"][^'"]*['"]\s*;?/,
 };
 
-export const RIPPLE_EXTENSIONS = ['.tsrx'];
+export const TSRX_EXTENSIONS = ['.tsrx'];
 
 /** @type {typeof isIdentifierObfuscated} */
 let is_identifier_obfuscated;
@@ -156,8 +156,8 @@ export function isInsideExport(text, start) {
  * @param {string} document_uri
  * @returns {boolean}
  */
-export function is_ripple_document(document_uri) {
-	return RIPPLE_EXTENSIONS.some((extension) => document_uri.endsWith(extension));
+export function is_tsrx_document(document_uri) {
+	return TSRX_EXTENSIONS.some((extension) => document_uri.endsWith(extension));
 }
 
 /**
@@ -186,8 +186,8 @@ export function get_compiler_resolution_options(context) {
  * @param {import('@tsrx/typescript-plugin/src/consumer-compiler.js').CompilerResolutionOptions} [options]
  * @returns {boolean}
  */
-export function is_ripple_platform_document(document_uri, options) {
-	return is_ripple_platform_file(URI.parse(document_uri).fsPath, options);
+export function is_ripple_target_document(document_uri, options) {
+	return is_ripple_target_file(URI.parse(document_uri).fsPath, options);
 }
 
 export { createLogging, getWordFromPosition, DEBUG };

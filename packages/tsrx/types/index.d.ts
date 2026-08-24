@@ -352,7 +352,7 @@ declare module 'estree' {
 		lazy?: boolean;
 	}
 
-	// Ripple analysis may mark a whole member expression as tracked metadata.
+	// Target analysis may mark a whole member expression as tracked metadata.
 	interface MemberExpression {
 		tracked?: boolean;
 	}
@@ -425,7 +425,7 @@ declare module 'estree' {
 		 * `#parseScriptElement` (analogous to {@link JSXStyleElement.css}). Present only
 		 * on `<script>` elements that have a body. The parser also mirrors the body as
 		 * a single `JSXText` child so generic element consumers emit it; consumers that
-		 * handle `content` directly (the Ripple transforms, the prettier plugin, the
+		 * handle `content` directly (target transforms, the Prettier plugin, the
 		 * type-only editor output) skip the children instead of emitting both.
 		 */
 		content?: string;
@@ -1630,6 +1630,8 @@ export interface Binding {
 	/** Additional metadata for this binding */
 	metadata: {
 		pattern?: AST.Identifier;
+		is_tsrx_object?: boolean;
+		/** @deprecated Use `is_tsrx_object`. */
 		is_ripple_object?: boolean;
 		is_template_value?: boolean;
 		lazy_array_source?: string;
@@ -2232,7 +2234,7 @@ export type RuntimeImportMode = 'compiler' | 'direct';
 
 /**
  * Common base options accepted by every TSRX target's `compile` entry point.
- * Targets that need extra knobs (e.g. ripple's `mode`/`dev`/`hmr`, preact's
+ * Targets that need extra knobs (for example Ripple's `mode`/`dev`/`hmr`, Preact's
  * `suspenseSource`) intersect their own option type with this base when
  * declaring their `compile` export.
  */
@@ -2256,7 +2258,7 @@ export interface BaseCompileOptions {
  * @template TOptions Per-target options accepted as the third argument.
  *   Defaults to {@link BaseCompileOptions}.
  * @template TResult Per-target result type. Must extend {@link CompileResult};
- *   targets may add fields (e.g. ripple's deprecated `js` back-compat field)
+ *   targets may add fields (for example Ripple's deprecated `js` compatibility field)
  *   via intersection.
  */
 export type CompileFn<

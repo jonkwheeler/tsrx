@@ -7,10 +7,10 @@ import {
 } from '@codemirror/view';
 import { type Extension, StateEffect, StateField } from '@codemirror/state';
 import { createHighlighter, type ThemedToken, type Highlighter } from 'shiki';
-import ripple_grammar from '../../../grammars/textmate/ripple.tmLanguage.json';
+import tsrx_grammar from '../../../grammars/textmate/tsrx.tmLanguage.json';
 
 const modified_grammar = {
-	...ripple_grammar,
+	...tsrx_grammar,
 	embeddedLangs: ['jsx', 'tsx', 'css'],
 };
 
@@ -27,7 +27,7 @@ function get_highlighter(): Promise<Highlighter> {
 				'tsx',
 				'css',
 				modified_grammar as any,
-				{ ...(modified_grammar as any), name: 'ripple' },
+				{ ...(modified_grammar as any), name: 'tsrx' },
 			],
 		});
 	}

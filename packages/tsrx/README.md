@@ -5,9 +5,10 @@ infrastructure that powers TypeScript UI frameworks.
 
 `@tsrx/core` is framework-agnostic. It provides the parser, AST definitions, scope
 analysis, and code-generation utilities needed to target _any_ framework runtime
-using Ripple's syntax. Framework-specific packages (such as
-[`@tsrx/ripple`](../tsrx-ripple)) build on top of `@tsrx/core` to produce the
-runtime output for Ripple.
+using TSRX syntax. Framework-specific packages—such as
+[`@tsrx/react`](../tsrx-react), [`@tsrx/solid`](../tsrx-solid), and the external
+[`@tsrx/ripple`](https://github.com/Ripple-TS/ripple)—build on `@tsrx/core` to
+produce target-runtime output.
 
 ## What is TSRX?
 

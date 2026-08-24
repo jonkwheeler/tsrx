@@ -12,7 +12,8 @@ permissions: {}
 
 jobs:
   release-pr:
-    if: github.repository == 'Ripple-TS/ripple'
+    # Enable only after the TSRX package publishing workflow is ready.
+    if: ${{ false }}
     permissions:
       contents: write
       issues: read

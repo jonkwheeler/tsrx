@@ -625,7 +625,7 @@ export function convert_source_map_to_mappings(
 				if (node.name && node.loc) {
 					/** @type {MappingToken} */
 					let token;
-					// Check if this identifier was changed in metadata (e.g., #Map -> RippleMap)
+					// Check if this identifier was changed in metadata (for example, #Map -> ReactiveMap)
 					// Or if it was capitalized during transformation
 					if (node.metadata?.source_name) {
 						token = {
@@ -933,7 +933,7 @@ export function convert_source_map_to_mappings(
 				// text itself — and get_mapping_from_node just takes the first, so its generated length
 				// spans the wrong region and the editor can't map a completion's edit back to source
 				// (it then drops the item). The token resolves to the position whose generated text
-				// matches the node's value, giving a well-formed same-length mapping. Ripple keeps text
+				// matches the node's value, giving a well-formed same-length mapping. TSRX keeps text
 				// verbatim in to_ts, so `source` and `generated` are identical. Other text stays unmapped.
 				if (node.loc && typeof node.value === 'string' && node.value.trimStart().startsWith('@')) {
 					tokens.push({
@@ -1299,14 +1299,14 @@ export function convert_source_map_to_mappings(
 				);
 				return;
 			} else if (node.type === 'ForOfStatement' || node.type === 'ForInStatement') {
-				// Visit in source order: left, right, index (Ripple-specific), body
+				// Visit in source order: left, right, TSRX index extension, body
 				if (node.left) {
 					visit(node.left);
 				}
 				if (node.right) {
 					visit(node.right);
 				}
-				// Ripple-specific: index variable
+				// TSRX index extension: index variable
 				if (/** @type {AST.ForOfStatement} */ (node).index) {
 					visit(/** @type {AST.Node} */ (/** @type {AST.ForOfStatement} */ (node).index));
 				}

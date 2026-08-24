@@ -5,7 +5,7 @@
 /** @import { TSRXVirtualCodeInstance } from '@tsrx/typescript-plugin/src/language.js'; */
 /** @import { CodeMapping } from '@tsrx/core/types'; */
 
-import { getVirtualCode, is_ripple_document, createLogging } from './utils.js';
+import { getVirtualCode, is_tsrx_document, createLogging } from './utils.js';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { SymbolKind } from '@volar/language-server';
 import { builders as b, parseModule as parse_module } from '@tsrx/core';
@@ -30,7 +30,7 @@ import { builders as b, parseModule as parse_module } from '@tsrx/core';
  * }]} SymbolInfo;
  */
 
-const { log, logError } = createLogging('[Ripple Document Symbol Plugin]');
+const { log, logError } = createLogging('[TSRX Document Symbol Plugin]');
 /** @type {Map<string, DocumentSymbol[]>} */
 const documentSymbolCache = new Map();
 
@@ -39,14 +39,14 @@ const documentSymbolCache = new Map();
  */
 export function createDocumentSymbolPlugin() {
 	return {
-		name: 'ripple-document-symbol',
+		name: 'tsrx-document-symbol',
 		capabilities: {
 			documentSymbolProvider: true,
 		},
 		create(context) {
 			return {
 				async provideDocumentSymbols(document) {
-					if (!is_ripple_document(document.uri)) {
+					if (!is_tsrx_document(document.uri)) {
 						// we're not processing any non-tsrx documents
 						return [];
 					}
@@ -59,7 +59,7 @@ export function createDocumentSymbolPlugin() {
 						return collectFallbackDocumentSymbols(document, fallbackFileName) ?? [];
 					}
 
-					if (languageId !== 'ripple') {
+					if (languageId !== 'tsrx') {
 						log(`Skipping symbols in the '${languageId}' context`);
 						return [];
 					}
@@ -77,12 +77,7 @@ export function createDocumentSymbolPlugin() {
 						return collectFallbackDocumentSymbols(document, fallbackFileName) ?? [];
 					}
 
-					const sourceDocument = TextDocument.create(
-						sourceUri.toString(),
-						'ripple',
-						0,
-						originalCode,
-					);
+					const sourceDocument = TextDocument.create(sourceUri.toString(), 'tsrx', 0, originalCode);
 
 					const symbols = mapDocumentSymbolsToGenerated(
 						collectDocumentSymbols(sourceAst, sourceDocument),

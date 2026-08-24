@@ -193,6 +193,7 @@ export namespace Parse {
 			errors: CoreCompiler.CompileError[] | undefined;
 			filename: string | undefined;
 		};
+		/** @deprecated Use `tsrxOptions`. */
 		rippleOptions?: {
 			collect: boolean;
 			loose: boolean;
@@ -1666,7 +1667,7 @@ export namespace Parse {
 		/**
 		 * Check if a local export refers to a defined variable.
 		 * Acorn's default implementation only checks the top-level module scope,
-		 * but Ripple overrides this to check all scopes (for submodules).
+		 * but TSRX overrides this to check all scopes (for submodules).
 		 * @param id The identifier being exported
 		 */
 		checkLocalExport(id: AST.Identifier): void;

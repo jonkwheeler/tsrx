@@ -1,14 +1,15 @@
 [package]
-name = "tree-sitter"
-description = "Ripple grammar for tree-sitter"
+name = "tree-sitter-tsrx"
+description = "TSRX grammar for tree-sitter"
 version = "0.0.1"
-keywords = ["incremental", "parsing", "ripple"]
+keywords = ["incremental", "parsing", "tsrx"]
 categories = ["parsing", "text-editors"]
-repository = "https://github.com/trueadm/ripple"
+repository = "https://github.com/tsrx-org/tsrx"
 edition = "2021"
 license = "MIT"
 
 [lib]
+name = "tree_sitter_tsrx"
 path = "bindings/rust/lib.rs"
 
 [dependencies]

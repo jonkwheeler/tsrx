@@ -1,22 +1,22 @@
 {
   "name": "@tsrx/prettier-plugin",
   "version": "0.3.124",
-  "description": "Ripple plugin for Prettier",
+  "description": "TSRX plugin for Prettier",
   "type": "module",
   "module": "src/index.js",
   "main": "src/index.js",
   "keywords": [
     "prettier",
     "plugin",
-    "ripple",
+    "tsrx",
     "formatter"
   ],
-  "homepage": "https://ripple-ts.com",
+  "homepage": "https://tsrx.dev/",
   "author": "Dominic Gannaway",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ripple-TS/ripple.git",
+    "url": "git+https://github.com/tsrx-org/tsrx.git",
     "directory": "packages/prettier-plugin"
   },
   "peerDependencies": {

@@ -20,11 +20,11 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.38.6",
-    "@ripple-ts/adapter-node": "workspace:*",
+    "@ripple-ts/adapter-node": "catalog:default",
     "@tsrx/preact": "workspace:*",
     "@tsrx/prettier-plugin": "workspace:*",
     "@tsrx/react": "workspace:*",
-    "@tsrx/ripple": "workspace:*",
+    "@tsrx/ripple": "catalog:default",
     "@tsrx/solid": "workspace:*",
     "@tsrx/vue": "workspace:*",
     "octane": "^0.1.6",
@@ -33,8 +33,8 @@
   },
   "devDependencies": {
     "@tsrx/typescript-plugin": "workspace:*",
-    "@ripple-ts/vite-plugin": "workspace:*",
-    "ripple": "workspace:*",
+    "@ripple-ts/vite-plugin": "catalog:default",
+    "ripple": "catalog:default",
     "typescript": "catalog:default",
     "vite": "catalog:default"
   }

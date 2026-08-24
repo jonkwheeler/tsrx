@@ -1,15 +1,31 @@
 {
-  "name": "@ripple-ts/language-server",
+  "name": "@tsrx/language-server",
   "version": "0.3.124",
-  "description": "Language Server Protocol implementation for Ripple",
+  "description": "Language Server Protocol implementation for TSRX",
   "main": "dist/server.js",
+  "types": "types/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/server.d.ts",
+      "default": "./dist/server.js"
+    },
+    "./server": {
+      "types": "./types/server.d.ts",
+      "default": "./dist/server.js"
+    },
+    "./package.json": "./package.json"
+  },
   "type": "module",
   "bin": {
-    "ripple-language-server": "./dist/language-server.js"
+    "tsrx-language-server": "./dist/language-server.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "types"
   ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "author": "Dominic Gannaway",
   "license": "MIT",
   "scripts": {
@@ -18,8 +34,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ripple-TS/ripple.git",
+    "url": "git+https://github.com/tsrx-org/tsrx.git",
     "directory": "packages/language-server"
+  },
+  "homepage": "https://tsrx.dev/",
+  "bugs": {
+    "url": "https://github.com/tsrx-org/tsrx/issues"
   },
   "dependencies": {
     "@volar/language-server": "catalog:default",

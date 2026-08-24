@@ -1106,7 +1106,7 @@ describe('tsrx-solid runtime', () => {
 		expect(multi_dom_a).toBe(multi_dom_b);
 	});
 
-	it('mixes Ripple ref={expr} and TSX-style ref={expr} on the same DOM element', async () => {
+	it('mixes TSRX ref={expr} and TSX-style ref={expr} on the same DOM element', async () => {
 		mixed_keyword_node = null;
 		mixed_jsx_node = null;
 		await render(MixedDomRefApp);

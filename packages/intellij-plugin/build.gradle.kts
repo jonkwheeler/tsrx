@@ -4,7 +4,7 @@ plugins {
 	id("org.jetbrains.intellij.platform") version "2.10.2"
 }
 
-group = "com.ripple_ts.intellij_plugin"
+group = "dev.tsrx.intellij_plugin"
 version = "0.0.82"
 
 repositories {
@@ -32,7 +32,7 @@ intellijPlatform {
 		}
 
 		changeNotes = """
-	            Ripple language support for IntelliJ Platform IDEs.
+	            TSRX language support for IntelliJ Platform IDEs.
 	        """.trimIndent()
 	}
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@ripple-ts/fixture-ripple-only-project",
+  "name": "@tsrx/fixture-ripple-only-project",
   "private": true,
   "devDependencies": {
     "@tsrx/ripple": "workspace:*",

@@ -15,7 +15,7 @@ import { createTypeScriptDiagnosticFilterPlugin } from './typescriptDiagnosticPl
 import { createDocumentHighlightPlugin } from './documentHighlightPlugin.js';
 import { createDocumentSymbolPlugin } from './documentSymbolPlugin.js';
 import {
-	getRippleLanguagePlugin,
+	getTsrxLanguagePlugin,
 	invalidateCompilerResolutionCaches,
 	invalidateTypeDefinitionCaches,
 	resolveConfig,
@@ -28,7 +28,7 @@ import {
 	WORKSPACE_FILE_PATTERNS,
 } from './workspaceState.js';
 
-const { log, logError } = createLogging('[Ripple Language Server]');
+const { log, logError } = createLogging('[TSRX Language Server]');
 
 /**
  * Strip whole-document formatting capabilities from a Volar service plugin.
@@ -39,7 +39,7 @@ const { log, logError } = createLogging('[Ripple Language Server]');
  * no-op — yet the capability still makes the language client contribute a
  * "TSRX for VS Code" entry to "Format Document With…" that silently does nothing.
  * Formatting for `.tsrx` is owned by Prettier + @tsrx/prettier-plugin (configured
- * as the default `[ripple]` formatter in the VS Code extension), so we drop these
+ * as the default `[tsrx]` formatter in the VS Code extension), so we drop these
  * capabilities to keep Prettier as the single, working formatter. On-type
  * formatting is left intact.
  *
@@ -56,7 +56,7 @@ function stripDocumentFormatting(plugin) {
 	return { ...plugin, capabilities };
 }
 
-export function createRippleLanguageServer() {
+export function createTsrxLanguageServer() {
 	const connection = createConnection();
 	const server = createServer(connection);
 
@@ -81,7 +81,7 @@ export function createRippleLanguageServer() {
 	}
 
 	/**
-	 * Ensure TypeScript hosts always see compiler options with Ripple defaults.
+	 * Ensure TypeScript hosts always see TSRX compiler defaults.
 	 * @param {unknown} target
 	 * @param {string} method
 	 */
@@ -118,7 +118,7 @@ export function createRippleLanguageServer() {
 
 	connection.onInitialize(async (params) => {
 		try {
-			log('Initializing Ripple language server...');
+			log('Initializing TSRX language server...');
 			log('Initialization options:', JSON.stringify(params.initializationOptions, null, 2));
 
 			const ts = require('typescript');
@@ -128,7 +128,7 @@ export function createRippleLanguageServer() {
 				createTypeScriptProject(ts, undefined, ({ configFileName, projectHost, sys }) => {
 					wrapCompilerOptionsProvider(projectHost, 'getCompilationSettings');
 					const compilerResolutionDependencies = new Set();
-					const languagePlugin = getRippleLanguagePlugin({
+					const languagePlugin = getTsrxLanguagePlugin({
 						ts,
 						configFileName,
 						configHost: sys,
@@ -229,3 +229,6 @@ export function createRippleLanguageServer() {
 
 	return { connection, server };
 }
+
+/** @deprecated Use `createTsrxLanguageServer`. */
+export const createRippleLanguageServer = createTsrxLanguageServer;

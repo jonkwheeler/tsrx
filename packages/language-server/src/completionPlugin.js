@@ -6,12 +6,12 @@ import {
 	createLogging,
 	isInsideImport,
 	isInsideExport,
-	is_ripple_document,
-	is_ripple_platform_document,
+	is_tsrx_document,
+	is_ripple_target_document,
 	get_compiler_resolution_options,
 } from './utils.js';
 
-const { log } = createLogging('[Ripple Completion Plugin]');
+const { log } = createLogging('[TSRX Completion Plugin]');
 
 /**
  * Snippets that require auto-import from 'ripple'
@@ -375,7 +375,7 @@ const TSRX_SNIPPETS = [
 /**
  * Ripple-runtime-only snippets: reactivity primitives (`track`/`effect`/`untrack`)
  * and server modules. These reference the `ripple` runtime API, so they are only
- * offered when the file is compiled by the Ripple target (see `is_ripple_platform_file`).
+ * offered when the file is compiled by the Ripple target (see `is_ripple_target_file`).
  * Showing them for React/Solid/Preact/Vue `.tsrx` files would suggest APIs that
  * don't exist in those targets.
  */
@@ -481,10 +481,10 @@ const RIPPLE_IMPORTS = [
  */
 export function createCompletionPlugin() {
 	return {
-		name: 'ripple-completion-enhancer',
+		name: 'tsrx-completion-enhancer',
 		capabilities: {
 			completionProvider: {
-				// Trigger on Ripple-specific syntax:
+				// Trigger on TSRX syntax:
 				// '<' - JSX/HTML tags
 				// '{' - expression and statement snippets
 				// '@' - template control flow
@@ -496,19 +496,19 @@ export function createCompletionPlugin() {
 			const compiler_resolution_options = get_compiler_resolution_options(context);
 			return {
 				// Mark this as providing additional completions, not replacing existing ones
-				// This ensures TypeScript/JavaScript completions are still shown alongside Ripple snippets
+				// This ensures TypeScript/JavaScript completions are still shown alongside TSRX snippets.
 				isAdditionalCompletion: true,
 				async provideCompletionItems(document, position, completionContext, _token) {
-					if (!is_ripple_document(document.uri)) {
+					if (!is_tsrx_document(document.uri)) {
 						return { items: [], isIncomplete: false };
 					}
 
 					const { virtualCode } = getVirtualCode(document, context);
 
-					if (virtualCode && virtualCode.languageId !== 'ripple') {
+					if (virtualCode && virtualCode.languageId !== 'tsrx') {
 						// Check if we're inside an embedded code (like CSS in <style> blocks)
-						// If so, don't provide Ripple snippets - let CSS completions take priority
-						log(`Skipping Ripple completions in the '${virtualCode.languageId}' context`);
+						// If so, don't provide TSRX snippets - let CSS completions take priority.
+						log(`Skipping TSRX completions in the '${virtualCode.languageId}' context`);
 						return { items: [], isIncomplete: false };
 					}
 
@@ -544,7 +544,7 @@ export function createCompletionPlugin() {
 					// belongs to. Ripple-runtime suggestions (`track`/`effect`/`RippleMap`/
 					// `import … from 'ripple'`, …) are only offered for Ripple files; TSRX
 					// authoring snippets (`@if`/`@for`/`@{ }`/component shape) are offered for all.
-					const is_ripple = is_ripple_platform_document(document.uri, compiler_resolution_options);
+					const is_ripple = is_ripple_target_document(document.uri, compiler_resolution_options);
 
 					if (isInsideImport(fullText, cursorOffset)) {
 						if (is_ripple) {

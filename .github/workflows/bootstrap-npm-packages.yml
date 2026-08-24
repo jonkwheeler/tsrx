@@ -16,10 +16,8 @@ permissions: {}
 
 jobs:
   publish:
-    if: >-
-      github.repository == 'Ripple-TS/ripple' &&
-      github.ref == 'refs/heads/main' &&
-      inputs.confirm == true
+    # Enable only after npm ownership and trusted publishers are configured.
+    if: ${{ false }}
     permissions:
       contents: write
     name: Bootstrap npm packages

@@ -246,7 +246,7 @@ function looks_like_generic_arrow(input, pos) {
 }
 
 /**
- * Acorn parser plugin for Ripple syntax extensions.
+ * Acorn parser plugin for TSRX syntax extensions.
  * Adds support for: native TSRX templates, &[]/&{} lazy destructuring,
  * submodule imports, TSRX directives, and enhanced JSX handling.
  *
@@ -2222,7 +2222,7 @@ export function TSRXPlugin(config) {
 			 * is exposed twice: verbatim on `content`, and as a single `JSXText` child so
 			 * generic element paths (factory targets, static hoisting, printers) emit the
 			 * body without knowing about raw-text elements. Consumers that handle
-			 * `content` directly (the Ripple transforms, the prettier plugin) must skip
+			 * `content` directly (target transforms, the Prettier plugin) must skip
 			 * the children instead of emitting both.
 			 *
 			 * @param {ESTreeJSX.TSRXJSXOpeningElement & AST.NodeWithLocation} open
@@ -2956,7 +2956,7 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
-			 * Get token from character code - handles Ripple-specific tokens
+			 * Get token from character code - handles TSRX-specific tokens
 			 * @type {Parse.Parser['getTokenFromCode']}
 			 */
 			getTokenFromCode(code) {

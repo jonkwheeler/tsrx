@@ -1,7 +1,7 @@
 {
   "targets": [
     {
-      "target_name": "tree_sitter_ripple_binding",
+      "target_name": "tree_sitter_tsrx_binding",
       "include_dirs": [
         "node_modules/node-addon-api",
         "src"
@@ -18,4 +18,3 @@
     }
   ]
 }
-

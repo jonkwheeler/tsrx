@@ -2,9 +2,9 @@
 Import Statements
 ==================
 
-import { track } from 'ripple';
-import type { Component } from 'ripple';
-import * as Ripple from 'ripple';
+import { signal } from '@example/runtime';
+import type { Component } from '@example/runtime';
+import * as Runtime from '@example/runtime';
 
 ---
 
@@ -36,7 +36,7 @@ Export Statements
 
 export { Counter };
 export default Counter;
-export * from 'ripple';
+export * from '@example/runtime';
 
 ---
 
@@ -56,7 +56,7 @@ Variable Declarations
 ==================
 
 let count = 0;
-const name = "Ripple";
+const name = "TSRX";
 var value;
 
 ---

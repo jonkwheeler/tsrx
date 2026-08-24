@@ -184,7 +184,7 @@ export function CompilerDemo() @{
 				highlightActiveLine(),
 				keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
 				EditorView.lineWrapping,
-				shiki_highlight('ripple'),
+				shiki_highlight('tsrx'),
 				shared_theme,
 			];
 

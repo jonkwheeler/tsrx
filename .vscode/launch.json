@@ -8,7 +8,7 @@
       "autoAttachChildProcesses": true,
       "preLaunchTask": "build-vscode-plugin",
       "args": [
-        "--disable-extension=ripple-ts.ripple-ts-vscode-plugin",
+        "--disable-extension=tsrx.tsrx-vscode-plugin",
         "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode-plugin/",
         "${workspaceFolder}/playground"
       ],
@@ -19,7 +19,7 @@
       }
     },
     {
-      "name": "Ripple Tests - Current Tab",
+      "name": "TSRX Tests - Current Tab",
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "pnpm",
@@ -28,7 +28,7 @@
         "test",
         "${relativeFile}",
         "-t",
-        "${input:rippeTestNamePattern}",
+        "${input:tsrxTestNamePattern}",
         "--",
         "--inspect-brk",
         "--no-file-parallelism"
@@ -38,16 +38,16 @@
       "skipFiles": ["<node_internals>/**"]
     },
     {
-      "name": "Ripple Tests - File Path",
+      "name": "TSRX Tests - File Path",
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "run",
         "test",
-        "${input:rippleTestFile}",
+        "${input:tsrxTestFile}",
         "-t",
-        "${input:rippeTestNamePattern}",
+        "${input:tsrxTestNamePattern}",
         "--",
         "--inspect-brk",
         "--no-file-parallelism"
@@ -166,13 +166,13 @@
   ],
   "inputs": [
     {
-      "id": "rippleTestFile",
+      "id": "tsrxTestFile",
       "type": "promptString",
       "description": "Test file path",
       "default": "${relativeFile}"
     },
     {
-      "id": "rippeTestNamePattern",
+      "id": "tsrxTestNamePattern",
       "type": "promptString",
       "description": "(Optional): Test name pattern to match",
       "default": ""

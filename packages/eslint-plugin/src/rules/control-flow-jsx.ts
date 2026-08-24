@@ -16,21 +16,17 @@ const rule: Rule.RuleModule = {
 	meta: {
 		type: 'problem',
 		docs: {
-			description:
-				'Require template output in @for blocks, but disallow JSX output in effect loops',
+			description: 'Require template output in @for blocks',
 			recommended: true,
 		},
 		messages: {
 			requireJsxInLoop:
 				'@for blocks in returned TSRX should contain template output. Render an element, fragment, or nested template directive.',
-			noJsxInEffectLoop:
-				'For...of loops inside effect() should not contain JSX. Effects are for side effects, not rendering.',
 		},
 		schema: [],
 	},
 	create(context) {
 		let insideComponent = 0;
-		let insideEffect = 0;
 		let nonComponentFunctionDepth = 0;
 		const functionStack: boolean[] = [];
 
@@ -92,24 +88,6 @@ const rule: Rule.RuleModule = {
 			'FunctionExpression:exit': exitFunction,
 			ArrowFunctionExpression: enterFunction,
 			'ArrowFunctionExpression:exit': exitFunction,
-
-			"CallExpression[callee.name='effect']"() {
-				insideEffect++;
-			},
-			"CallExpression[callee.name='effect']:exit"() {
-				insideEffect--;
-			},
-
-			ForOfStatement(node: AST.ForOfStatement) {
-				if (insideComponent === 0 || insideEffect === 0) return;
-
-				if (containsTemplateOutput(node.body)) {
-					context.report({
-						node,
-						messageId: 'noJsxInEffectLoop',
-					});
-				}
-			},
 
 			JSXForExpression(node: AST.Node) {
 				if (insideComponent === 0 || nonComponentFunctionDepth > 0) {

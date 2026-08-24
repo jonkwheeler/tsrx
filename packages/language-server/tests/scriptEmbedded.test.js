@@ -5,7 +5,7 @@ import { createLanguage, forEachEmbeddedCode } from '@volar/language-core';
 import { createUriMap } from '@volar/language-service';
 import { URI } from 'vscode-uri';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getRippleLanguagePlugin, _reset_for_test } from '@tsrx/typescript-plugin/src/language.js';
+import { getTsrxLanguagePlugin, _reset_for_test } from '@tsrx/typescript-plugin/src/language.js';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const root_dir = path.resolve(dirname, '../../..');
@@ -24,9 +24,9 @@ beforeEach(() => {
 function create_virtual_code(source) {
 	const uri = URI.file(path.join(fixture_dir, 'App.tsrx'));
 	const scripts = createUriMap();
-	const plugin = getRippleLanguagePlugin();
+	const plugin = getTsrxLanguagePlugin();
 	const language = createLanguage([plugin], scripts, () => {});
-	language.scripts.set(uri, ts.ScriptSnapshot.fromString(source), 'ripple');
+	language.scripts.set(uri, ts.ScriptSnapshot.fromString(source), 'tsrx');
 	const root = language.scripts.get(uri)?.generated?.root;
 	return { plugin, root, fileName: uri.fsPath };
 }

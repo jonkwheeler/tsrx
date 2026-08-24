@@ -18,7 +18,7 @@
     "solid-js": "catalog:default"
   },
   "devDependencies": {
-    "@ripple-ts/language-server": "workspace:*",
+    "@tsrx/language-server": "workspace:*",
     "@tsrx/typescript-plugin": "workspace:*",
     "@tsrx/solid": "workspace:*",
     "@tsrx/vite-plugin-solid": "workspace:*",

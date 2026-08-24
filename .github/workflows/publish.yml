@@ -12,7 +12,8 @@ permissions: {}
 
 jobs:
   publish:
-    if: github.repository == 'Ripple-TS/ripple' && contains(github.event.head_commit.message, 'Version Packages')
+    # Enable only after npm and Zed publishing have been migrated to this repository.
+    if: ${{ false }}
     permissions:
       contents: write
       id-token: write
@@ -73,7 +74,7 @@ jobs:
           fi
 
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "tag=@ripple-ts/zed-plugin@$version" >> "$GITHUB_OUTPUT"
+          echo "tag=@tsrx/zed-plugin@$version" >> "$GITHUB_OUTPUT"
 
       - name: Tag Zed extension release
         if: steps.zed.outputs.changed == 'true'
@@ -94,6 +95,10 @@ jobs:
 
       - name: Submit Zed extension update
         if: steps.zed.outputs.changed == 'true'
+        # This action updates the registry version and submodule commit, but not
+        # the submodule URL. Before enabling this workflow, merge the one-time
+        # zed-industries/extensions change from Ripple-TS/ripple to tsrx-org/tsrx
+        # documented in packages/zed-plugin/DEVELOPMENT.md.
         uses: huacnlee/zed-extension-action@82920ff0876879f65ffbcfa3403589114a8919c6
         with:
           extension-name: tsrx

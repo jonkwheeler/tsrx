@@ -1,9 +1,9 @@
-# @ripple-ts/tree-sitter
+# @tsrx/tree-sitter
 
-Tree-sitter grammar for [Ripple](https://www.ripple-ts.com).
+Tree-sitter grammar for [TSRX](https://tsrx.dev/).
 
 ## Overview
 
-Ripple is a JS/TS-first UI framework that extends TypeScript with native TSRX
-markup syntax and reactive primitives. This Tree-sitter grammar provides parsing
-support for it.
+TSRX extends TypeScript with JSX-shaped templates, statement containers, control
+flow directives, and scoped styles. This grammar provides editor parsing support
+for `.tsrx` files independently of the selected runtime target.

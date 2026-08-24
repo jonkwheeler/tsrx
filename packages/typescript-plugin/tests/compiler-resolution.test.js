@@ -6,12 +6,12 @@ import fs from 'fs';
 /** @import { WORKSPACE_CONFIGS } from './workspace-fixtures.js'; */
 
 const {
-	is_ripple_file,
+	is_tsrx_file,
 	find_workspace_compiler_entry_for_file,
 	get_tsrx_compiler_name_for_file,
-	is_ripple_platform_file,
+	is_ripple_target_file,
 	COMPILER_CANDIDATES,
-	RIPPLE_EXTENSIONS,
+	TSRX_EXTENSIONS,
 	invalidateCompilerResolutionCaches,
 	_reset_for_test,
 } = require('../src/language.js');
@@ -27,7 +27,7 @@ describe('typescript-plugin compiler resolution', () => {
 
 	describe('extension metadata', () => {
 		it('recognizes .tsrx as the only supported extension', () => {
-			expect(RIPPLE_EXTENSIONS).toEqual(['.tsrx']);
+			expect(TSRX_EXTENSIONS).toEqual(['.tsrx']);
 		});
 
 		it('maps all compiler candidates to .tsrx', () => {
@@ -70,7 +70,7 @@ describe('typescript-plugin compiler resolution', () => {
 		});
 	});
 
-	describe('is_ripple_file', () => {
+	describe('is_tsrx_file', () => {
 		it.each([
 			['Component.tsrx', true],
 			['/path/to/Component.tsrx', true],
@@ -82,7 +82,7 @@ describe('typescript-plugin compiler resolution', () => {
 			['Component.jsx', false],
 			['', false],
 		])('returns %j for %j', (file_name, expected) => {
-			expect(is_ripple_file(file_name)).toBe(expected);
+			expect(is_tsrx_file(file_name)).toBe(expected);
 		});
 	});
 
@@ -365,7 +365,7 @@ describe('typescript-plugin compiler resolution', () => {
 				const file_name = path.join(workspace, 'src', 'App.tsrx');
 
 				expect(get_tsrx_compiler_name_for_file(file_name)).toBe(test_case.compiler);
-				expect(is_ripple_platform_file(file_name)).toBe(test_case.is_ripple);
+				expect(is_ripple_target_file(file_name)).toBe(test_case.is_ripple);
 			});
 		}
 	});

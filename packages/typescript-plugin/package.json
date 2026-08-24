@@ -12,10 +12,10 @@
     "dist"
   ],
   "type": "module",
-  "homepage": "https://ripple-ts.com",
+  "homepage": "https://tsrx.dev/",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ripple-TS/ripple.git",
+    "url": "git+https://github.com/tsrx-org/tsrx.git",
     "directory": "packages/typescript-plugin"
   },
   "scripts": {
@@ -23,7 +23,7 @@
     "prepare": "tsdown"
   },
   "bugs": {
-    "url": "https://github.com/Ripple-TS/ripple/issues"
+    "url": "https://github.com/tsrx-org/tsrx/issues"
   },
   "dependencies": {
     "@volar/language-core": "catalog:default",
@@ -38,7 +38,7 @@
   "peerDependencies": {
     "typescript": "catalog:peer",
     "@tsrx/react": "workspace:*",
-    "@tsrx/ripple": "workspace:*",
+    "@tsrx/ripple": "catalog:default",
     "@tsrx/solid": "workspace:*",
     "@tsrx/preact": "workspace:*",
     "@tsrx/vue": "workspace:*",

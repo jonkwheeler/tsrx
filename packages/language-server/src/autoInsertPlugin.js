@@ -1,8 +1,8 @@
 /** @import { LanguageServicePlugin } from '@volar/language-server' */
 
-import { getVirtualCode, createLogging, is_ripple_document } from './utils.js';
+import { getVirtualCode, createLogging, is_tsrx_document } from './utils.js';
 
-const { log } = createLogging('[Ripple Auto-Insert Plugin]');
+const { log } = createLogging('[TSRX Auto-Insert Plugin]');
 
 /**
  * List of HTML void/self-closing elements that don't need closing tags
@@ -28,17 +28,17 @@ const VOID_ELEMENTS = new Set([
 ]);
 
 /**
- * Auto-insert plugin for Ripple
+ * Auto-insert plugin for TSRX.
  * Handles auto-closing tags when typing '>' after a tag name
  * @returns {LanguageServicePlugin}
  */
 export function createAutoInsertPlugin() {
 	return {
-		name: 'ripple-auto-insert',
+		name: 'tsrx-auto-insert',
 		capabilities: {
 			autoInsertionProvider: {
 				triggerCharacters: ['>'],
-				configurationSections: ['ripple.autoClosingTags.enabled'],
+				configurationSections: ['tsrx.autoClosingTags.enabled'],
 			},
 			documentOnTypeFormattingProvider: {
 				triggerCharacters: ['>'],
@@ -55,7 +55,7 @@ export function createAutoInsertPlugin() {
 				 * @returns {Promise<string | null>}
 				 */
 				async provideAutoInsertSnippet(document, position, lastChange, _token) {
-					if (!is_ripple_document(document.uri)) {
+					if (!is_tsrx_document(document.uri)) {
 						return null;
 					}
 
@@ -66,7 +66,7 @@ export function createAutoInsertPlugin() {
 
 					const { virtualCode } = getVirtualCode(document, context);
 
-					if (virtualCode.languageId !== 'ripple') {
+					if (virtualCode.languageId !== 'tsrx') {
 						log(`Skipping auto-insert processing in the '${virtualCode.languageId}' context`);
 						return null;
 					}

@@ -343,7 +343,7 @@ export const FeaturesPage = () => @{
 							Discord
 						</a>
 						<a
-							href="https://github.com/Ripple-TS/ripple/tree/main/packages/tsrx"
+							href="https://github.com/tsrx-org/tsrx/tree/main/packages/tsrx"
 							target="_blank"
 							rel="noopener noreferrer"
 						>GitHub</a>

@@ -1,8 +1,9 @@
 # TSRX Extension for Zed
 
 This extension provides TSRX language support for the
-[Zed editor](https://zed.dev). TSRX is a TypeScript superset that compiles to
-Ripple, React, Solid, and Preact. Handles `.tsrx` files.
+[Zed editor](https://zed.dev). It provides syntax and language-server support for
+`.tsrx` files across Ripple, React, Preact, Solid, Vue, Octane, and third-party
+compiler targets.
 
 ## Installation
 
@@ -29,11 +30,10 @@ Once published to the Zed extensions registry:
 
 ## Language Server Setup
 
-The extension looks for the language server `@ripple-ts/language-server` in this
-order:
+The extension looks for the language server `@tsrx/language-server` in this order:
 
 1. The local project that you have opened in Zed via the `package.json` and looks
-   for `node_modules/.bin/ripple-language-server`. So make sure to install your
+   for `node_modules/.bin/tsrx-language-server`. So make sure to install your
    dependencies first via:
 
    ```bash
@@ -43,12 +43,12 @@ order:
 2. Globally installed:
 
    ```bash
-   npm install -g @ripple-ts/language-server
+   npm install -g @tsrx/language-server
    ```
 
-3. The extension automatically downloads the Ripple Language Server the first time
+3. The extension automatically downloads the TSRX language server the first time
    it runs. The version is pinned via the `config` entry for
-   `@ripple-ts/language-server` in this package's `package.json`.
+   `@tsrx/language-server` in this package's `package.json`.
 
-Project-local installations (`node_modules/.bin/ripple-language-server`) are also
+Project-local installations (`node_modules/.bin/tsrx-language-server`) are also
 detected automatically.

@@ -39,7 +39,7 @@
   "redirects": [
     {
       "source": "/github",
-      "destination": "https://github.com/Ripple-TS/ripple/tree/main/packages/tsrx",
+      "destination": "https://github.com/tsrx-org/tsrx/tree/main/packages/tsrx",
       "permanent": false
     }
   ],

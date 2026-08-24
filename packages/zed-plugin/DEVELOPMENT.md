@@ -52,8 +52,8 @@ zed-plugin/
 
 ## Publishing to Zed Extensions Registry
 
-Add a patch changeset for `@ripple-ts/zed-plugin` when a change should reach the
-Zed extension registry:
+Add a patch changeset for `@tsrx/zed-plugin` when a change should reach the Zed
+extension registry:
 
 ```bash
 pnpm changeset
@@ -61,7 +61,7 @@ pnpm changeset
 
 The Changesets release PR bumps `package.json` and synchronizes both the version
 and grammar revision in `extension.toml`. When that release PR is merged, the
-publish workflow creates an `@ripple-ts/zed-plugin@<version>` tag and opens the
+publish workflow creates an `@tsrx/zed-plugin@<version>` tag and opens the
 registry update PR through the
 [`leonidaz/extensions`](https://github.com/leonidaz/extensions) fork. The
 extension is published after the Zed registry maintainers merge that PR.
@@ -69,6 +69,24 @@ extension is published after the Zed registry maintainers merge that PR.
 The workflow requires a `ZED_EXTENSION_TOKEN` Actions secret containing a classic
 GitHub personal access token owned by `leonidaz` with `repo` and `workflow`
 scopes.
+
+### One-time repository migration
+
+Before the first release from `tsrx-org/tsrx`, open a registry PR through the
+[`leonidaz/extensions`](https://github.com/leonidaz/extensions) fork that:
+
+1. changes the `extensions/tsrx` URL in `.gitmodules` from
+   `https://github.com/Ripple-TS/ripple.git` to
+   `https://github.com/tsrx-org/tsrx.git`;
+2. points the `extensions/tsrx` gitlink at a reachable `tsrx-org/tsrx` commit
+   containing `packages/zed-plugin`; and
+3. keeps `extensions.toml` and `packages/zed-plugin/extension.toml` on the same
+   version.
+
+The community `zed-extension-action` used by the publish workflow updates the
+registry version and gitlink commit, but it does not change `.gitmodules`. Once
+the one-time URL migration is merged upstream, future `@tsrx/zed-plugin` release
+tags can use the automated path normally.
 
 ## Updating the Extension
 
@@ -79,8 +97,8 @@ If you update the tree-sitter grammar in `grammars/tree-sitter`:
 1. Update query files in `languages/tsrx/` if needed
 2. Commit the generated tree-sitter grammar artifacts
 3. Test locally
-4. Add a patch changeset for `@ripple-ts/zed-plugin`; the Changesets release PR
-   updates the `rev` field in `extension.toml`
+4. Add a patch changeset for `@tsrx/zed-plugin`; the Changesets release PR updates
+   the `rev` field in `extension.toml`
 
 ### After Language Server Changes
 
@@ -95,16 +113,16 @@ extension itself unless:
 
 ### Language server not found
 
-Make sure `@ripple-ts/language-server` is installed:
+Make sure `@tsrx/language-server` is installed:
 
 ```bash
-npm install -g @ripple-ts/language-server
+npm install -g @tsrx/language-server
 ```
 
 Or in your project:
 
 ```bash
-npm install --save-dev @ripple-ts/language-server
+npm install --save-dev @tsrx/language-server
 ```
 
 ### Syntax highlighting not working

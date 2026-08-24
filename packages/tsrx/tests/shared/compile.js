@@ -2318,7 +2318,7 @@ export function runSharedCompileTests({
 			const { code } = compile(
 				`export function App() @{
 						@if (false) {
-							<>Hello Ripple</>
+							<>Hello first branch</>
 					} @else {
 						<>Hello React</>
 					}
@@ -2326,7 +2326,7 @@ export function runSharedCompileTests({
 				'App.tsrx',
 			);
 
-			expect(code).toContain('Hello Ripple');
+			expect(code).toContain('Hello first branch');
 			expect(code).toContain('Hello React');
 			expect(code).not.toContain('return null;');
 		});

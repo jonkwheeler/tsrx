@@ -31,21 +31,9 @@ esrap_common: &esrap_common ^2.3.2
 packages:
   - packages/*
   - playground/*
-  - website
   - website-mcp
-  - grammars/tree-sitter
-  - website-new
   - website-tsrx
-  - benchmarks
-  - benchmarks/recursive-context
-  - benchmarks/recursive-context/*
-  - benchmarks/signal-favoring
-  - benchmarks/signal-favoring/*
-  - benchmarks/news
-  - benchmarks/news/*
-  - benchmarks/for-reconcile
-  - benchmarks/for-reconcile/*
-  - benchmarks/streaming-ssr
+  - grammars/tree-sitter
 
 overrides:
   esrap: *esrap_common
@@ -71,6 +59,8 @@ catalogs:
     '@jridgewell/sourcemap-codec': ^1.5.5
     '@modelcontextprotocol/sdk': ^1.29.0
     '@noble/hashes': ^2.2.0
+    '@ripple-ts/adapter-node': ^0.3.124
+    '@ripple-ts/vite-plugin': ^0.3.124
     '@rollup/pluginutils': ^5.3.0
     '@sveltejs/acorn-typescript': ^1.0.13
     '@solidjs/web': '2.0.0-beta.15'
@@ -86,6 +76,7 @@ catalogs:
     '@types/react': ^19.2.2
     '@types/react-dom': ^19.2.2
     '@types/vscode': ^1.116.0
+    '@tsrx/ripple': ^0.1.61
     '@typescript-eslint/parser': *ts_eslint_parser
     '@typescript-eslint/types': ^8.40.0
     '@vercel/nft': ^1.3.2
@@ -123,6 +114,7 @@ catalogs:
     prompts: ^2.4.2
     react: ^19.2.0
     react-dom: ^19.2.0
+    ripple: ^0.3.124
     rollup: ^4.59.0
     rulesync: ^8.17.0
     shiki: 4.0.1
@@ -151,7 +143,6 @@ catalogs:
     '@typescript-eslint/parser': *ts_eslint_parser
     eslint: '>=9.0.0'
     prettier: '>=2.0.0'
-    ripple: '*'
     tailwindcss: ^4.1.12
     typescript: *ts_common
   vscode:

@@ -1,5 +1,5 @@
 name: "🐛 Bug Report"
-description: "Report a bug or unexpected behavior in Ripple"
+description: "Report a bug or unexpected behavior in TSRX"
 title: "[Bug]: "
 labels: ["bug", "triage"]
 body:
@@ -54,7 +54,8 @@ body:
       placeholder: |
         - OS: [e.g. macOS 13.1, Windows 11, Ubuntu 22.04]
         - Browser: [e.g. Chrome 118, Firefox 119, Safari 16]
-        - Ripple Version: [e.g. 1.2.3]
+        - TSRX package and version: [e.g. @tsrx/core 1.2.3]
+        - Compiler target and version: [e.g. @tsrx/react 1.2.3]
         - Node Version: [e.g. 22.19.0]
       render: markdown
     validations:

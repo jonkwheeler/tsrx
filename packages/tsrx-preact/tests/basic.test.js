@@ -298,7 +298,7 @@ describe('@tsrx/preact basic', () => {
 
 	it('keeps hook-bearing composite children inline without helper prop plumbing', () => {
 		const source = `import { useState } from 'preact/hooks';
-			import type { PropsWithChildren } from 'ripple';
+			type PropsWithChildren<T> = T & { children?: unknown };
 
 			function Wrapper(props: PropsWithChildren<{}>) @{
 				<section>{props.children}</section>
@@ -345,7 +345,7 @@ describe('@tsrx/preact basic', () => {
 			expect(code).not.toContain('@tsrx/preact/ref');
 		});
 
-		it('passes a single Ripple ref={expr} through as ref={expr} with no helper import', () => {
+		it('passes a single TSRX ref={expr} through as ref={expr} with no helper import', () => {
 			const { code } = compile(
 				`export function App() @{
 					function refA(_node) {}

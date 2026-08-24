@@ -1,114 +1,40 @@
-# @ripple-ts/language-server
+# @tsrx/language-server
 
-[![npm version](https://img.shields.io/npm/v/%40ripple-ts%2Flanguage-server?logo=npm)](https://www.npmjs.com/package/@ripple-ts/language-server)
-[![npm downloads](https://img.shields.io/npm/dm/%40ripple-ts%2Flanguage-server?logo=npm&label=downloads)](https://www.npmjs.com/package/@ripple-ts/language-server)
+[![npm version](https://img.shields.io/npm/v/%40tsrx%2Flanguage-server?logo=npm)](https://www.npmjs.com/package/@tsrx/language-server)
+[![npm downloads](https://img.shields.io/npm/dm/%40tsrx%2Flanguage-server?logo=npm&label=downloads)](https://www.npmjs.com/package/@tsrx/language-server)
 
-Language Server Protocol (LSP) implementation for Ripple. This package provides
-language intelligence features for Ripple files and can be integrated into any
-editor that supports LSP.
+Language Server Protocol implementation for `.tsrx` files. It uses Volar and
+TypeScript to provide diagnostics, completions, hover information, navigation,
+document symbols, highlighting, and automatic closing tags.
 
-## Features
-
-- TypeScript integration via Volar
-- Ripple syntax diagnostics
-- IntelliSense and autocomplete
-- Go to definition
-- Find references
-- Hover information
+The language server resolves the compiler selected by the active TypeScript
+project, so the same tooling works with React, Preact, Solid, Vue, Ripple, Octane,
+and third-party TSRX targets. Ripple-runtime API completions are only enabled when
+the file is compiled by the Ripple target.
 
 ## Installation
 
 ```bash
-npm install @ripple-ts/language-server -g
+npm install --global @tsrx/language-server
 ```
 
-## Editor Integration
-
-This language server can be integrated into any editor that supports LSP. There
-are also specialized plugins for popular editors.
-
-#### VS Code
-
-Use the
-[official extension](https://marketplace.visualstudio.com/items?itemName=Ripple-TS.ripple-ts-vscode-plugin).
-It uses this language server internally.
-
-#### WebStorm/IntelliJ
-
-1. Install the language server:
-   ```bash
-   npm install @ripple-ts/language-server -g
-   ```
-2. Install the [LSP4IJ plugin](https://plugins.jetbrains.com/plugin/23257-lsp4ij).
-3. Add a new language server in it
-4. Specify `ripple-language-server --stdio` as the command in it.
-5. Go to `Mappings` —> `File name patterns` and add a new value with
-   `File name patterns` set to `*.tsrx` and `Language Id` set to `ripple`.
-
-#### Neovim (v0.11+)
-
-Use the official plugin.
-
-1. Install
-   [`nvim-treesitter`](https://github.com/nvim-treesitter/nvim-treesitter).
-2. Install the plugin.
-
-   <details>
-   <summary>with lazy.nvim</summary>
-
-   ```lua
-   {
-     "Ripple-TS/ripple",
-     config = function(plugin)
-       vim.opt.rtp:append(plugin.dir .. "/packages/nvim-plugin")
-       require("ripple").setup(plugin)
-     end
-   }
-   ```
-
-   </details>
-
-   If you're using another plugin manager and wish to share installation
-   instructions, please consider opening a PR.
-
-#### Sublime Text
-
-Until the plugin lands on Package Control you need to install it from the packaged
-release:
-
-1. Make sure [Package Control](https://packagecontrol.io/installation) is
-   installed, then install the [LSP](https://packagecontrol.io/packages/LSP)
-   package (`Tools → Command Palette… → Package Control: Install Package → LSP`).
-2. Clone this repository.
-3. Go into `packages/sublime-text-plugin/` directory and run:
-   ```bash
-   npm run build
-   ```
-   This will create a `Ripple.sublime-package` file in the same directory.
-4. In Sublime Text, open `Preferences → Browse Packages…`, go up one level, and
-   open the `Installed Packages/` directory.
-5. Copy the `Ripple.sublime-package` file into `Installed Packages/` and restart
-   Sublime Text.
-
-Diagnostics, completions, and other features should work in `.tsrx` files now.
-
-## Standalone Usage
-
-You can use the language server in any other editor that supports LSP. You can
-install it globally:
+Start the server over stdio:
 
 ```bash
-npm install -g @ripple-ts/language-server
+tsrx-language-server --stdio
 ```
 
-Then run the server with:
+It can also be run without a global installation:
 
 ```bash
-ripple-language-server --stdio
+npx @tsrx/language-server --stdio
 ```
 
-Or you can run it via `npx` without installing:
+Configure your editor's LSP client for `*.tsrx` files with the language ID `tsrx`.
+VS Code users can install the
+[TSRX VSCode extension](https://marketplace.visualstudio.com/items?itemName=TSRX.tsrx-vscode-plugin),
+which bundles and starts this server automatically.
 
-```bash
-npx @ripple-ts/language-server --stdio
-```
+See the [TSRX documentation](https://tsrx.dev/) and
+[`@tsrx/typescript-plugin`](../typescript-plugin/README.md) for target compiler
+selection and TypeScript configuration.

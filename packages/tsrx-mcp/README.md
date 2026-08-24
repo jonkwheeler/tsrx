@@ -44,7 +44,7 @@ For local development in this monorepo, point at the source entrypoint:
   "mcpServers": {
     "tsrx": {
       "command": "node",
-      "args": ["/absolute/path/to/ripple/packages/tsrx-mcp/src/stdio.js"]
+      "args": ["/absolute/path/to/tsrx/packages/tsrx-mcp/src/stdio.js"]
     }
   }
 }
@@ -63,7 +63,7 @@ claude mcp add tsrx -- npx -y @tsrx/mcp
 For local development:
 
 ```bash
-claude mcp add tsrx-local -- node /absolute/path/to/ripple/packages/tsrx-mcp/src/stdio.js
+claude mcp add tsrx-local -- node /absolute/path/to/tsrx/packages/tsrx-mcp/src/stdio.js
 ```
 
 ### Cursor

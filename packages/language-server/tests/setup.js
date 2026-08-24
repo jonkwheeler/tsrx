@@ -6,7 +6,7 @@ import { createLanguageService, createUriMap } from '@volar/language-service';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import { beforeEach } from 'vitest';
-import { getRippleLanguagePlugin, _reset_for_test } from '@tsrx/typescript-plugin/src/language.js';
+import { getTsrxLanguagePlugin, _reset_for_test } from '@tsrx/typescript-plugin/src/language.js';
 import { createDocumentSymbolPlugin } from '../src/documentSymbolPlugin.js';
 import { createCompletionPlugin } from '../src/completionPlugin.js';
 
@@ -33,9 +33,9 @@ function create_snapshot(source) {
 export function create_symbol_harness(source, fixture_name = 'App.tsrx') {
 	const uri = URI.file(path.join(fixture_dir, fixture_name));
 	const scripts = createUriMap();
-	const language = createLanguage([getRippleLanguagePlugin()], scripts, () => {});
+	const language = createLanguage([getTsrxLanguagePlugin()], scripts, () => {});
 	const source_snapshot = create_snapshot(source);
-	language.scripts.set(uri, source_snapshot, 'ripple');
+	language.scripts.set(uri, source_snapshot, 'tsrx');
 
 	const service = createLanguageService(
 		language,
@@ -46,7 +46,7 @@ export function create_symbol_harness(source, fixture_name = 'App.tsrx') {
 		},
 		{},
 	);
-	const document = TextDocument.create(uri.toString(), 'ripple', 0, source);
+	const document = TextDocument.create(uri.toString(), 'tsrx', 0, source);
 
 	return { document, service, uri };
 }
@@ -60,9 +60,9 @@ export function create_symbol_harness(source, fixture_name = 'App.tsrx') {
 export function create_completion_harness(source, fixture_name = 'App.tsrx') {
 	const uri = URI.file(path.join(fixture_dir, fixture_name));
 	const scripts = createUriMap();
-	const language = createLanguage([getRippleLanguagePlugin()], scripts, () => {});
+	const language = createLanguage([getTsrxLanguagePlugin()], scripts, () => {});
 	const source_snapshot = create_snapshot(source);
-	language.scripts.set(uri, source_snapshot, 'ripple');
+	language.scripts.set(uri, source_snapshot, 'tsrx');
 
 	const service = createLanguageService(
 		language,
@@ -73,7 +73,7 @@ export function create_completion_harness(source, fixture_name = 'App.tsrx') {
 		},
 		{},
 	);
-	const document = TextDocument.create(uri.toString(), 'ripple', 0, source);
+	const document = TextDocument.create(uri.toString(), 'tsrx', 0, source);
 
 	return { document, service, uri };
 }
@@ -88,9 +88,9 @@ export function create_completion_harness(source, fixture_name = 'App.tsrx') {
 export function create_stateful_completion_harness(initial_source, fixture_name = 'App.tsrx') {
 	const uri = URI.file(path.join(fixture_dir, fixture_name));
 	const scripts = createUriMap();
-	const language = createLanguage([getRippleLanguagePlugin()], scripts, () => {});
+	const language = createLanguage([getTsrxLanguagePlugin()], scripts, () => {});
 	const set_document = (/** @type {string} */ source) => {
-		language.scripts.set(uri, create_snapshot(source), 'ripple');
+		language.scripts.set(uri, create_snapshot(source), 'tsrx');
 	};
 	set_document(initial_source);
 

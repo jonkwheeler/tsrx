@@ -1,7 +1,7 @@
 {
   "name": "@tsrx/eslint-plugin",
   "version": "0.3.124",
-  "description": "ESLint plugin for Ripple",
+  "description": "ESLint plugin for TSRX",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
@@ -14,19 +14,19 @@
     "eslint",
     "eslintplugin",
     "eslint-plugin",
-    "ripple"
+    "tsrx"
   ],
   "author": "Dominic Gannaway",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ripple-TS/ripple.git",
+    "url": "git+https://github.com/tsrx-org/tsrx.git",
     "directory": "packages/eslint-plugin"
   },
   "bugs": {
-    "url": "https://github.com/Ripple-TS/ripple/issues"
+    "url": "https://github.com/tsrx-org/tsrx/issues"
   },
-  "homepage": "https://ripple-ts.com",
+  "homepage": "https://tsrx.dev/",
   "publishConfig": {
     "access": "public"
   },

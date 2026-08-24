@@ -2,14 +2,18 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use zed_extension_api::{self as zed, serde_json::{self, Value}, LanguageServerId};
+use zed_extension_api::{
+    self as zed,
+    serde_json::{self, Value},
+    LanguageServerId,
+};
 
 struct TsrxExtension {
     cached_binary_path: Option<PathBuf>,
     required_version: Option<String>,
 }
 
-const PACKAGE_NAME: &str = "@ripple-ts/language-server";
+const PACKAGE_NAME: &str = "@tsrx/language-server";
 
 impl TsrxExtension {
     fn language_server_binary_path(
@@ -35,12 +39,12 @@ impl TsrxExtension {
     fn system_binary_path(worktree: &zed::Worktree) -> Option<PathBuf> {
         let (os, _) = zed::current_platform();
         let bin_name = match os {
-            zed::Os::Windows => "ripple-language-server.cmd",
-            _ => "ripple-language-server",
+            zed::Os::Windows => "tsrx-language-server.cmd",
+            _ => "tsrx-language-server",
         };
 
         let root_str = worktree.root_path();
-        eprintln!("[ripple-ext] worktree root: {}", root_str);
+        eprintln!("[tsrx-ext] worktree root: {}", root_str);
         let root = PathBuf::from(&root_str);
 
         // 1. Project-local: if the project's package.json declares
@@ -52,22 +56,25 @@ impl TsrxExtension {
         if let Ok(pkg_json) = worktree.read_text_file("package.json") {
             if pkg_json.contains(&needle) {
                 let abs = root.join("node_modules").join(".bin").join(bin_name);
-                eprintln!("[ripple-ext] using project-local bin: {}", abs.display());
+                eprintln!("[tsrx-ext] using project-local bin: {}", abs.display());
                 return Some(abs);
             }
-            eprintln!("[ripple-ext] package.json does not declare {}", PACKAGE_NAME);
+            eprintln!("[tsrx-ext] package.json does not declare {}", PACKAGE_NAME);
         } else {
-            eprintln!("[ripple-ext] no package.json at worktree root");
+            eprintln!("[tsrx-ext] no package.json at worktree root");
         }
 
         // 2. PATH lookup (for global installs).
         match worktree.which(bin_name) {
             Some(path) => {
-                eprintln!("[ripple-ext] which({}) -> {}", bin_name, path);
+                eprintln!("[tsrx-ext] which({}) -> {}", bin_name, path);
                 Some(PathBuf::from(path))
             }
             None => {
-                eprintln!("[ripple-ext] which({}) -> None; falling back to npm install", bin_name);
+                eprintln!(
+                    "[tsrx-ext] which({}) -> None; falling back to npm install",
+                    bin_name
+                );
                 None
             }
         }
@@ -91,11 +98,7 @@ impl TsrxExtension {
             );
 
             if let Err(error) = zed::npm_install_package(PACKAGE_NAME, &required_version) {
-                if self
-                    .get_installed_version()
-                    .as_deref()
-                    != Some(required_version.as_str())
-                {
+                if self.get_installed_version().as_deref() != Some(required_version.as_str()) {
                     return Err(error);
                 }
             }
@@ -136,8 +139,8 @@ impl TsrxExtension {
         let (os, _) = zed::current_platform();
 
         let binary_name = match os {
-            zed::Os::Windows => "ripple-language-server.cmd",
-            _ => "ripple-language-server",
+            zed::Os::Windows => "tsrx-language-server.cmd",
+            _ => "tsrx-language-server",
         };
 
         let bin_path = extension_dir
@@ -159,9 +162,9 @@ impl TsrxExtension {
             if let Ok(manifest) = serde_json::from_str::<Value>(&contents) {
                 let rel = match manifest.get("bin") {
                     Some(Value::String(s)) => Some(s.as_str().to_owned()),
-                    Some(Value::Object(map)) => map
-                        .values()
-                        .find_map(|v| v.as_str().map(str::to_owned)),
+                    Some(Value::Object(map)) => {
+                        map.values().find_map(|v| v.as_str().map(str::to_owned))
+                    }
                     _ => None,
                 };
                 rel.map(|r| pkg_dir.join(r))
@@ -200,8 +203,13 @@ impl TsrxExtension {
     }
 
     fn read_required_version() -> Result<String, String> {
-        let package_json: Value = serde_json::from_str(include_str!("../package.json"))
-            .map_err(|error| format!("Failed to parse package.json embedded in extension: {}", error))?;
+        let package_json: Value =
+            serde_json::from_str(include_str!("../package.json")).map_err(|error| {
+                format!(
+                    "Failed to parse package.json embedded in extension: {}",
+                    error
+                )
+            })?;
 
         let spec = package_json
             .get("config")

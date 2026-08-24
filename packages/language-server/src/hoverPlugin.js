@@ -13,14 +13,14 @@ import {
 	deobfuscateIdentifiers,
 } from './utils.js';
 
-const { log, logError } = createLogging('[Ripple Hover Plugin]');
+const { log, logError } = createLogging('[TSRX Hover Plugin]');
 
 /**
  * @returns {LanguageServicePlugin}
  */
 export function createHoverPlugin() {
 	return {
-		name: 'ripple-hover',
+		name: 'tsrx-hover',
 		capabilities: {
 			hoverProvider: true,
 		},
@@ -86,7 +86,7 @@ export function createHoverPlugin() {
 						log(`Cursor offset in generated code for word '${word}':`, offset);
 					}
 
-					if (virtualCode.languageId !== 'ripple') {
+					if (virtualCode.languageId !== 'tsrx') {
 						log(`Skipping hover processing in the '${virtualCode.languageId}' context`);
 						return tsHover;
 					}

@@ -1,5 +1,5 @@
 ==================
-Ripple Server Module Import And JSX Attribute
+TSRX Server Module Import And JSX Attribute
 ==================
 
 module server {

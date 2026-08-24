@@ -158,7 +158,7 @@ export interface JsxTransformOptions {
 export interface JsxPlatformHooks {
 	/**
 	 * Per-statement control-flow rewrites. Each hook receives the original
-	 * Ripple statement (with children already walked) and returns a JSX
+	 * TSRX statement (with children already walked) and returns a JSX
 	 * child (or an expression container wrapping one).
 	 */
 	controlFlow?: {
@@ -205,7 +205,7 @@ export interface JsxPlatformHooks {
 	 */
 	injectImports?: (program: AST.Program, ctx: JsxTransformContext, suspenseSource: string) => void;
 	/**
-	 * Transform a Ripple element's parser-native JSX attributes. The result
+	 * Transform a TSRX element's parser-native JSX attributes. The result
 	 * is passed through the shared multi-`ref` merge. Platforms that own a
 	 * `transformElement` hook (e.g. Solid) run their own attribute pass inside
 	 * that hook.
@@ -343,7 +343,7 @@ export interface JsxPlatformHooks {
 
 /**
  * A JSX platform descriptor is the parameter to `createJsxTransform`. It
- * declares how to render a Ripple AST as valid TSX for the target platform
+ * declares how to render a TSRX AST as valid TSX for the target platform
  * (React, Preact, Solid). The shared transformer in `@tsrx/core` reads this
  * descriptor at each platform-specific decision point instead of branching
  * on the platform name.
@@ -432,7 +432,7 @@ export interface JsxPlatform {
 
 	jsx: {
 		/**
-		 * Rewrite Ripple's `class` attribute to `className` for legacy targets
+		 * Rewrite TSRX's `class` attribute to `className` for targets
 		 * that require it. First-party targets keep authored `class`.
 		 */
 		rewriteClassAttr: boolean;
@@ -527,7 +527,7 @@ export interface JsxPlatform {
 
 /**
  * Build a `transform()` function for a specific JSX platform. The returned
- * function takes a parsed Ripple AST and produces a TSX module plus source
+ * function takes a parsed TSRX AST and produces a TSX module plus source
  * map and optional CSS.
  */
 export function createJsxTransform(

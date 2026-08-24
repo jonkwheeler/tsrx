@@ -1,7 +1,7 @@
 {
-  "name": "@ripple-ts/vscode-plugin",
+  "name": "@tsrx/vscode-plugin",
   "displayName": "TSRX for VS Code",
-  "publisher": "ripple-ts",
+  "publisher": "TSRX",
   "description": "TSRX JavaScript/TypeScript language support",
   "version": "2.0.75",
   "private": true,
@@ -10,7 +10,7 @@
   "engines": {
     "vscode": "^1.97.0"
   },
-  "homepage": "https://ripple-ts.com",
+  "homepage": "https://tsrx.dev/",
   "activationEvents": [
     "workspaceContains:**/*.tsrx"
   ],
@@ -22,15 +22,15 @@
   "icon": "icons/logo.png",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ripple-TS/ripple.git",
+    "url": "git+https://github.com/tsrx-org/tsrx.git",
     "directory": "packages/vscode-plugin"
   },
   "scripts": {
     "build": "tsdown",
     "repack-vsix": "node scripts/repack-vsix.js",
     "delete-unpacked": "node ../../scripts/remove.js packages/vscode-plugin/vscode-plugin",
-    "pkg-name-release": "node ../../scripts/transform-package.js packages/vscode-plugin/package.json name ripple-ts-vscode-plugin",
-    "pkg-name-back": "node ../../scripts/transform-package.js packages/vscode-plugin/package.json name @ripple-ts/vscode-plugin",
+    "pkg-name-release": "node ../../scripts/transform-package.js packages/vscode-plugin/package.json name tsrx-vscode-plugin",
+    "pkg-name-back": "node ../../scripts/transform-package.js packages/vscode-plugin/package.json name @tsrx/vscode-plugin",
     "package": "pnpm delete-unpacked && pnpm pkg-name-release && (node ../../scripts/regenerate-textmate && vsce package --no-dependencies --out=vscode-plugin.vsix && pnpm repack-vsix; status=$?; pnpm pkg-name-back || exit $?; exit $status)",
     "install-package": "code --install-extension vscode-plugin.vsix",
     "build-and-package": "pnpm build && pnpm package",
@@ -42,7 +42,7 @@
     "@volar/language-server": "catalog:default",
     "@volar/typescript": "catalog:default",
     "@volar/vscode": "catalog:default",
-    "@ripple-ts/language-server": "workspace:*",
+    "@tsrx/language-server": "workspace:*",
     "@tsrx/typescript-plugin": "workspace:*",
     "volar-service-typescript": "catalog:default",
     "vscode-languageclient": "catalog:default",
@@ -63,44 +63,42 @@
   "contributes": {
     "breakpoints": [
       {
-        "language": "ripple"
+        "language": "tsrx"
       }
     ],
     "configuration": {
-      "title": "Ripple",
+      "title": "TSRX",
       "properties": {
-        "ripple.autoClosingTags.enabled": {
+        "tsrx.autoClosingTags.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically insert closing tags when typing '>' after a tag name. Note: For Ripple files, you may also need to set 'javascript.autoClosingTags' and 'typescript.autoClosingTags' to false to fully disable this feature."
+          "description": "Automatically insert closing tags when typing '>' after a tag name. Note: For TSRX files, you may also need to set 'javascript.autoClosingTags' and 'typescript.autoClosingTags' to false to fully disable this feature."
         },
-        "ripple.preferences.preferTypeOnlyAutoImports": {
+        "tsrx.preferences.preferTypeOnlyAutoImports": {
           "type": "boolean",
           "default": true,
           "description": "Prefer adding 'type' modifier to auto imports when possible"
         },
-        "ripple.format.enable": {
+        "tsrx.format.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Enable/disable default Ripple formatter"
+          "description": "Enable/disable default TSRX formatter"
         }
       }
     },
     "commands": [
       {
-        "command": "ripple.goToSourceDefinition",
+        "command": "tsrx.goToSourceDefinition",
         "title": "Go to Source Definition",
-        "category": "Ripple"
+        "category": "TSRX"
       }
     ],
     "languages": [
       {
-        "id": "ripple",
+        "id": "tsrx",
         "aliases": [
           "TSRX",
-          "tsrx",
-          "Ripple",
-          "ripple"
+          "tsrx"
         ],
         "extensions": [
           ".tsrx"
@@ -114,13 +112,13 @@
     ],
     "configurationDefaults": {
       "emmet.includeLanguages": {
-        "ripple": "html"
+        "tsrx": "html"
       },
       "emmet.showExpandedAbbreviation": "always"
     },
     "grammars": [
       {
-        "language": "ripple",
+        "language": "tsrx",
         "scopeName": "source.tsrx",
         "path": "./syntaxes/tsrx.tmLanguage.json",
         "embeddedLanguages": {
@@ -134,40 +132,40 @@
     "menus": {
       "editor/context": [
         {
-          "command": "ripple.goToSourceDefinition",
-          "when": "tsSupportsSourceDefinition && resourceLangId == ripple",
+          "command": "tsrx.goToSourceDefinition",
+          "when": "tsSupportsSourceDefinition && resourceLangId == tsrx",
           "group": "navigation@9"
         }
       ],
       "explorer/context": [
         {
           "command": "typescript.findAllFileReferences",
-          "when": "tsSupportsFileReferences && resourceLangId == ripple",
+          "when": "tsSupportsFileReferences && resourceLangId == tsrx",
           "group": "4_search"
         }
       ],
       "editor/title/context": [
         {
           "command": "typescript.findAllFileReferences",
-          "when": "tsSupportsFileReferences && resourceLangId == ripple"
+          "when": "tsSupportsFileReferences && resourceLangId == tsrx"
         }
       ],
       "commandPalette": [
         {
           "command": "typescript.reloadProjects",
-          "when": "editorLangId == ripple && typescript.isManagedFile"
+          "when": "editorLangId == tsrx && typescript.isManagedFile"
         },
         {
           "command": "typescript.goToProjectConfig",
-          "when": "editorLangId == ripple && typescript.isManagedFile"
+          "when": "editorLangId == tsrx && typescript.isManagedFile"
         },
         {
           "command": "typescript.sortImports",
-          "when": "supportedCodeAction =~ /(\\s|^)source\\.sortImports\\b/ && editorLangId =~ /^ripple$/"
+          "when": "supportedCodeAction =~ /(\\s|^)source\\.sortImports\\b/ && editorLangId =~ /^tsrx$/"
         },
         {
           "command": "typescript.removeUnusedImports",
-          "when": "supportedCodeAction =~ /(\\s|^)source\\.removeUnusedImports\\b/ && editorLangId =~ /^ripple$/"
+          "when": "supportedCodeAction =~ /(\\s|^)source\\.removeUnusedImports\\b/ && editorLangId =~ /^tsrx$/"
         }
       ]
     }

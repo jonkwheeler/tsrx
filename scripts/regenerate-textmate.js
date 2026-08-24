@@ -21,13 +21,13 @@ function writeTargets(targets, sourcePath) {
 const __filename = fileURLToPath(import.meta.url);
 const rootDir = path.join(path.dirname(__filename), '..');
 
-const sourceJson = path.join(rootDir, 'grammars/textmate/ripple.tmLanguage.json');
+const sourceJson = path.join(rootDir, 'grammars/textmate/tsrx.tmLanguage.json');
 const sourcePlist = path.join(rootDir, 'grammars/textmate/info.plist');
-const assetBundleGrammar = path.join(rootDir, 'assets/Ripple.tmbundle/Syntaxes/ripple.tmLanguage');
+const assetBundleGrammar = path.join(rootDir, 'assets/TSRX.tmbundle/Syntaxes/tsrx.tmLanguage');
 
 const jsonTargetFiles = [
 	'packages/vscode-plugin/syntaxes/tsrx.tmLanguage.json',
-	'packages/intellij-plugin/src/main/resources/textmate/Syntaxes/ripple.tmLanguage.json',
+	'packages/intellij-plugin/src/main/resources/textmate/Syntaxes/tsrx.tmLanguage.json',
 ];
 
 const plistTargetFiles = ['packages/intellij-plugin/src/main/resources/textmate/info.plist'];

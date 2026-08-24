@@ -7,11 +7,11 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ripple-TS/ripple.git",
+    "url": "git+https://github.com/tsrx-org/tsrx.git",
     "directory": "packages/tsrx-mcp"
   },
   "bugs": {
-    "url": "https://github.com/Ripple-TS/ripple/issues"
+    "url": "https://github.com/tsrx-org/tsrx/issues"
   },
   "homepage": "https://tsrx.dev",
   "publishConfig": {

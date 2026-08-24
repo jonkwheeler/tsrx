@@ -1,13 +1,12 @@
 {
-  "name": "@ripple-ts/sublime-text-plugin",
+  "name": "@tsrx/sublime-text-plugin",
   "version": "0.0.82",
-  "description": "Sublime Text support for TSRX and Ripple",
+  "description": "Sublime Text support for TSRX",
   "private": true,
   "keywords": [
     "sublime-text",
     "sublime",
     "plugin",
-    "ripple",
     "tsrx"
   ],
   "scripts": {
@@ -19,7 +18,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ripple-TS/ripple.git",
+    "url": "git+https://github.com/tsrx-org/tsrx.git",
     "directory": "packages/sublime-text-plugin"
   },
   "devDependencies": {

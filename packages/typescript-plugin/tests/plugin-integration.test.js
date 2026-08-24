@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup_fixture_workspaces, create_fixture_workspace } from './workspace-fixtures.js';
 import * as ts from 'typescript';
 import {
-	getRippleLanguagePlugin,
-	getRippleDirForFile,
+	getTsrxLanguagePlugin,
+	getTsrxCompilerDirForFile,
 	get_tsrx_compiler_name_for_file,
 	TSRXVirtualCode,
 	_reset_for_test,
@@ -42,15 +42,15 @@ function create_snapshot(source) {
 }
 
 /**
- * @param {Parameters<typeof getRippleLanguagePlugin>[0]} [options]
- * @returns {ReturnType<typeof getRippleLanguagePlugin>}
+ * @param {Parameters<typeof getTsrxLanguagePlugin>[0]} [options]
+ * @returns {ReturnType<typeof getTsrxLanguagePlugin>}
  */
 function create_plugin(options) {
-	return getRippleLanguagePlugin(options);
+	return getTsrxLanguagePlugin(options);
 }
 
 /**
- * @param {ReturnType<typeof getRippleLanguagePlugin>} plugin
+ * @param {ReturnType<typeof getTsrxLanguagePlugin>} plugin
  * @param {string} file_name
  * @param {string} source
  * @returns {TSRXVirtualCode}
@@ -65,7 +65,7 @@ function create_virtual_code(plugin, file_name, source) {
 	const ctx = { getAssociatedScript: () => undefined };
 
 	return /** @type {TSRXVirtualCode} */ (
-		create_virtual_code_fn(file_name, 'ripple', create_snapshot(source), ctx)
+		create_virtual_code_fn(file_name, 'tsrx', create_snapshot(source), ctx)
 	);
 }
 
@@ -83,7 +83,7 @@ async function compile_debug_fixture(workspace_name, configure, file_parts = ['s
 	vi.resetModules();
 	const error_spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 	const warning_spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-	const { getRippleLanguagePlugin: create_debug_plugin, _reset_for_test: reset_debug_plugin } =
+	const { getTsrxLanguagePlugin: create_debug_plugin, _reset_for_test: reset_debug_plugin } =
 		await import('../src/language.js');
 	const { workspace, config_path, file_name } = prepare_fixture(
 		workspace_name,
@@ -208,7 +208,7 @@ function malformed_files(scenario) {
 /** @param {Awaited<ReturnType<typeof compile_debug_fixture>>} result @param {'error_spy' | 'warning_spy'} method @param {...unknown} parts */
 function expect_log(result, method, ...parts) {
 	// prettier-ignore
-	expect(result[method]).toHaveBeenCalledWith('[Ripple Language]', ...parts.map((part) => typeof part === 'string' ? expect.stringContaining(part) : part));
+	expect(result[method]).toHaveBeenCalledWith('[TSRX Language]', ...parts.map((part) => typeof part === 'string' ? expect.stringContaining(part) : part));
 }
 
 /**
@@ -242,7 +242,7 @@ describe('typescript-plugin language plugin integration', () => {
 	it('recognizes only .tsrx through the language plugin', () => {
 		const plugin = create_plugin();
 
-		expect(plugin.getLanguageId('/tmp/App.tsrx')).toBe('ripple');
+		expect(plugin.getLanguageId('/tmp/App.tsrx')).toBe('tsrx');
 		expect(plugin.getLanguageId('/tmp/App.ripple')).toBeUndefined();
 		expect(plugin.getLanguageId('/tmp/App.rsrx')).toBeUndefined();
 		expect(plugin.getLanguageId('/tmp/App.ts')).toBeUndefined();
@@ -404,7 +404,7 @@ describe('typescript-plugin language plugin integration', () => {
 			const workspace = create_fixture_workspace(workspace_name);
 			const file_name = path.join(workspace, 'src', 'App.tsrx');
 
-			expect(fs.realpathSync(/** @type {string} */ (getRippleDirForFile(file_name)))).toBe(
+			expect(fs.realpathSync(/** @type {string} */ (getTsrxCompilerDirForFile(file_name)))).toBe(
 				fs.realpathSync(path.join(workspace, ...compiler_parts)),
 			);
 		},
@@ -421,7 +421,7 @@ describe('typescript-plugin language plugin integration', () => {
 		);
 		fs.unlinkSync(compiler_package_json);
 
-		expect(getRippleDirForFile(path.join(workspace, 'src', 'App.tsrx'))).toBeUndefined();
+		expect(getTsrxCompilerDirForFile(path.join(workspace, 'src', 'App.tsrx'))).toBeUndefined();
 	});
 
 	it('caches a declared compiler resolution for repeated edits in the tsconfig directory', () => {
@@ -607,9 +607,9 @@ describe('typescript-plugin language plugin integration', () => {
 
 		expect(virtual_code.generatedCode).toContain('compiler:ripple');
 		expect(get_tsrx_compiler_name_for_file(file_name, context)).toBe('@tsrx/ripple');
-		expect(fs.realpathSync(/** @type {string} */ (getRippleDirForFile(file_name, context)))).toBe(
-			fs.realpathSync(path.join(workspace, 'node_modules', '@tsrx', 'ripple')),
-		);
+		expect(
+			fs.realpathSync(/** @type {string} */ (getTsrxCompilerDirForFile(file_name, context))),
+		).toBe(fs.realpathSync(path.join(workspace, 'node_modules', '@tsrx', 'ripple')));
 	});
 
 	// prettier-ignore
@@ -843,7 +843,7 @@ describe('typescript-plugin language plugin integration', () => {
 		expect(
 			create_virtual_code_fn(
 				path.join(create_fixture_workspace('both'), 'src', 'App.ripple'),
-				'ripple',
+				'tsrx',
 				create_snapshot('<div>Hello</div>'),
 			),
 		).toBeUndefined();

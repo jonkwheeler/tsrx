@@ -11,19 +11,19 @@ import {
 import path from 'path';
 import {
 	normalizeFileNameOrUri,
-	getRippleDirForFile,
+	getTsrxCompilerDirForFile,
 	getCachedTypeDefinitionFile,
 	getCachedTypeMatches,
 } from '@tsrx/typescript-plugin/src/language.js';
 
-const { log } = createLogging('[Ripple Definition Plugin]');
+const { log } = createLogging('[TSRX Definition Plugin]');
 
 /**
  * @returns {LanguageServicePlugin}
  */
 export function createDefinitionPlugin() {
 	return {
-		name: 'ripple-definition',
+		name: 'tsrx-definition',
 		capabilities: {
 			definitionProvider: true,
 		},
@@ -46,7 +46,7 @@ export function createDefinitionPlugin() {
 
 					const { virtualCode, sourceUri } = getVirtualCode(document, context);
 
-					if (virtualCode.languageId !== 'ripple') {
+					if (virtualCode.languageId !== 'tsrx') {
 						// like embedded css
 						log(`Skipping definitions processing in the '${virtualCode.languageId}' context`);
 						return tsDefinitions;
@@ -73,17 +73,17 @@ export function createDefinitionPlugin() {
 						log(`Found replace definition for ${typeName}`);
 
 						const filePath = sourceUri.fsPath || sourceUri.path;
-						const ripple_dir = getRippleDirForFile(
+						const compiler_dir = getTsrxCompilerDirForFile(
 							normalizeFileNameOrUri(filePath),
 							compiler_resolution_options,
 						);
 
-						if (!ripple_dir) {
-							log(`Could not determine Ripple source directory for file: ${filePath}`);
+						if (!compiler_dir) {
+							log(`Could not determine the TSRX compiler directory for file: ${filePath}`);
 							return;
 						}
 
-						const typesFilePath = path.join(ripple_dir, ...typePath.split('/'));
+						const typesFilePath = path.join(compiler_dir, ...typePath.split('/'));
 
 						const fileContent = getCachedTypeDefinitionFile(typesFilePath);
 
@@ -168,7 +168,7 @@ export function createDefinitionPlugin() {
 							// Create a TextDocument from the source code for proper position calculations
 							const sourceDocument = TextDocument.create(
 								sourceUri.toString(),
-								'ripple',
+								'tsrx',
 								0,
 								virtualCode.originalCode,
 							);

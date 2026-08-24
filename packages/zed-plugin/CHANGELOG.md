@@ -1,4 +1,4 @@
-# @ripple-ts/zed-plugin
+# @tsrx/zed-plugin
 
 ## 0.0.86
 

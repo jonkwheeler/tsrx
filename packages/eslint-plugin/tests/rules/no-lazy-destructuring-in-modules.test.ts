@@ -17,12 +17,12 @@ ruleTester.run('no-lazy-destructuring-in-modules', rule, {
 		// Valid: using .value in TypeScript modules
 		{
 			code: `
-				import { track, effect } from 'ripple';
+				import { signal, watch } from 'signals';
 
 				export function useCount() {
-					const count = track(1);
+					const count = signal(1);
 
-					effect(() => {
+					watch(() => {
 						console.log(count.value);
 					});
 
@@ -34,11 +34,11 @@ ruleTester.run('no-lazy-destructuring-in-modules', rule, {
 		// Valid: using .value in regular JavaScript
 		{
 			code: `
-				import { track, effect } from 'ripple';
+				import { signal, watch } from 'signals';
 
 				function useCounter() {
-					const count = track(0);
-					effect(() => {
+					const count = signal(0);
+					watch(() => {
 						console.log(count.value);
 					});
 					return { count };
@@ -49,11 +49,11 @@ ruleTester.run('no-lazy-destructuring-in-modules', rule, {
 		// Valid: lazy destructuring in .tsrx files should be allowed
 		{
 			code: `
-				import { track, effect } from 'ripple';
+				import { signal, watch } from 'signals';
 				function Counter() {
 					return <>
-					let &[count] = track(0);
-					effect(() => {
+					let &[count] = signal(0);
+					watch(() => {
 						console.log(count);
 					});
 					<div>{count}</div>
@@ -65,7 +65,7 @@ ruleTester.run('no-lazy-destructuring-in-modules', rule, {
 		// Valid: lazy object destructuring in .tsrx files
 		{
 			code: `
-				import { track } from 'ripple';
+				import { signal } from 'signals';
 				function Child(&{ count, name }: Props) {
 					return <>
 					<div>{count}{name}</div>
@@ -79,10 +79,10 @@ ruleTester.run('no-lazy-destructuring-in-modules', rule, {
 		{
 			// Invalid: using &[] lazy array destructuring in TypeScript module
 			code: `
-				import { track, effect } from 'ripple';
+				import { signal, watch } from 'signals';
 				export function useCount() {
-					const &[count] = track(1);
-					effect(() => {
+					const &[count] = signal(1);
+					watch(() => {
 						console.log(count);
 					});
 					return { count };
@@ -98,9 +98,9 @@ ruleTester.run('no-lazy-destructuring-in-modules', rule, {
 		{
 			// Invalid: using &[] in JavaScript module
 			code: `
-				import { track } from 'ripple';
+				import { signal } from 'signals';
 				function useCounter() {
-					const &[value] = track(42);
+					const &[value] = signal(42);
 					const result = value * 2;
 					return result;
 				}
@@ -115,10 +115,10 @@ ruleTester.run('no-lazy-destructuring-in-modules', rule, {
 		{
 			// Invalid: multiple &[] in TypeScript module
 			code: `
-				import { track } from 'ripple';
+				import { signal } from 'signals';
 				export function useForm() {
-					const &[firstName] = track('');
-					const &[lastName] = track('');
+					const &[firstName] = signal('');
+					const &[lastName] = signal('');
 					const fullName = firstName + ' ' + lastName;
 					return { fullName };
 				}
@@ -136,10 +136,10 @@ ruleTester.run('no-lazy-destructuring-in-modules', rule, {
 		{
 			// Invalid: &[] lazy destructuring in TSX file
 			code: `
-				import { track, effect } from 'ripple';
+				import { signal, watch } from 'signals';
 				export function useData() {
-					const &[data] = track(null);
-					effect(() => {
+					const &[data] = signal(null);
+					watch(() => {
 						console.log(data);
 					});
 					return data;

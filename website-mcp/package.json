@@ -12,7 +12,7 @@
     "@tsrx/mcp": "workspace:*",
     "@tsrx/preact": "workspace:*",
     "@tsrx/react": "workspace:*",
-    "@tsrx/ripple": "workspace:*",
+    "@tsrx/ripple": "catalog:default",
     "@tsrx/solid": "workspace:*",
     "@tsrx/vue": "workspace:*"
   }

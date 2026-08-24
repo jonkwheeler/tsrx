@@ -1818,7 +1818,7 @@ describe('lazy destructuring', () => {
 			expect(code).not.toContain('@tsrx/react/ref');
 		});
 
-		it('passes a single Ripple ref={expr} through as ref={expr} with no helper import', () => {
+		it('passes a single TSRX ref={expr} through as ref={expr} with no helper import', () => {
 			const { code } = compile(
 				`export function App() @{
 					function refA(_node) {}

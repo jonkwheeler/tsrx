@@ -80,7 +80,7 @@ describe('ref runtime types', () => {
 		});
 
 		it('carries non-Element node types through', () => {
-			// Ripple components can hold refs to values that are not DOM elements,
+			// TSRX components can hold refs to values that are not DOM elements,
 			// so inference must win over the `Element` default.
 			const { errors, types } = check(`
 				class Widget {}

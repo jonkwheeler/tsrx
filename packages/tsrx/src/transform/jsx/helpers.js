@@ -41,7 +41,7 @@ export function is_empty_jsx_fragment(node) {
 }
 
 /**
- * Match Ripple's transform path metadata shape: every node seen by the walker
+ * Maintain TSRX transform path metadata: every node seen by the walker
  * carries its current ancestor path for downstream CSS pruning and mapping
  * helpers.
  *

@@ -136,7 +136,7 @@ const items=[1,2,3];
 	it('formats setup statements and wrapped render output in a fragment code block', async () => {
 		const input = `function SetTest() {
     return <>@{
-        let items = new RippleSet([1, 2, 3]);
+        let items = new ReactiveSet([1, 2, 3]);
         let &[hasValue] = track(() => items.has(2));
         <>
             <button onClick={() => items.delete(2)}>{'delete'}</button>
@@ -146,7 +146,7 @@ const items=[1,2,3];
 }`;
 		const expected = `function SetTest() {
   return <>@{
-    let items = new RippleSet([1, 2, 3]);
+    let items = new ReactiveSet([1, 2, 3]);
     let &[hasValue] = track(() => items.has(2));
     <>
       <button onClick={() => items.delete(2)}>{"delete"}</button>
@@ -1718,10 +1718,10 @@ async function load() {
 		});
 
 		it('should handle import type statements', async () => {
-			const input = `import { type Component } from 'ripple';
-import { Something, type Props, track } from 'ripple';`;
-			const expected = `import { type Component } from 'ripple';
-import { Something, type Props, track } from 'ripple';`;
+			const input = `import { type Component } from '@example/runtime';
+import { Something, type Props, track } from '@example/runtime';`;
+			const expected = `import { type Component } from '@example/runtime';
+import { Something, type Props, track } from '@example/runtime';`;
 			const result = await format(input, { singleQuote: true });
 			expect(result).toBeWithNewline(expected);
 		});
@@ -1784,7 +1784,7 @@ function assertTruthy(x: unknown): asserts x {}`;
 		});
 
 		it('should format long import statements correctly', async () => {
-			const input = `import { flushSync, track, effect, bindValue, bindChecked, bindGroup, bindClientWidth, bindClientHeight, bindOffsetWidth, bindOffsetHeight, bindContentRect, bindContentBoxSize, bindBorderBoxSize, bindDevicePixelContentBoxSize, bindInnerHTML, bindInnerText, bindTextContent, bindNode } from 'ripple';`;
+			const input = `import { flushSync, track, effect, bindValue, bindChecked, bindGroup, bindClientWidth, bindClientHeight, bindOffsetWidth, bindOffsetHeight, bindContentRect, bindContentBoxSize, bindBorderBoxSize, bindDevicePixelContentBoxSize, bindInnerHTML, bindInnerText, bindTextContent, bindNode } from '@example/runtime';`;
 			const expected = `import {
   flushSync,
   track,
@@ -1804,7 +1804,7 @@ function assertTruthy(x: unknown): asserts x {}`;
   bindInnerText,
   bindTextContent,
   bindNode,
-} from 'ripple';`;
+} from '@example/runtime';`;
 
 			const result = await format(input, { singleQuote: true, printWidth: 80 });
 			expect(result).toBeWithNewline(expected);
@@ -1921,7 +1921,7 @@ export function Test({ a, b }: Props) {}`;
 			const expected = `// comment
 
 import { useCount, incrementCount } from './useCount';
-import { effect, track } from 'ripple';`;
+import { effect, track } from '@example/runtime';`;
 
 			const result = await format(expected, { singleQuote: true, printWidth: 100 });
 			expect(result).toBeWithNewline(expected);
@@ -2194,9 +2194,9 @@ const [obj1, obj2] = arrayOfObjects;`;
 			expect(result).toBeWithNewline(expected);
 		});
 
-		it('should keep RippleMap short syntax intact', async () => {
-			const expected = `const map = new RippleMap([['key1', 'value1'], ['key2', 'value2']]);
-const set = new RippleSet([1, 2, 3]);`;
+		it('should keep ReactiveMap short syntax intact', async () => {
+			const expected = `const map = new ReactiveMap([['key1', 'value1'], ['key2', 'value2']]);
+const set = new ReactiveSet([1, 2, 3]);`;
 
 			const result = await format(expected, { singleQuote: true, printWidth: 100 });
 			expect(result).toBeWithNewline(expected);
@@ -2251,7 +2251,7 @@ enum Status {
   getRootNode?: GetRootNode | undefined;
 }
 
-import { Portal as RipplePortal } from 'ripple';`;
+import { Portal as RuntimePortal } from '@example/runtime';`;
 
 			const result = await format(expected, { singleQuote: true, printWidth: 100 });
 			expect(result).toBeWithNewline(expected);
@@ -2260,7 +2260,7 @@ import { Portal as RipplePortal } from 'ripple';`;
 		it('should preserve blank lines between export statements and import statements or comments', async () => {
 			const expected = `export { handler } from './test.tsrx';
 
-import { Portal as RipplePortal } from 'ripple';
+import { Portal as RuntimePortal } from '@example/runtime';
 
 // export { something } from './test.tsrx;
 
@@ -2271,7 +2271,7 @@ import { GetRootNode } from './somewhere';`;
 		});
 
 		it('should preserve export interface with extends as provided', async () => {
-			const expected = `export interface RippleArray<T> extends Array<T> {}`;
+			const expected = `export interface ReactiveArray<T> extends Array<T> {}`;
 
 			const result = await format(expected, { singleQuote: true, printWidth: 100 });
 			expect(result).toBeWithNewline(expected);
@@ -2283,7 +2283,7 @@ import { GetRootNode } from './somewhere';`;
  * @param {'contentRect' | 'contentBoxSize' | 'borderBoxSize' | 'devicePixelContentBoxSize'} type
  */
 function bind_element_rect(maybe_tracked, type) {
-  if (!is_ripple_object(maybe_tracked)) {
+  if (!is_tsrx_object(maybe_tracked)) {
     throw not_tracked_type_error(\`bind\${type.charAt(0).toUpperCase() + type.slice(1)}()\`);
   }
 
@@ -3062,7 +3062,7 @@ function Qux() {
 
 		it('keeps dynamic import TSImportType intact', async () => {
 			const expected = `let streamed_error: Error | null = null;
-const sink: import('ripple/server').SSRStreamSink = {
+const sink: import('@example/runtime/server').SSRStreamSink = {
   push(_chunk: string) {},
   close() {},
   error(reason: unknown) {
@@ -3126,7 +3126,7 @@ let message: string[] = [];
 
 // comments should be preserved
 
-message.push(greet(\`Ripple\`));
+message.push(greet(\`TSRX\`));
 message.push(\`User: \${JSON.stringify({ name: 'Alice', age: 30 } as User)}\`);`;
 
 			const expected = `type User = { name: string; age: number };
@@ -3134,7 +3134,7 @@ let message: string[] = [];
 
 // comments should be preserved
 
-message.push(greet(\`Ripple\`));
+message.push(greet(\`TSRX\`));
 message.push(\`User: \${JSON.stringify({ name: "Alice", age: 30 } as User)}\`);`;
 
 			const result = await format(input);
@@ -3144,12 +3144,12 @@ message.push(\`User: \${JSON.stringify({ name: "Alice", age: 30 } as User)}\`);`
 		it('should correctly handle inline jsx like comments', async () => {
 			const input = `let message: string[] = []; // comments should be preserved
 
-message.push(/* Some test comment */ greet(\`Ripple\`));
+message.push(/* Some test comment */ greet(\`TSRX\`));
 `;
 
 			const expected = `let message: string[] = []; // comments should be preserved
 
-message.push(/* Some test comment */ greet(\`Ripple\`));`;
+message.push(/* Some test comment */ greet(\`TSRX\`));`;
 
 			const result = await format(input);
 			expect(result).toBeWithNewline(expected);
@@ -3158,12 +3158,12 @@ message.push(/* Some test comment */ greet(\`Ripple\`));`;
 		it('should correctly handle inline document like comments', async () => {
 			const input = `let message: string[] = []; // comments should be preserved
 
-message.push(/* Some test comment */ greet( /* Some text */ \`Ripple\`));
+message.push(/* Some test comment */ greet( /* Some text */ \`TSRX\`));
 `;
 
 			const expected = `let message: string[] = []; // comments should be preserved
 
-message.push(/* Some test comment */ greet(/* Some text */ \`Ripple\`));`;
+message.push(/* Some test comment */ greet(/* Some text */ \`TSRX\`));`;
 
 			const result = await format(input);
 			expect(result).toBeWithNewline(expected);
@@ -5538,7 +5538,7 @@ function Polygon() {
 			expect(result).toBeWithNewline(expected);
 		});
 
-		it('should format template arrow returns in tsx attributes like ripple attributes', async () => {
+		it('should format template arrow returns in TSX attributes like TSRX attributes', async () => {
 			const input = `function Test(props) {
 	const view = <>
 	<List
@@ -5905,9 +5905,9 @@ if (status === 'a') status = 'b'; else if (status === 'b') status = 'c'; else st
 			expect(result).toBeWithNewline(expected);
 		});
 
-		it('should keep RippleSet parents with short syntax and no args intact', async () => {
+		it('should keep ReactiveSet parents with short syntax and no args intact', async () => {
 			const expected = `function SetTest() @{
-  let items = new RippleSet();
+  let items = new ReactiveSet();
 
   <>
     <button onClick={() => items.add(1)}>{'add'}</button>
@@ -5919,9 +5919,9 @@ if (status === 'a') status = 'b'; else if (status === 'b') status = 'c'; else st
 			expect(result).toBeWithNewline(expected);
 		});
 
-		it('should keep RippleMap parents with short syntax and no args intact', async () => {
+		it('should keep ReactiveMap parents with short syntax and no args intact', async () => {
 			const expected = `function MapTest() @{
-  let items = new RippleMap();
+  let items = new ReactiveMap();
 
   <>
     <button onClick={() => items.set('key', 1)}>{'add'}</button>
@@ -6185,7 +6185,7 @@ if(n<2){go("now")}</script>`;
 			expect(result).toBeWithNewline(expected);
 		});
 
-		it("should correctly handle comments according to Ripple's syntax", async () => {
+		it('should correctly handle comments in TSRX syntax', async () => {
 			const input = `// input
 <>
   <section>
@@ -6299,7 +6299,7 @@ if(n<2){go("now")}</script>`;
 
 		it('should preserve the order of try / pending / catch blocks', async () => {
 			const expected = `function Test() {
-  let items: RippleArray<string> | null = null;
+  let items: ReactiveArray<string> | null = null;
   let error: string | null = null;
 
   async function* throwingIterable() {
@@ -6307,7 +6307,7 @@ if(n<2){go("now")}</script>`;
   }
 
   return @try {
-    items = RippleArray.fromAsync(throwingIterable());
+    items = ReactiveArray.fromAsync(throwingIterable());
     @for (const item of items) {
       <li>{item}</li>
     }
@@ -6470,7 +6470,7 @@ if(n<2){go("now")}</script>`;
 		it('should preserve comments above attributes on dom elements', async () => {
 			const expected = `function App() {
   return <div
-    // @ripple-ignore
+    // @tsrx-ignore
     something="test"
   >
     test
@@ -6484,7 +6484,7 @@ if(n<2){go("now")}</script>`;
 		it('should preserve comments above attributes on components', async () => {
 			const expected = `function App() {
   return <Child
-    // @ripple-ignore
+    // @tsrx-ignore
     something="test"
   >
     test

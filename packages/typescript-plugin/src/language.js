@@ -12,7 +12,7 @@
 // Side-effect import: augments @volar/language-core's LanguagePlugin with the `typescript` field.
 /** @typedef {typeof import('@volar/typescript')} _VolarTypeScriptAugmentation */
 /** @typedef {import('./consumer-compiler.js').CompilerResolutionOptions} CompilerResolutionOptions */
-/** @typedef {import('@volar/language-core').LanguagePlugin<ScriptId, VirtualCode>} RippleLanguagePlugin */
+/** @typedef {import('@volar/language-core').LanguagePlugin<ScriptId, VirtualCode>} TsrxLanguagePlugin */
 
 /** @typedef {InstanceType<typeof import('./language.js')["TSRXVirtualCode"]>} TSRXVirtualCodeInstance */
 
@@ -31,10 +31,10 @@ import { createLogging, DEBUG } from './utils.js';
 const require = createRequire(import.meta.url);
 const root_dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const { log, logWarning, logError } = createLogging('[Ripple Language]');
+const { log, logWarning, logError } = createLogging('[TSRX Language]');
 /** @type {Set<string>} */
 const loggedCompilationFailures = new Set();
-export const RIPPLE_EXTENSIONS = ['.tsrx'];
+export const TSRX_EXTENSIONS = ['.tsrx'];
 /**
  * `[package name, package directory parts, supported extensions, package hints, entry candidates?]`.
  * Entry candidates are relative to the package directory and are probed in order,
@@ -95,16 +95,16 @@ const DEFAULT_COMPILER_ENTRY_CANDIDATES = [['src', 'index.js']];
  * @param {string} file_name
  * @returns {boolean}
  */
-export function is_ripple_file(file_name) {
-	return RIPPLE_EXTENSIONS.some((extension) => file_name.endsWith(extension));
+export function is_tsrx_file(file_name) {
+	return TSRX_EXTENSIONS.some((extension) => file_name.endsWith(extension));
 }
 
 /**
  * @param {CompilerResolutionOptions} [options]
- * @returns {RippleLanguagePlugin}
+ * @returns {TsrxLanguagePlugin}
  */
-export function getRippleLanguagePlugin(options = {}) {
-	log('Creating Ripple language plugin...');
+export function getTsrxLanguagePlugin(options = {}) {
+	log('Creating TSRX language plugin...');
 	const typescript = options.ts ?? ts;
 	/** @type {CompilerResolutionOptions} */
 	const compiler_resolution_options = {
@@ -119,22 +119,22 @@ export function getRippleLanguagePlugin(options = {}) {
 				typeof fileNameOrUri === 'string'
 					? fileNameOrUri
 					: fileNameOrUri.fsPath.replace(/\\/g, '/');
-			if (is_ripple_file(file_name)) {
-				log('Identified Ripple file:', file_name);
-				return 'ripple';
+			if (is_tsrx_file(file_name)) {
+				log('Identified TSRX file:', file_name);
+				return 'tsrx';
 			}
 		},
 		createVirtualCode(fileNameOrUri, languageId, snapshot) {
-			if (languageId === 'ripple') {
+			if (languageId === 'tsrx') {
 				const file_name = normalizeFileNameOrUri(fileNameOrUri);
-				const ripple = get_tsrx_compiler(file_name, compiler_resolution_options);
-				if (!ripple) {
-					logError(`Ripple compiler not found for file: ${file_name}`);
+				const compiler = get_tsrx_compiler(file_name, compiler_resolution_options);
+				if (!compiler) {
+					logError(`TSRX compiler not found for file: ${file_name}`);
 					return undefined;
 				}
 				log('Creating virtual code for:', file_name);
 				try {
-					return new TSRXVirtualCode(file_name, snapshot, ripple);
+					return new TSRXVirtualCode(file_name, snapshot, compiler);
 				} catch (err) {
 					logError('Failed to create virtual code for:', file_name, ':', err);
 					throw err;
@@ -152,17 +152,17 @@ export function getRippleLanguagePlugin(options = {}) {
 		},
 
 		typescript: {
-			extraFileExtensions: RIPPLE_EXTENSIONS.map((extension) => ({
+			extraFileExtensions: TSRX_EXTENSIONS.map((extension) => ({
 				extension: extension.slice(1),
 				isMixedContent: false,
 				scriptKind: 7,
 			})),
 			/**
-			 * @param {VirtualCode} ripple_code
+			 * @param {VirtualCode} tsrx_code
 			 */
-			getServiceScript(ripple_code) {
-				for (const code of forEachEmbeddedCode(ripple_code)) {
-					if (code.languageId === 'ripple') {
+			getServiceScript(tsrx_code) {
+				for (const code of forEachEmbeddedCode(tsrx_code)) {
+					if (code.languageId === 'tsrx') {
 						return {
 							code,
 							extension: '.tsx',
@@ -192,12 +192,12 @@ export function getRippleLanguagePlugin(options = {}) {
 						 * unique. Only honored on the language-server (`createTypeScriptProject`)
 						 * path, not the tsserver-plugin path.
 						 * @param {string} fileName
-						 * @param {VirtualCode} ripple_code
+						 * @param {VirtualCode} tsrx_code
 						 */
-						getExtraServiceScripts(fileName, ripple_code) {
+						getExtraServiceScripts(fileName, tsrx_code) {
 							/** @type {Array<{ fileName: string, code: VirtualCode, extension: string, scriptKind: number }>} */
 							const scripts = [];
-							for (const code of forEachEmbeddedCode(ripple_code)) {
+							for (const code of forEachEmbeddedCode(tsrx_code)) {
 								if (code.languageId === 'typescript') {
 									scripts.push({
 										fileName: `${fileName}.${code.id}.ts`,
@@ -221,7 +221,7 @@ export class TSRXVirtualCode {
 	/** @type {string} */
 	id = 'root';
 	/** @type {string} */
-	languageId = 'ripple';
+	languageId = 'tsrx';
 	/** @type {unknown[]} */
 	codegenStacks = [];
 	/** @type {TSRXCompilerModule} */
@@ -267,10 +267,10 @@ export class TSRXVirtualCode {
 		this.sourceSnapshot = snapshot;
 		this.originalCode = snapshot.getText(0, snapshot.getLength());
 
-		// Validate ripple compiler
+		// Validate the selected TSRX compiler.
 		if (!tsrx || typeof tsrx.compile_to_volar_mappings !== 'function') {
-			logError('Invalid ripple compiler - missing compile_to_volar_mappings method');
-			throw new Error('Invalid ripple compiler');
+			logError('Invalid TSRX compiler - missing compile_to_volar_mappings method');
+			throw new Error('Invalid TSRX compiler');
 		}
 
 		this.update(snapshot);
@@ -360,7 +360,7 @@ export class TSRXVirtualCode {
 				}
 			} else {
 				// Normal compilation
-				log('Compiling Ripple code...');
+				log('Compiling TSRX code...');
 				transpiled = this.tsrx.compile_to_volar_mappings(newCode, this.fileName, {
 					loose: true,
 				});
@@ -368,7 +368,7 @@ export class TSRXVirtualCode {
 			}
 		} catch (e) {
 			const error = /** @type {CompileError} */ (e);
-			logError('Ripple compilation failed for', this.fileName, ':', error);
+			logError('TSRX compilation failed for', this.fileName, ':', error);
 			if (process.env.TSRX_TSC === 'true') {
 				logTSRXErrors(this.fileName, [error]);
 			}
@@ -447,7 +447,7 @@ export class TSRXVirtualCode {
 
 			// Feed the raw source back as the generated code, with verification
 			// enabled. This lets TS parse it and surface errors at the broken
-			// construct itself — important when a Ripple compile error has no `pos`
+			// construct itself — important when a TSRX compile error has no `pos`
 			// (or an unreliable one), since the dedicated diagnostic plugin would
 			// otherwise pin the error to offset 0 (top of file, off-screen) and the
 			// user would have no signal pointing at the actual problem.
@@ -808,7 +808,7 @@ function restore_typed_dot_in_transpiled_code(transpiled, dotPosition) {
 
 	// Create a separate 1:1 mapping for the dot character instead of extending
 	// the existing mapping. When source and generated lengths differ (e.g.
-	// #ripple → _$__u0023_ripple), Volar's translateOffset uses
+	// #state → _$__u0023_state), Volar's translateOffset uses
 	// Math.min(relativePos, toLength) which would map the cursor after the dot
 	// to the middle of the generated identifier instead of after it.
 
@@ -902,7 +902,7 @@ export const resolveConfig = (config) => {
 };
 
 /** @type {Map<string, string | null>} */
-export const path2RipplePathMap = new Map();
+export const path2TsrxCompilerPathMap = new Map();
 /** @type {Map<string, { mtimeMs: number, size: number, content: string }>} */
 const pathToTypesCache = new Map();
 /** @type {Map<string, { text: string, matches: Map<string, RegExpMatchArray> }>} */
@@ -1054,7 +1054,7 @@ function normalize_tsrx_compiler_module(compiler_module) {
 export function find_workspace_compiler_entry_for_file(
 	normalized_file_name,
 	exists_sync = fs.existsSync,
-	compiler_path_map = path2RipplePathMap,
+	compiler_path_map = path2TsrxCompilerPathMap,
 ) {
 	const parts = normalized_file_name.split('/');
 	const ext = path.extname(normalized_file_name);
@@ -1218,7 +1218,7 @@ export function get_tsrx_compiler_name_for_file(file_name, options) {
  * @param {CompilerResolutionOptions} [options]
  * @returns {boolean}
  */
-export function is_ripple_platform_file(file_name, options) {
+export function is_ripple_target_file(file_name, options) {
 	return get_tsrx_compiler_name_for_file(file_name, options) === '@tsrx/ripple';
 }
 
@@ -1255,7 +1255,7 @@ export function getCachedTypeDefinitionFile(typesFilePath) {
 		return cached.content;
 	}
 
-	log(`Found ripple types at: ${typesFilePath}`);
+	log(`Found TSRX types at: ${typesFilePath}`);
 
 	// Read the file to find the class definition offset
 	const fileContent = fs.readFileSync(typesFilePath, 'utf8');
@@ -1337,14 +1337,14 @@ export function get_compiler_dir_for_file(normalized_file_name, options) {
 	}
 }
 
-export { get_compiler_dir_for_file as getRippleDirForFile };
+export { get_compiler_dir_for_file as getTsrxCompilerDirForFile };
 
 /**
  * Drop compiler-selection state. Loaded ESM compiler graphs cannot be evicted
  * safely in-process; language-server package watchers restart the process.
  */
 export function invalidateCompilerResolutionCaches() {
-	path2RipplePathMap.clear();
+	path2TsrxCompilerPathMap.clear();
 	pathToPackageManifestCache.clear();
 	reset_consumer_compiler_resolution_caches();
 	loggedCompilationFailures.clear();
@@ -1372,3 +1372,18 @@ export function _reset_for_test() {
 	invalidateCompilerResolutionCaches();
 	invalidateTypeDefinitionCaches();
 }
+
+// Compatibility aliases for consumers of earlier @tsrx/typescript-plugin
+// releases. New code should use the target-neutral TSRX names above.
+/** @deprecated Use `TSRX_EXTENSIONS`. */
+export const RIPPLE_EXTENSIONS = TSRX_EXTENSIONS;
+/** @deprecated Use `is_tsrx_file`. */
+export const is_ripple_file = is_tsrx_file;
+/** @deprecated Use `getTsrxLanguagePlugin`. */
+export const getRippleLanguagePlugin = getTsrxLanguagePlugin;
+/** @deprecated Use `path2TsrxCompilerPathMap`. */
+export const path2RipplePathMap = path2TsrxCompilerPathMap;
+/** @deprecated Use `getTsrxCompilerDirForFile`. */
+export const getRippleDirForFile = get_compiler_dir_for_file;
+/** @deprecated Use `is_ripple_target_file`. */
+export const is_ripple_platform_file = is_ripple_target_file;

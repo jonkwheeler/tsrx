@@ -1,235 +1,106 @@
-# Contributing to Ripple
+# Contributing to TSRX
 
-Ripple is a TypeScript UI framework that combines the best parts of React, Solid,
-and Svelte into one cohesive package. Built as a love letter to frontend
-development, Ripple introduces a JS/TS-first approach with `.tsrx` modules that
-provide an excellent developer experience for both humans and LLMs.
+TSRX is a TypeScript superset for authoring components that compile to multiple
+frameworks. This repository owns the language, shared compiler infrastructure,
+non-Ripple compiler targets, tooling, editor integrations, grammars, playgrounds,
+and TSRX websites.
 
-The [Open Source Guides](https://opensource.guide/) website offers valuable
-resources for individuals, communities, and companies looking to contribute to
-open source projects. Both newcomers and experienced contributors will find these
-guides particularly helpful:
+Before starting a substantial change, please search the
+[existing issues](https://github.com/tsrx-org/tsrx/issues). Open an issue first
+when a proposal changes syntax, public APIs, compiler output, or package
+ownership. Small fixes and focused documentation improvements can go directly to a
+pull request.
 
-- [How to Contribute to Open Source](https://opensource.guide/how-to-contribute/)
-- [Building Welcoming Communities](https://opensource.guide/building-community/)
+Questions and early ideas are welcome in the
+[TSRX Discord](https://discord.gg/HCYpT5QHQR).
 
-## Ways to Get Involved
+## Development setup
 
-There are numerous ways to contribute to Ripple, and many don't require writing
-code. Here are some ideas to get started:
+You need Node.js 22 or newer and the pnpm version declared in the root
+`package.json`.
 
-- **Start experimenting with Ripple**: Try out the
-  [Ripple Playground](https://www.ripple-ts.com/playground) and see how it works.
-  If you encounter issues or unexpected behavior, we'd love to hear about it
-  through [opening an issue](#reporting-issues).
-- **Browse existing issues**: Check out our
-  [open issues](https://github.com/Ripple-TS/ripple/issues). You can help by
-  providing workarounds or asking clarifying questions.
-- **Submit fixes**: Found an issue you'd like to tackle? Consider
-  [opening a pull request](#pull-requests).
-- **Help with documentation**: As Ripple grows, we'll need comprehensive
-  documentation. Any help improving clarity or filling gaps would be greatly
-  appreciated.
+```bash
+pnpm install
+```
 
-We welcome all contributions! If you need guidance in planning your contribution,
-please reach out on our Discord server and let us know you're looking for some
-direction.
+Use pnpm for workspace commands and dependency changes. Do not use npm or yarn for
+the monorepo.
 
-### Issue Triage
+## Finding the right package
 
-A fantastic way to contribute without coding is helping triage issues and pull
-requests:
+- `packages/tsrx` owns parsing, syntax transforms, and shared compiler behavior.
+- `packages/tsrx-{react,preact,solid,vue}` own target-specific compilation.
+- The matching Vite, Bun, Rspack, and Turbopack packages own bundler behavior.
+- `packages/typescript-plugin` and `packages/language-server` own diagnostics,
+  completions, navigation, and TypeScript integration.
+- Editor-specific behavior belongs in the corresponding editor plugin package.
+- `packages/eslint-*` and `packages/prettier-plugin` own linting and formatting.
+- `grammars/` owns the TextMate and Tree-sitter grammars.
 
-- Request additional information when issues lack sufficient detail for
-  resolution.
-- Identify stale issues that should be updated or closed.
-- Review code and suggest improvements.
-- Help organize and categorize incoming issues.
+Ripple is a supported external target. Its runtime, compiler target, adapters, and
+bundler plugin are developed in the
+[Ripple repository](https://github.com/Ripple-TS/ripple). Keep Ripple-runtime
+behavior isolated and target-gated in this repository.
 
-## Development Process
+## Validation
 
-### Planning Major Changes
+Run the smallest checks that cover your change, followed by the broader checks
+when the change crosses package boundaries:
 
-For significant new features or substantial changes, we encourage discussion
-before implementation. While we don't have a formal RFC process yet, please open
-an issue to discuss your ideas with the maintainers and community first.
+```bash
+pnpm format:check
+pnpm typecheck
+pnpm test
+```
 
-### Current Focus
+Vitest projects are listed in `vitest.config.js` and can be run individually:
 
-Ripple is in early alpha, so our priorities are:
+```bash
+pnpm test --project language-server
+pnpm test --project typescript-plugin
+pnpm test --project vscode-plugin
+```
 
-1. Stabilizing core functionality
-2. Improving TypeScript integration (note that the internal codebase is still
-   being migrated from JS, so some TypeScript errors are expected)
-3. Expanding test coverage
-4. Building and maintaining essential tooling
+When changing a generated grammar or shared agent rules, regenerate the checked in
+outputs:
 
-Keep in mind that this is a very early-stage project, so expect frequent changes
-and some rough edges.
+```bash
+pnpm regenerate-textmate
+pnpm copy-tree-sitter-queries
+pnpm rules:generate
+```
 
-### Communication
+## Code and documentation
 
-Since Ripple is a new project with a small team, we'll do our best to respond to
-issues and PRs promptly. Join [our Discord server](https://discord.gg/JBF2ySrh2W)
-for real-time discussion and updates.
+- Treat `.tsrx` as the canonical component extension.
+- Follow the style and language of the package you are changing; the repository
+  intentionally contains JavaScript, JSDoc-typed JavaScript, TypeScript, Rust,
+  Kotlin, Lua, and grammar sources.
+- Prefer nearby implementation and tests over historical summaries.
+- Keep target-neutral syntax separate from target runtime APIs.
+- Edit `.rulesync/rules/` and regenerate derived instruction files rather than
+  editing generated agent guidance directly.
 
-## Reporting Issues
+Current language documentation is available at [tsrx.dev](https://tsrx.dev/),
+including the [specification](https://tsrx.dev/specification) and
+[playground](https://tsrx.dev/playground).
 
-We track bugs using [GitHub issues](https://github.com/Ripple-TS/ripple/issues).
-Before reporting a new issue, please check if someone has already reported the
-same problem.
+## Changesets
 
-For questions about using Ripple, our Discord server is the best place to get help
-and connect with other developers.
-
-### Creating Bug Reports
-
-When [opening a new issue](https://github.com/Ripple-TS/ripple/issues/new), please
-include:
-
-- **Clear description**: Explain what you expected to happen and what actually
-  occurred.
-- **Reproduction steps**: Provide step-by-step instructions to reproduce the
-  issue.
-- **Environment details**: Include your operating system, Node.js version, and any
-  relevant setup information.
-- **Minimal example**: If possible, create a minimal reproduction case that
-  demonstrates the problem.
-
-**Important guidelines:**
-
-- Report one bug per issue
-- Be as specific as possible
-- Include code samples when relevant
-
-## Pull Requests
-
-### Before You Start
-
-For bug fixes, feel free to submit a pull request directly, but we recommend
-filing an issue first to discuss the problem and proposed solution.
-
-For new features, please open an issue to discuss the implementation before
-starting work. This helps ensure your contribution aligns with the project's
-direction.
-
-Keep pull requests focused and reasonably sized for easier review.
-
-### Development Setup
-
-You'll need [Node.js](https://nodejs.org/) and
-[pnpm](https://pnpm.io/installation) installed.
-
-1. Fork the repository
-2. Clone your fork locally
-3. Run `pnpm install` to install dependencies
-4. Create a new branch from `main` for your changes
-
-### Development Workflow
-
-Since Ripple is in development, the build process may evolve. Currently:
-
-- Run development builds and watch for changes as needed
-- Test your changes thoroughly
-- Ensure TypeScript compilation succeeds (if working with TS code)
-
-### Testing
-
-While our test suite is still being developed, please:
-
-- Test your changes manually
-- Verify that existing functionality still works
-- Include test cases for new features when possible
-- Document your testing approach in the PR description
-
-### Code Style
-
-We'll be implementing consistent code formatting soon. For now:
-
-- Follow existing code patterns in the repository
-- Use meaningful variable and function names
-- Include appropriate comments for complex logic
-- Maintain TypeScript types where applicable
-
-### Submitting Your PR
-
-Before submitting:
-
-1. **Test thoroughly**: Ensure your changes work as expected
-2. **Write clear commit messages**: Describe what and why, not just what
-3. **Update documentation**: If you've changed APIs or added features
-4. **Add a changeset**: For user-facing changes (see below)
-5. **Target the main branch**: All PRs should be opened against `main`
-6. **Keep it focused**: One feature or fix per PR
-
-### Changesets
-
-We use [Changesets](https://github.com/changesets/changesets) to manage versioning
-and changelogs. If your PR includes user-facing changes (bug fixes, new features,
-breaking changes), you should add a changeset:
+Add a changeset for user-facing package changes. Documentation-only, test-only,
+and internal tooling changes do not need one. This repository uses patch
+changesets only.
 
 ```bash
 pnpm changeset
+pnpm changeset:check
 ```
 
-This will prompt you to:
+## Pull requests
 
-1. Select the packages affected by your change
-2. Choose the semver bump type (patch/minor/major)
-3. Write a summary of your changes (this becomes the changelog entry)
+Keep pull requests focused and explain the user-visible behavior, validation, and
+any compatibility considerations. Include tests for behavior changes and update
+documentation when public usage changes.
 
-The command creates a markdown file in `.changeset/` that should be committed with
-your PR. When your PR is merged, the release workflow will automatically:
-
-1. Aggregate all changesets into a "Version Packages" PR
-2. When that PR is merged, publish to npm
-
-**When to add a changeset:**
-
-- Bug fixes → `patch`
-- New features (backwards compatible) → `minor`
-- Breaking changes → `major`
-
-**When NOT to add a changeset:**
-
-- Documentation-only changes
-- Internal refactoring with no user-facing impact
-- Test-only changes
-- CI/tooling changes
-
-Include in your PR description:
-
-- Summary of changes
-- Testing performed
-- Any breaking changes
-- Related issue numbers
-
-## Development Guidelines
-
-### Code Conventions
-
-Since Ripple is TypeScript-first:
-
-- Prioritize type safety
-- Use descriptive names for variables and functions
-- Follow existing patterns in the codebase
-- Comment complex logic clearly
-
-### Commit Messages
-
-Write clear, descriptive commit messages that explain both what changed and why.
-
-## License
-
-By contributing to Ripple, you agree that your contributions will be licensed
-under the same license as the project. [MIT License](./LICENSE)
-
-## Getting Help
-
-- **Discord**: Join [our community server](https://discord.gg/JBF2ySrh2W) for
-  real-time discussion
-- **GitHub Issues**: For bugs and feature requests
-- **GitHub Discussions**: For general questions and ideas (when available)
-
-We're excited to have you contribute to Ripple's development! Even though the
-project is young, every contribution helps shape its future.
+By contributing, you agree that your contribution is licensed under the
+repository's MIT License.

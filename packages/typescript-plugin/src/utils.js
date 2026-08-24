@@ -1,5 +1,5 @@
 export const DEBUG = process.env.TSRX_DEBUG === 'true';
-// Matches valid JS/CSS identifier characters: word chars, dashes (CSS), $, and # (Ripple shorthands)
+// Matches valid JS/CSS identifier characters: word chars, dashes (CSS), $, and # (TSRX shorthands)
 export const charAllowedWordRegex = /[\w\-$#]/;
 
 /**

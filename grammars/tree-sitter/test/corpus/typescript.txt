@@ -99,7 +99,7 @@ export type Rects = Map<string | number, DOMRect>;
 As Expressions
 ==================
 
-const exit = (el as any).__ripple_exit;
+const exit = (el as any).__tsrx_exit;
 const frozen = value as const;
 
 ---

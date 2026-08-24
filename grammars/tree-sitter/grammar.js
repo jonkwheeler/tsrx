@@ -22,7 +22,7 @@ const PREC = {
 };
 
 module.exports = grammar({
-	name: 'ripple',
+	name: 'tsrx',
 
 	externals: ($) => [
 		$._automatic_semicolon,

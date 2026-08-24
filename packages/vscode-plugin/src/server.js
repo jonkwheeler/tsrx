@@ -1,8 +1,8 @@
-import { createRippleLanguageServer } from '@ripple-ts/language-server/src/server.js';
+import { createTsrxLanguageServer } from '@tsrx/language-server/server';
 
 try {
-	createRippleLanguageServer();
+	createTsrxLanguageServer();
 } catch (error) {
-	console.error('[Ripple Server] Failed to start:', error);
+	console.error('[TSRX Server] Failed to start:', error);
 	process.exit(1);
 }

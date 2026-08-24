@@ -31,10 +31,7 @@ function createTarget(name, subdir, lang) {
 }
 
 /** @type {Target[]} */
-const targets = [
-	createTarget('zed', 'languages', 'tsrx'),
-	createTarget('nvim', 'queries', 'ripple'),
-];
+const targets = [createTarget('zed', 'languages', 'tsrx'), createTarget('nvim', 'queries', 'tsrx')];
 
 const extraIndentFiles = targets.map((v) => v.indentVariant);
 

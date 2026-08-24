@@ -9,7 +9,7 @@ const rule: Rule.RuleModule = {
 		},
 		messages: {
 			noLazyDestructuring:
-				'Lazy destructuring (&[] / &{}) cannot be used in TypeScript/JavaScript modules. Use .value to read and write tracked values instead.',
+				'Lazy destructuring (&[] / &{}) is TSRX syntax and cannot be used in TypeScript/JavaScript modules.',
 		},
 		schema: [],
 	},

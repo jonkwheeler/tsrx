@@ -51,7 +51,7 @@ function resolvePackagePath(packageName, workspaceRoot) {
 	}
 
 	// Scan all workspace package directories (handles cases where directory name
-	// doesn't match the package name, e.g. @tsrx/ripple -> packages/tsrx-ripple)
+	// doesn't match the package name, e.g. @tsrx/mcp -> packages/tsrx-mcp)
 	const packagesDir = path.join(workspaceRoot, 'packages');
 	if (fs.existsSync(packagesDir)) {
 		const dirs = fs.readdirSync(packagesDir, { withFileTypes: true });

@@ -11,14 +11,14 @@ from sublime_lib import ResourcePath
 
 
 def plugin_loaded() -> None:
-    LspRipplePlugin.register()
+    LspTsrxPlugin.register()
 
 
 def plugin_unloaded() -> None:
-    LspRipplePlugin.unregister()
+    LspTsrxPlugin.unregister()
 
 
-class LspRipplePlugin(LspPlugin):
+class LspTsrxPlugin(LspPlugin):
     @classmethod
     def on_pre_start_async(cls, context: OnPreStartContext) -> None:
         if external_binary := cls._determine_external_binary(context.view, context.workspace_folders):
@@ -29,8 +29,8 @@ class LspRipplePlugin(LspPlugin):
                 context,
                 cls.plugin_storage_path,
                 ResourcePath('Packages', package_name, 'language-server'),
-                Path('node_modules', '@ripple-ts', 'language-server', 'bin', 'language-server.js'),
-                node_version_requirement='>=18',
+                Path('node_modules', '@tsrx', 'language-server', 'dist', 'language-server.js'),
+                node_version_requirement='>=22',
             )
 
     @classmethod
@@ -112,7 +112,7 @@ class LspRipplePlugin(LspPlugin):
 
     @classmethod
     def _binary_name(cls) -> str:
-        return 'ripple-language-server'
+        return 'tsrx-language-server'
 
     @classmethod
     def _maybe_windows_script(cls, script_path: str) -> str | None:

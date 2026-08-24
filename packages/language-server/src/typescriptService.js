@@ -5,7 +5,7 @@
 
 import { createRequire } from 'node:module';
 
-// Monkey-patch getUserPreferences to inject Ripple-specific defaults.
+// Monkey-patch getUserPreferences to inject TSRX-specific defaults.
 // We use createRequire to get the raw CJS module.exports object, bypassing
 // the bundler's __toESM wrapper which interferes with property assignment.
 // volar-service-typescript is also externalized (via regex in tsdown config)
@@ -18,7 +18,7 @@ const { create } = require('volar-service-typescript');
 const originalGetUserPreferences = getUserPreferencesModule.getUserPreferences;
 
 /**
- * Enhanced getUserPreferences to add all ts and ripple preferences
+ * Enhanced getUserPreferences to add TypeScript and TSRX preferences.
  * Specifically makes preferTypeOnlyAutoImports true if not set
  * @param {LanguageServiceContext} context
  * @param {TextDocument} document
@@ -26,21 +26,21 @@ const originalGetUserPreferences = getUserPreferencesModule.getUserPreferences;
 getUserPreferencesModule.getUserPreferences = async function (context, document) {
 	const origPreferences = await originalGetUserPreferences.call(this, context, document);
 
-	const [tsConfig, rippleConfig] = await Promise.all([
+	const [tsConfig, tsrxConfig] = await Promise.all([
 		context.env.getConfiguration?.('typescript'),
-		context.env.getConfiguration?.('ripple'),
+		context.env.getConfiguration?.('tsrx'),
 	]);
 
 	return {
 		preferTypeOnlyAutoImports: true,
 		...origPreferences,
 		.../** @type {any} */ (tsConfig)?.preferences,
-		.../** @type {any} */ (rippleConfig)?.preferences,
+		.../** @type {any} */ (tsrxConfig)?.preferences,
 	};
 };
 
 /**
- * Create TypeScript services with Ripple-specific enhancements.
+ * Create TypeScript services with TSRX-specific enhancements.
  * @param {typeof import('typescript')} ts
  * @returns {ReturnType<typeof create>}
  */

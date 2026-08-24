@@ -246,7 +246,7 @@ function declared_workspace_config(package_name, compiler, marker, overrides = {
 export const WORKSPACE_CONFIGS = {
 	'ripple-only': {
 		package_json: {
-			name: '@ripple-ts/fixture-ripple-only-project',
+			name: '@tsrx/fixture-ripple-only-project',
 			private: true,
 			devDependencies: {
 				'@tsrx/ripple': 'workspace:*',
@@ -336,7 +336,7 @@ export const WORKSPACE_CONFIGS = {
 	},
 	both: {
 		package_json: {
-			name: '@ripple-ts/fixture-ripple-project',
+			name: '@tsrx/fixture-ripple-project',
 			private: true,
 			devDependencies: {
 				'@tsrx/ripple': 'workspace:*',

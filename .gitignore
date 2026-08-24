@@ -15,14 +15,9 @@ coverage
 
 packages/vscode-plugin/*.vsix
 playground/src
-playground/ripple/src
 playground/react/src
 playground/solid/src
 playground/vue/src
-
-website/.vitepress/dist/
-website/.vitepress/cache/
-website/.vitepress/.temp/
 
 # Optional eslint cache
 .eslintcache
@@ -64,6 +59,3 @@ temp/
 
 # differential test rig precompile cache
 **/.react-cache/
-
-# streaming SSR benchmark compiled output
-benchmarks/streaming-ssr/.compiled/

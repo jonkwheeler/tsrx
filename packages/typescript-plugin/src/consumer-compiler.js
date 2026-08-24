@@ -37,7 +37,7 @@ import {
 } from './tsconfig-resolution.js';
 import { createLogging } from './utils.js';
 
-const { log, logError, logWarning } = createLogging('[Ripple Language]');
+const { log, logError, logWarning } = createLogging('[TSRX Language]');
 // npm scope/package names stay lowercase-strict; case-sensitive export subpaths may use capitals.
 const bare_package_specifier_pattern =
 	/^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*(?:\/[A-Za-z0-9][A-Za-z0-9._~-]*)*$/;

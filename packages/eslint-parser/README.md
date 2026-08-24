@@ -32,7 +32,7 @@ export default [
       parser: tsrxParser,
     },
     plugins: {
-      ripple: tsrxPlugin,
+      tsrx: tsrxPlugin,
     },
     rules: {
       ...tsrxPlugin.configs.recommended.rules,
@@ -49,8 +49,8 @@ export default [
     {
       "files": ["*.tsrx"],
       "parser": "@tsrx/eslint-parser",
-      "plugins": ["ripple"],
-      "extends": ["plugin:ripple/recommended"]
+      "plugins": ["tsrx"],
+      "extends": ["plugin:tsrx/recommended"]
     }
   ]
 }
@@ -76,9 +76,7 @@ The parser supports TSRX syntax including:
 - JSX statement containers with `@{ ... }` for setup plus one rendered output
 - Template directives like `@if`, `@for`, `@switch`, and `@try`
 - Function components that return TSRX, TSX, or standard JavaScript values
-- `track()` reactive values (imported from `ripple`)
 - `&{}` and `&[]` lazy destructuring
-- Reactive collections
 - All standard JavaScript/TypeScript syntax
 
 ## Example
@@ -86,10 +84,10 @@ The parser supports TSRX syntax including:
 Given a `.tsrx` file:
 
 ```tsrx
-import { track } from 'ripple';
+import { signal } from 'signals';
 
 export function Counter() @{
-  let &[count] = track(0);
+  let &[count] = signal(0);
 
   <button onClick={() => count++}>
     Increment
@@ -101,8 +99,7 @@ export function Counter() @{
 The parser will successfully parse this and allow ESLint rules (like those from
 `@tsrx/eslint-plugin`) to check for:
 
-- Track calls at module scope
-- Missing @ operators
+- Missing statement-container markers
 - Invalid rendering control flow
 - And more
 

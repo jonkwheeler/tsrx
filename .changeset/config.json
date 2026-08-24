@@ -1,29 +1,17 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.1.2/schema.json",
-  "changelog": ["@changesets/changelog-github", { "repo": "Ripple-TS/ripple" }],
+  "changelog": ["@changesets/changelog-github", { "repo": "tsrx-org/tsrx" }],
   "commit": false,
   "fixed": [
     [
       "@tsrx/core"
     ],
     [
-      "@tsrx/ripple"
-    ],
-    [
-      "ripple",
-      "@ripple-ts/cli",
-      "create-ripple",
       "@tsrx/eslint-parser",
       "@tsrx/eslint-plugin",
-      "@ripple-ts/language-server",
+      "@tsrx/language-server",
       "@tsrx/prettier-plugin",
-      "@ripple-ts/adapter",
-      "@ripple-ts/adapter-node",
-      "@ripple-ts/adapter-bun",
-      "@ripple-ts/adapter-vercel",
-      "@ripple-ts/rollup-plugin",
-      "@tsrx/typescript-plugin",
-      "@ripple-ts/vite-plugin"
+      "@tsrx/typescript-plugin"
     ]
   ],
   "linked": [],
@@ -31,10 +19,14 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
-    "@ripple-ts/playground",
-    "@ripple-ts/tree-sitter",
-    "@ripple-ts/nvim-plugin",
-    "@ripple-ts/intellij-plugin",
-    "@ripple-ts/sublime-text-plugin"
+    "@tsrx/tree-sitter",
+    "@tsrx/nvim-plugin",
+    "@tsrx/intellij-plugin",
+    "@tsrx/sublime-text-plugin",
+    "@tsrx/react-playground",
+    "@tsrx/solid-playground",
+    "@tsrx/vue-playground",
+    "tsrx-website",
+    "website-mcp"
   ]
 }

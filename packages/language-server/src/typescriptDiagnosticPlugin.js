@@ -10,7 +10,7 @@
 
 import { getVirtualCode, createLogging, deobfuscateIdentifiers } from './utils.js';
 
-const { log, logError } = createLogging('[Ripple TypeScript Diagnostic Plugin]');
+const { log, logError } = createLogging('[TSRX TypeScript Diagnostic Plugin]');
 
 /**
  * @param {Diagnostic} diagnostic
@@ -37,7 +37,7 @@ function processDiagnostics(document, context, diagnostics) {
 
 	const { virtualCode } = getVirtualCode(document, context);
 
-	if (!virtualCode || virtualCode.languageId !== 'ripple') {
+	if (!virtualCode || virtualCode.languageId !== 'tsrx') {
 		return diagnostics;
 	}
 
@@ -97,7 +97,7 @@ export function createTypeScriptDiagnosticFilterPlugin() {
 	log('Creating TypeScript diagnostic filter plugin...');
 
 	return {
-		name: 'ripple-typescript-diagnostic-filter',
+		name: 'tsrx-typescript-diagnostic-filter',
 		// No capabilities - this plugin only wraps typescript-semantic
 		capabilities: {},
 		create(context) {

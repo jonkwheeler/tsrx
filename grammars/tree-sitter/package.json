@@ -1,14 +1,14 @@
 {
-  "name": "@ripple-ts/tree-sitter",
+  "name": "@tsrx/tree-sitter",
   "version": "0.2.208",
-  "description": "Ripple grammar for tree-sitter",
+  "description": "TSRX grammar for tree-sitter",
   "private": true,
   "main": "bindings/node",
   "types": "bindings/node",
   "keywords": [
     "tree-sitter",
     "parser",
-    "ripple"
+    "tsrx"
   ],
   "author": "Dominic Gannaway",
   "license": "MIT",
@@ -33,9 +33,9 @@
     {
       "scope": "source.tsrx",
       "file-types": [
-        "ripple"
+        "tsrx"
       ],
-      "injection-regex": "ripple"
+      "injection-regex": "tsrx"
     }
   ],
   "gypfile": true

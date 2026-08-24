@@ -90,7 +90,7 @@ export const IndexPage = () => @{
 							Discord
 						</a>
 						<a
-							href="https://github.com/Ripple-TS/ripple/tree/main/packages/tsrx"
+							href="https://github.com/tsrx-org/tsrx/tree/main/packages/tsrx"
 							target="_blank"
 							rel="noopener noreferrer"
 						>GitHub</a>
@@ -131,7 +131,7 @@ export const IndexPage = () => @{
 						<a class="cta-link" href="/getting-started">Get started →</a>
 						<a
 							class="secondary-cta-link"
-							href="https://github.com/Ripple-TS/ripple/tree/main/packages/tsrx"
+							href="https://github.com/tsrx-org/tsrx/tree/main/packages/tsrx"
 							target="_blank"
 							rel="noopener noreferrer"
 						>View Source</a>
@@ -147,7 +147,7 @@ export const IndexPage = () => @{
 							{' '}
 							<a
 								class="alpha-notice-link"
-								href="https://github.com/Ripple-TS/ripple/issues"
+								href="https://github.com/tsrx-org/tsrx/issues"
 								target="_blank"
 								rel="noopener noreferrer"
 							>issue tracker</a>

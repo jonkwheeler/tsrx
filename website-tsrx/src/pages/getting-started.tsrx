@@ -333,7 +333,7 @@ export function GettingStartedPage() @{
 							Discord
 						</a>
 						<a
-							href="https://github.com/Ripple-TS/ripple/tree/main/packages/tsrx"
+							href="https://github.com/tsrx-org/tsrx/tree/main/packages/tsrx"
 							target="_blank"
 							rel="noopener noreferrer"
 						>GitHub</a>
@@ -907,7 +907,7 @@ export function GettingStartedPage() @{
 								Install
 								<a
 									class="inline-link"
-									href="https://marketplace.visualstudio.com/items?itemName=Ripple-TS.ripple-ts-vscode-plugin"
+									href="https://marketplace.visualstudio.com/items?itemName=TSRX.tsrx-vscode-plugin"
 									target="_blank"
 									rel="noopener noreferrer"
 								>TSRX for VS Code</a>

@@ -1,18 +1,18 @@
 {
-  "name": "@ripple-ts/nvim-plugin",
+  "name": "@tsrx/nvim-plugin",
   "version": "0.0.82",
-  "description": "Neovim plugin that wires Ripple tree-sitter highlights and language server integration.",
+  "description": "Neovim plugin that wires TSRX tree-sitter highlights and language server integration.",
   "author": "Dominic Gannaway",
   "license": "MIT",
   "private": true,
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ripple-TS/ripple.git",
+    "url": "git+https://github.com/tsrx-org/tsrx.git",
     "directory": "packages/nvim-plugin"
   },
   "config": {
-    "@ripple-ts/language-server": "0.2.208"
+    "@tsrx/language-server": "0.3.124"
   },
   "files": [
     "lua",
@@ -25,6 +25,6 @@
     "neovim",
     "treesitter",
     "lsp",
-    "ripple"
+    "tsrx"
   ]
 }

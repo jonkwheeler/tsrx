@@ -1,4 +1,4 @@
-# @ripple-ts/language-server
+# @tsrx/language-server
 
 ## 0.3.124
 

@@ -7,17 +7,17 @@
 
 import { getVirtualCode, createLogging } from './utils.js';
 
-const { log } = createLogging('[Ripple Compile Error Diagnostic Plugin]');
+const { log } = createLogging('[TSRX Compile Error Diagnostic Plugin]');
 import { DiagnosticSeverity } from '@volar/language-server';
 
 /**
  * @returns {LanguageServicePlugin}
  */
 export function createCompileErrorDiagnosticPlugin() {
-	log('Creating Ripple diagnostic plugin...');
+	log('Creating TSRX diagnostic plugin...');
 
 	return {
-		name: 'ripple-diagnostics',
+		name: 'tsrx-diagnostics',
 		capabilities: {
 			diagnosticProvider: {
 				interFileDependencies: false,
@@ -27,13 +27,13 @@ export function createCompileErrorDiagnosticPlugin() {
 		create(/** @type {LanguageServiceContext} */ context) {
 			return {
 				provideDiagnostics(document, _token) {
-					log('Providing Ripple diagnostics for:', document.uri);
+					log('Providing TSRX diagnostics for:', document.uri);
 
 					/** @type {Diagnostic[]} */
 					const diagnostics = [];
 					const { virtualCode, sourceMap } = getVirtualCode(document, context);
 
-					if (!virtualCode || virtualCode.languageId !== 'ripple') {
+					if (!virtualCode || virtualCode.languageId !== 'tsrx') {
 						// skip if it's like embedded css
 						return diagnostics;
 					}

@@ -1,5 +1,20 @@
 # @tsrx/typescript-plugin
 
+## 0.3.126
+
+### Patch Changes
+
+- [`16a87b2`](https://github.com/tsrx-org/tsrx/commit/16a87b205dc75ce20aa06a1706b603bc4ebb9bcd)
+  Thanks [@leonidaz](https://github.com/leonidaz)! - Remove deprecated
+  Ripple-named compatibility aliases from the target-neutral compiler and language
+  tooling. Ripple remains supported as an explicitly detected compiler target with
+  target-gated runtime completions.
+- Updated dependencies []:
+  - @tsrx/preact@0.1.61
+  - @tsrx/react@0.2.61
+  - @tsrx/solid@0.1.61
+  - @tsrx/vue@0.1.61
+
 ## 0.3.124
 
 ## 0.3.123

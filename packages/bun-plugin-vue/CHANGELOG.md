@@ -1,5 +1,12 @@
 # @tsrx/bun-plugin-vue
 
+## 0.0.65
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @tsrx/vue@0.1.61
+
 ## 0.0.64
 
 ### Patch Changes

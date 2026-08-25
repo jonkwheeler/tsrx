@@ -21,7 +21,12 @@ function location(offset) {
 }
 
 function identifier(name, offset) {
-	return { type: 'Identifier', name, metadata: { path: [], generated: false }, ...location(offset) };
+	return {
+		type: 'Identifier',
+		name,
+		metadata: { path: [], generated: false },
+		...location(offset),
+	};
 }
 
 function build_program() {
@@ -84,7 +89,13 @@ function build_program() {
 			...location(offset++),
 		});
 	}
-	return { type: 'Program', sourceType: 'module', body, metadata: { path: [] }, ...location(offset) };
+	return {
+		type: 'Program',
+		sourceType: 'module',
+		body,
+		metadata: { path: [] },
+		...location(offset),
+	};
 }
 
 function count_objects(value, seen = new Set()) {

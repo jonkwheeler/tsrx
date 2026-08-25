@@ -65,7 +65,10 @@ The workspace's `@vscode/vsce` version must remain at least `2.26.1` for
    from its job summary.
 5. In Visual Studio Marketplace publisher management, add that identity ID as a
    member of publisher `TSRX` with the Contributor role.
-6. Run **Publish VSC Extension (Manual)** from `main` and verify the resulting
+6. Rerun **Inspect VS Code Marketplace Identity** with **Verify publisher**
+   enabled. This runs `vsce verify-pat --azure-credential TSRX` without publishing
+   an extension.
+7. Run **Publish VSC Extension (Manual)** from `main` and verify the resulting
    `TSRX.tsrx-vscode-plugin` listing before relying on version-triggered
    publishing.
 

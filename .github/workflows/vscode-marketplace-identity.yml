@@ -1,4 +1,11 @@
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      verify_publisher:
+        description: Verify that the identity can publish for the TSRX publisher
+        required: true
+        default: false
+        type: boolean
 
 name: Inspect VS Code Marketplace Identity
 jobs:
@@ -41,3 +48,26 @@ jobs:
           echo "::notice title=Marketplace identity ID::$PROFILE_ID"
           echo "Add this identity as a Contributor to the TSRX Marketplace publisher:" >> "$GITHUB_STEP_SUMMARY"
           echo "\`$PROFILE_ID\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout code for publisher verification
+        if: ${{ inputs.verify_publisher }}
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        if: ${{ inputs.verify_publisher }}
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        if: ${{ inputs.verify_publisher }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+
+      - name: Install dependencies
+        if: ${{ inputs.verify_publisher }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify TSRX publisher authorization
+        if: ${{ inputs.verify_publisher }}
+        working-directory: ./packages/vscode-plugin
+        run: pnpm exec vsce verify-pat --azure-credential TSRX

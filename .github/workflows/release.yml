@@ -12,7 +12,8 @@ permissions: {}
 
 jobs:
   release-pr:
-    # Enable only after the TSRX package publishing workflow is ready.
+    # The tsrx-org Actions policy must allow workflow-created pull requests
+    # before replacing this temporary migration guard.
     if: ${{ false }}
     permissions:
       contents: write

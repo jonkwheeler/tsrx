@@ -68,7 +68,12 @@ extension is published after the Zed registry maintainers merge that PR.
 
 The workflow requires a `ZED_EXTENSION_TOKEN` Actions secret containing a classic
 GitHub personal access token owned by `leonidaz` with `repo` and `workflow`
-scopes.
+scopes. This is an ongoing credential for automatic Zed releases, not a one-time
+bootstrap token: the workflow consumes it only when the Zed extension version
+changes. Give it an expiration, rotate it before expiry, and run **Inspect Zed
+Extension Token** after creating or rotating it. Remove the secret only when
+switching to manual registry PRs or a different cross-repository authentication
+mechanism.
 
 ### One-time repository migration
 

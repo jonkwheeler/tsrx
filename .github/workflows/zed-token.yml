@@ -1,0 +1,29 @@
+on: workflow_dispatch
+
+name: Inspect Zed Extension Token
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify leonidaz/extensions access
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Zed extension token
+        env:
+          GH_TOKEN: ${{ secrets.ZED_EXTENSION_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "Missing repository secret: ZED_EXTENSION_TOKEN" >&2; exit 1; }
+
+          login="$(gh api user --jq .login)"
+          test "$login" = "leonidaz" || { echo "ZED_EXTENSION_TOKEN belongs to $login instead of leonidaz" >&2; exit 1; }
+
+          can_push="$(gh api repos/leonidaz/extensions --jq '.permissions.push')"
+          test "$can_push" = "true" || { echo "ZED_EXTENSION_TOKEN cannot push to leonidaz/extensions" >&2; exit 1; }
+
+          scopes="$(gh api -i user 2>/dev/null | tr -d '\r ' | tr '[:upper:]' '[:lower:]' | sed -n 's/^x-oauth-scopes://p' | head -n 1)"
+          case ",$scopes," in *,repo,*) ;; *) echo "ZED_EXTENSION_TOKEN is missing the repo scope" >&2; exit 1 ;; esac
+          case ",$scopes," in *,workflow,*) ;; *) echo "ZED_EXTENSION_TOKEN is missing the workflow scope" >&2; exit 1 ;; esac
+
+          echo "::notice::ZED_EXTENSION_TOKEN belongs to leonidaz, has repo and workflow scopes, and can push to leonidaz/extensions."

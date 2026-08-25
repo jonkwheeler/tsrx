@@ -16,8 +16,10 @@ permissions: {}
 
 jobs:
   publish:
-    # Enable only after npm ownership and trusted publishers are configured.
-    if: ${{ false }}
+    if: >-
+      github.repository == 'tsrx-org/tsrx' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.confirm == true
     permissions:
       contents: write
     name: Bootstrap npm packages

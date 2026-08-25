@@ -12,8 +12,10 @@ permissions: {}
 
 jobs:
   publish:
-    # Enable only after npm and Zed publishing have been migrated to this repository.
-    if: ${{ false }}
+    if: >-
+      github.repository == 'tsrx-org/tsrx' &&
+      github.ref == 'refs/heads/main' &&
+      contains(github.event.head_commit.message, 'Version Packages')
     permissions:
       contents: write
       id-token: write
@@ -42,17 +44,6 @@ jobs:
       - name: Disallow major and minor bumps in changesets
         run: pnpm changeset:check
 
-      - name: Publish to npm
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          publish: pnpm changeset:publish
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PNPM_CONFIG_PROVENANCE: true
-          # keep for now just in case
-          NPM_CONFIG_PROVENANCE: true
-
       - name: Detect Zed extension release
         id: zed
         env:
@@ -76,6 +67,26 @@ jobs:
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "tag=@tsrx/zed-plugin@$version" >> "$GITHUB_OUTPUT"
 
+      - name: Validate Zed publishing credential
+        if: steps.zed.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ZED_EXTENSION_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "Missing repository secret: ZED_EXTENSION_TOKEN" >&2; exit 1; }
+          test "$(gh api user --jq .login)" = "leonidaz" || { echo "ZED_EXTENSION_TOKEN must belong to leonidaz" >&2; exit 1; }
+          test "$(gh api repos/leonidaz/extensions --jq '.permissions.push')" = "true" || { echo "ZED_EXTENSION_TOKEN cannot push to leonidaz/extensions" >&2; exit 1; }
+
+      - name: Publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: pnpm changeset:publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PNPM_CONFIG_PROVENANCE: true
+          # keep for now just in case
+          NPM_CONFIG_PROVENANCE: true
+
       - name: Tag Zed extension release
         if: steps.zed.outputs.changed == 'true'
         env:
@@ -96,9 +107,9 @@ jobs:
       - name: Submit Zed extension update
         if: steps.zed.outputs.changed == 'true'
         # This action updates the registry version and submodule commit, but not
-        # the submodule URL. Before enabling this workflow, merge the one-time
-        # zed-industries/extensions change from Ripple-TS/ripple to tsrx-org/tsrx
-        # documented in packages/zed-plugin/DEVELOPMENT.md.
+        # the submodule URL. The one-time source migration in
+        # zed-industries/extensions#7328 must merge before the next Zed version
+        # bump reaches main.
         uses: huacnlee/zed-extension-action@82920ff0876879f65ffbcfa3403589114a8919c6
         with:
           extension-name: tsrx

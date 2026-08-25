@@ -1,5 +1,15 @@
 # @tsrx/core
 
+## 0.1.61
+
+### Patch Changes
+
+- [`16a87b2`](https://github.com/tsrx-org/tsrx/commit/16a87b205dc75ce20aa06a1706b603bc4ebb9bcd)
+  Thanks [@leonidaz](https://github.com/leonidaz)! - Remove deprecated
+  Ripple-named compatibility aliases from the target-neutral compiler and language
+  tooling. Ripple remains supported as an explicitly detected compiler target with
+  target-gated runtime completions.
+
 ## 0.1.60
 
 ### Patch Changes

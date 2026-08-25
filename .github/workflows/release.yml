@@ -12,9 +12,9 @@ permissions: {}
 
 jobs:
   release-pr:
-    # The tsrx-org Actions policy must allow workflow-created pull requests
-    # before replacing this temporary migration guard.
-    if: ${{ false }}
+    if: >-
+      github.repository == 'tsrx-org/tsrx' &&
+      github.ref == 'refs/heads/main'
     permissions:
       contents: write
       issues: read

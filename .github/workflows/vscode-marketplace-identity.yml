@@ -38,5 +38,6 @@ jobs:
             --output tsv)
 
           test -n "$PROFILE_ID" || { echo "Microsoft did not return a Marketplace identity ID" >&2; exit 1; }
+          echo "::notice title=Marketplace identity ID::$PROFILE_ID"
           echo "Add this identity as a Contributor to the TSRX Marketplace publisher:" >> "$GITHUB_STEP_SUMMARY"
           echo "\`$PROFILE_ID\`" >> "$GITHUB_STEP_SUMMARY"

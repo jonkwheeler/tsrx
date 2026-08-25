@@ -45,11 +45,12 @@ The workspace's `@vscode/vsce` version must remain at least `2.26.1` for
    - Environment: `vscode-marketplace`
    - Issuer: `https://token.actions.githubusercontent.com`
    - Audience: `api://AzureADTokenExchange`
-   - Subject: `repo:tsrx-org/tsrx:environment:vscode-marketplace`
+   - Subject:
+     `repo:tsrx-org@284757011/tsrx@1345339730:environment:vscode-marketplace`
 
-   GitHub can change the subject format if immutable OIDC subjects are enabled.
-   Confirm the repository's current OIDC configuration before creating or
-   replacing the federated credential.
+   The numeric organization and repository IDs are GitHub's immutable OIDC subject
+   format. Confirm the subject printed by `azure/login` before creating or
+   replacing the federated credential if GitHub's OIDC configuration changes.
 
 3. In the repository's `vscode-marketplace` environment, add these non-secret
    variables from the managed identity and Azure subscription:

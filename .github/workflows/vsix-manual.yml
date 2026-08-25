@@ -34,6 +34,13 @@ jobs:
   publish-vsm:
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    environment:
+      name: vscode-marketplace
+      url: https://marketplace.visualstudio.com/items?itemName=TSRX.tsrx-vscode-plugin
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -55,11 +62,26 @@ jobs:
       - name: Install deps w/ pnpm
         run: pnpm install --frozen-lockfile
 
+      - name: Validate Microsoft Entra configuration
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          test -n "$AZURE_CLIENT_ID" || { echo "Missing vscode-marketplace environment variable: AZURE_CLIENT_ID" >&2; exit 1; }
+          test -n "$AZURE_TENANT_ID" || { echo "Missing vscode-marketplace environment variable: AZURE_TENANT_ID" >&2; exit 1; }
+          test -n "$AZURE_SUBSCRIPTION_ID" || { echo "Missing vscode-marketplace environment variable: AZURE_SUBSCRIPTION_ID" >&2; exit 1; }
+
+      - name: Log in to Microsoft Azure with GitHub OIDC
+        uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
       - name: Publish to VSM
         working-directory: ./packages/vscode-plugin
-        run: pnpm exec vsce publish -i *.vsix
-        env:
-          VSCE_PAT: ${{ secrets.VSM_TOKEN }}
+        run: pnpm exec vsce publish --azure-credential -i *.vsix
 
   publish-ovsx:
     runs-on: ubuntu-latest

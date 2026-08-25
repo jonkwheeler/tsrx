@@ -1,0 +1,42 @@
+on: workflow_dispatch
+
+name: Inspect VS Code Marketplace Identity
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: vscode-marketplace
+      url: https://marketplace.visualstudio.com/manage/publishers/TSRX
+    steps:
+      - name: Validate Microsoft Entra configuration
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          test -n "$AZURE_CLIENT_ID" || { echo "Missing vscode-marketplace environment variable: AZURE_CLIENT_ID" >&2; exit 1; }
+          test -n "$AZURE_TENANT_ID" || { echo "Missing vscode-marketplace environment variable: AZURE_TENANT_ID" >&2; exit 1; }
+          test -n "$AZURE_SUBSCRIPTION_ID" || { echo "Missing vscode-marketplace environment variable: AZURE_SUBSCRIPTION_ID" >&2; exit 1; }
+
+      - name: Log in to Microsoft Azure with GitHub OIDC
+        uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Retrieve Marketplace identity
+        run: |
+          PROFILE_ID=$(az rest \
+            --method get \
+            --uri https://app.vssps.visualstudio.com/_apis/profile/profiles/me \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+            --query id \
+            --output tsv)
+
+          test -n "$PROFILE_ID" || { echo "Microsoft did not return a Marketplace identity ID" >&2; exit 1; }
+          echo "Add this identity as a Contributor to the TSRX Marketplace publisher:" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$PROFILE_ID\`" >> "$GITHUB_STEP_SUMMARY"

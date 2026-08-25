@@ -393,12 +393,11 @@ export function clone_ast_node(node, with_locations = true) {
 	if (Array.isArray(node)) {
 		return /** @type {T} */ (node.map((child) => clone_ast_node(child, with_locations)));
 	}
-	const clone = { ...node };
+	const clone = /** @type {T} */ (with_locations ? { ...node } : {});
 	const clone_record = /** @type {Record<string, unknown>} */ (clone);
 
 	for (const key of Object.keys(node)) {
 		if (!with_locations && (key === 'loc' || key === 'start' || key === 'end')) {
-			delete clone_record[key];
 			continue;
 		}
 		if (key === 'metadata') {

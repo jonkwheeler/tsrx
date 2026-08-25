@@ -27,7 +27,7 @@ Visual Studio Marketplace publishing uses Microsoft Entra workload identity
 federation. GitHub obtains a short-lived Azure credential through OIDC, and `vsce`
 consumes it with `--azure-credential`. Do not create a `VSM_TOKEN` or store an
 Azure client secret. Open VSX publishing remains authenticated by the `OVSX_TOKEN`
-repository secret.
+repository secret until Open VSX trusted publishing is released and deployed.
 
 The workspace's `@vscode/vsce` version must remain at least `2.26.1` for
 `--azure-credential` support.
@@ -74,3 +74,17 @@ The workspace's `@vscode/vsce` version must remain at least `2.26.1` for
 
 Microsoft's current setup reference is
 [Publishing Extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#_secure-automated-publishing-to-visual-studio-marketplace).
+
+## Temporary Open VSX token setup
+
+Production Open VSX currently requires a personal access token for CI publishing.
+Create a dedicated token under Open VSX **Settings → Access Tokens** and save it
+as the repository secret `OVSX_TOKEN`. Do not put the token in a workflow input,
+source file, issue, log, or local environment file.
+
+Run **Inspect Open VSX Token** after creating or rotating the secret. It invokes
+`ovsx verify-pat TSRX`, which verifies publishing access to the `TSRX` namespace
+without publishing an extension.
+
+Replace this secret-backed flow with Open VSX OIDC trusted publishing once both
+the production registry and the released `ovsx` CLI are at least version `1.2.0`.

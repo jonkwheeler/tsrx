@@ -1,0 +1,33 @@
+on: workflow_dispatch
+
+name: Inspect Open VSX Token
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify TSRX namespace access
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Open VSX token
+        working-directory: ./packages/vscode-plugin
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_TOKEN }}
+        run: |
+          test -n "$OVSX_PAT" || { echo "Missing repository secret: OVSX_TOKEN" >&2; exit 1; }
+          pnpm exec ovsx verify-pat TSRX

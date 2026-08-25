@@ -391,7 +391,13 @@ export function flatten_switch_consequent(consequent) {
 export function clone_ast_node(node, with_locations = true) {
 	if (!node || typeof node !== 'object') return node;
 	if (Array.isArray(node)) {
-		return /** @type {T} */ (node.map((child) => clone_ast_node(child, with_locations)));
+		const clone = new Array(node.length);
+		for (let i = 0; i < node.length; i++) {
+			if (i in node) {
+				clone[i] = clone_ast_node(node[i], with_locations);
+			}
+		}
+		return /** @type {T} */ (clone);
 	}
 	const clone = /** @type {T} */ (with_locations ? { ...node } : {});
 	const clone_record = /** @type {Record<string, unknown>} */ (clone);

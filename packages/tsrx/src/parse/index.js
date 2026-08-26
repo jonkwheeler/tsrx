@@ -809,6 +809,10 @@ export function get_comment_handlers(source, comments, index = 0) {
 								const hasBlankLine = /\n\s*\n/.test(slice);
 								const nodeEndLine = node.loc?.end?.line ?? null;
 								const commentStartLine = comments[0].loc?.start?.line ?? null;
+								const commentOnSameLine =
+									nodeEndLine !== null &&
+									commentStartLine !== null &&
+									nodeEndLine === commentStartLine;
 								const isImmediateNextLine =
 									nodeEndLine !== null &&
 									commentStartLine !== null &&
@@ -853,10 +857,7 @@ export function get_comment_handlers(source, comments, index = 0) {
 									// For function parameters, only attach as trailing comment if it's on the same line
 									// Comments on next line after comma should be leading comments of next parameter
 									if (isParam) {
-										// Check if comment is on same line as the node
-										const nodeEndLine = source.slice(0, node.end).split('\n').length;
-										const commentStartLine = source.slice(0, comments[0].start).split('\n').length;
-										if (nodeEndLine === commentStartLine) {
+										if (commentOnSameLine) {
 											node.trailingComments = [
 												/** @type {AST.CommentWithLocation} */ (comments.shift()),
 											];
@@ -868,11 +869,6 @@ export function get_comment_handlers(source, comments, index = 0) {
 										// Only attach as trailing if:
 										// 1. It's on the same line as this node, OR
 										// 2. This is the last item in the array (no next sibling to attach to)
-										const commentOnSameLine =
-											nodeEndLine !== null &&
-											commentStartLine !== null &&
-											nodeEndLine === commentStartLine;
-
 										if (commentOnSameLine || is_last_in_array) {
 											node.trailingComments = [
 												/** @type {AST.CommentWithLocation} */ (comments.shift()),

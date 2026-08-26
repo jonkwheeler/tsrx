@@ -4238,6 +4238,26 @@ const p: Point = { x: 1 }; // trailing`,
 		expect(new Set(starts).size).toBe(starts.length);
 		expect(comments.length).toBe(3);
 	});
+
+	it('attaches parameter comments according to their parser locations', () => {
+		const ast = parseModule(
+			`function f(
+	a /* a */,
+	b,
+	/* before c */ c /* c */
+) {}`,
+			'App.ts',
+		);
+		const [declaration] = ast.body;
+		assert_type(declaration, 'FunctionDeclaration');
+		const [a, b, c] = declaration.params;
+
+		expect(a.trailingComments?.map((comment) => comment.value)).toEqual([' a ']);
+		expect(b.leadingComments).toBeUndefined();
+		expect(b.trailingComments).toBeUndefined();
+		expect(c.leadingComments?.map((comment) => comment.value)).toEqual([' before c ']);
+		expect(c.trailingComments?.map((comment) => comment.value)).toEqual([' c ']);
+	});
 });
 
 describe('keywordTokens parse option', () => {

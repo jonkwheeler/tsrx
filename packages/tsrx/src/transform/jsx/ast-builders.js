@@ -393,9 +393,7 @@ export function clone_ast_node(node, with_locations = true) {
 	if (Array.isArray(node)) {
 		const clone = new Array(node.length);
 		for (let i = 0; i < node.length; i++) {
-			if (i in node) {
-				clone[i] = clone_ast_node(node[i], with_locations);
-			}
+			clone[i] = clone_ast_node(node[i], with_locations);
 		}
 		return /** @type {T} */ (clone);
 	}

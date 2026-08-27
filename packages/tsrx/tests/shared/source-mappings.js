@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { builders as b, identifier_to_jsx_name, parseModule } from '@tsrx/core';
+import {
+	builders as b,
+	createJsxTransform,
+	createVolarMappingsResult,
+	identifier_to_jsx_name,
+	parseModule,
+} from '@tsrx/core';
 import { assert_type } from './node-types.js';
 import {
 	build_line_offsets,
@@ -9,7 +15,21 @@ import {
 	offset_to_line_col,
 } from '../../src/source-map-utils.js';
 
-/** @import { SourceMappingHarness } from '../../types/index' */
+/** @import * as AST from 'estree' */
+/** @import { CompileError, SourceMappingHarness } from '../../types/index' */
+
+/** @type {import('../../types/index').JsxPlatform} */
+const KEYWORD_FALLBACK_PLATFORM = {
+	name: 'keyword-fallback-test',
+	imports: {
+		fragment: 'test-platform',
+		suspense: 'test-platform',
+		dynamic: 'test-platform/dynamic',
+		errorBoundary: 'test-platform/error-boundary',
+	},
+	jsx: { rewriteClassAttr: false, classAttrName: 'class' },
+	validation: { requireUseServerForAwait: false },
+};
 
 /**
  * Tests for `compile_to_volar_mappings`
@@ -1337,6 +1357,25 @@ function App() @{
 		);
 	});
 	describe(`[${name}] keyword token spans`, () => {
+		/**
+		 * @param {string} source
+		 * @param {ReturnType<SourceMappingHarness['compile_to_volar_mappings']>} result
+		 * @param {'async' | 'function'} keyword
+		 * @param {string} declaration
+		 */
+		const expect_keyword_mapping = (source, result, keyword, declaration) => {
+			const source_declaration_offset = source.indexOf(declaration);
+			const generated_declaration_offset = result.code.indexOf(declaration);
+			expect(source_declaration_offset, `source ${declaration}`).toBeGreaterThanOrEqual(0);
+			expect(generated_declaration_offset, `generated ${declaration}`).toBeGreaterThanOrEqual(0);
+			const source_offset = source_declaration_offset + declaration.indexOf(keyword);
+			const generated_offset = generated_declaration_offset + declaration.indexOf(keyword);
+			expect(
+				find_exact_mapping(result.mappings, source_offset, generated_offset, keyword.length),
+				`${keyword} in ${declaration}`,
+			).toBeDefined();
+		};
+
 		it('maps async and function keywords at their true source spans', () => {
 			const source = `async function load() {\n\treturn 1;\n}\nfunction C() @{}`;
 			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
@@ -1350,6 +1389,103 @@ function App() @{
 					keyword.length,
 				);
 				expect(mapping, keyword).toBeTruthy();
+			}
+		});
+
+		it('maps a later declaration after a long prefix at its exact keyword span', () => {
+			const earlier = Array.from(
+				{ length: 24 },
+				(_, index) => `function earlier${index}() { return ${index}; }`,
+			).join('\n');
+			const source = `${earlier}\nfunction laterPlain() { return earlier23(); }`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+			expect(result.errors).toEqual([]);
+			expect_keyword_mapping(source, result, 'function', 'function laterPlain');
+		});
+
+		it('keeps nested declarations and function expressions inside their own bounds', () => {
+			const source = `function outerDecl() {
+	function nestedDecl() { return 1; }
+	const expression = function namedExpression() { return nestedDecl(); };
+	return expression();
+}`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+			expect(result.errors).toEqual([]);
+			for (const declaration of [
+				'function outerDecl',
+				'function nestedDecl',
+				'function namedExpression',
+			]) {
+				expect_keyword_mapping(source, result, 'function', declaration);
+			}
+		});
+
+		it('maps irregular async syntax only at lexer-authoritative spans', () => {
+			const source = `async /* function decoy */   function laterAsync() {
+	return 1;
+}`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+			expect(result.errors).toEqual([]);
+			expect_keyword_mapping(source, result, 'async', 'async');
+
+			const generated_function_offset = result.code.indexOf('function laterAsync');
+			const true_function_offset = source.lastIndexOf('function');
+			const garbled_function_offset = source.indexOf('async') + 'async'.length + 1;
+			expect(
+				find_exact_mapping(
+					result.mappings,
+					true_function_offset,
+					generated_function_offset,
+					'function'.length,
+				),
+				'the control omits this mapping because no generated source-map segment exists',
+			).toBeUndefined();
+			expect(
+				find_exact_mapping(
+					result.mappings,
+					garbled_function_offset,
+					generated_function_offset,
+					'function'.length,
+				),
+			).toBeUndefined();
+		});
+
+		it('keeps the arithmetic fallback when keyword tokens were not collected', () => {
+			const source = `async function fallback() { return 1; }`;
+			/** @type {CompileError[]} */
+			const errors = [];
+			/** @type {AST.CommentWithLocation[]} */
+			const comments = [];
+			const ast = parseModule(source, 'App.tsrx', {
+				collect: true,
+				loose: true,
+				preserveParens: true,
+				errors,
+				comments,
+			});
+			const transformed = createJsxTransform(KEYWORD_FALLBACK_PLATFORM)(ast, source, 'App.tsrx', {
+				collect: true,
+				loose: true,
+				typeOnly: true,
+				errors,
+				comments,
+			});
+			const result = createVolarMappingsResult({
+				ast: transformed.ast,
+				ast_from_source: ast,
+				source,
+				generated_code: transformed.code,
+				source_map: transformed.map,
+				errors,
+			});
+
+			expect(ast.tsrx_keyword_tokens).toBeUndefined();
+			expect(errors).toEqual([]);
+			for (const keyword of /** @type {const} */ (['async', 'function'])) {
+				expect_keyword_mapping(source, result, keyword, 'async function fallback');
 			}
 		});
 

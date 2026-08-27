@@ -276,6 +276,7 @@ export function TSRXPlugin(config) {
 			#errors = undefined;
 			/** @type {string | null} */
 			#filename = null;
+			#localExportNamesByScope = new WeakMap();
 			#functionBodyDepth = 0;
 			#allowExpressionContainerTrailingSemicolon = false;
 			#jsxAttributeValueExpressionDepth = 0;
@@ -3249,7 +3250,30 @@ export function TSRXPlugin(config) {
 				// Check all scopes in the scope stack, not just the top-level scope
 				for (let i = this.scopeStack.length - 1; i >= 0; i--) {
 					const scope = this.scopeStack[i];
-					if (scope.lexical.indexOf(name) !== -1 || scope.var.indexOf(name) !== -1) {
+					let cached = this.#localExportNamesByScope.get(scope);
+					if (
+						!cached ||
+						cached.lexicalLength > scope.lexical.length ||
+						cached.varLength > scope.var.length
+					) {
+						cached = {
+							names: new Set(),
+							lexicalLength: 0,
+							varLength: 0,
+						};
+						this.#localExportNamesByScope.set(scope, cached);
+					}
+
+					for (let j = cached.lexicalLength; j < scope.lexical.length; j++) {
+						cached.names.add(scope.lexical[j]);
+					}
+					for (let j = cached.varLength; j < scope.var.length; j++) {
+						cached.names.add(scope.var[j]);
+					}
+					cached.lexicalLength = scope.lexical.length;
+					cached.varLength = scope.var.length;
+
+					if (cached.names.has(name)) {
 						// Found in a scope, remove from undefinedExports if it was added
 						delete this.undefinedExports[name];
 						return;

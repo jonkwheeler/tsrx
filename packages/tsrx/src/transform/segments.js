@@ -17,6 +17,7 @@
 	ScriptSourceRegion,
 	TokenClass,
 } from '../../types/index';
+@import { Parse } from '../../types/parse';
 @import { CodeMapping as VolarCodeMapping } from '@volar/language-core';
  */
 
@@ -343,6 +344,35 @@ function extract_classes(node, src_to_gen_map, gen_line_offsets, src_line_offset
 }
 
 /**
+ * Find a lexer keyword inside a source interval. Acorn's `onToken` callback
+ * records tokens in ascending source order, so lower-bound positioning avoids
+ * rescanning every earlier function's tokens.
+ * @param {Parse.KeywordToken[]} tokens
+ * @param {'async' | 'function'} keyword
+ * @param {number} from
+ * @param {number} bound
+ * @returns {AST.SourceLocation | null}
+ */
+function find_keyword_location(tokens, keyword, from, bound) {
+	let low = 0;
+	let high = tokens.length;
+	while (low < high) {
+		const middle = (low + high) >>> 1;
+		if (tokens[middle].start < from) {
+			low = middle + 1;
+		} else {
+			high = middle;
+		}
+	}
+
+	for (let i = low; i < tokens.length && tokens[i].start < bound; i++) {
+		if (tokens[i].value === keyword) return tokens[i].loc;
+	}
+
+	return null;
+}
+
+/**
  * Create Volar mappings by walking the transformed AST
  * @param {AST.Node} ast - The transformed AST
  * @param {AST.Program} ast_from_source - The original AST from source
@@ -370,6 +400,27 @@ export function convert_source_map_to_mappings(
 
 	const src_line_offsets = build_line_offsets(source);
 	const gen_line_offsets = build_line_offsets(generated_code);
+	const lexer_tokens = ast_from_source.tsrx_keyword_tokens ?? [];
+
+	/**
+	 * @param {'async' | 'function'} keyword
+	 * @param {number} from
+	 * @param {number} bound
+	 * @param {(AST.FunctionDeclaration | AST.FunctionExpression) & AST.NodeWithLocation} node
+	 * @returns {AST.SourceLocation | null}
+	 */
+	function keyword_location(keyword, from, bound, node) {
+		if (lexer_tokens.length > 0) {
+			return find_keyword_location(lexer_tokens, keyword, from, bound);
+		}
+
+		// Arithmetic fallback (callers that do not collect tokens): assumes the
+		// historical `async` + one-space + `function` single-line layout.
+		const offset = keyword === 'function' && node.async ? node.start + 'async '.length : node.start;
+		const start_pos = offset_to_line_col(offset, src_line_offsets);
+		const end_pos = offset_to_line_col(offset + keyword.length, src_line_offsets);
+		return { start: start_pos, end: end_pos };
+	}
 
 	const [src_to_gen_map, , source_line_generated_map] = build_src_to_gen_map(
 		source_map,
@@ -1071,36 +1122,10 @@ export function convert_source_map_to_mappings(
 					// node-start-anchored arithmetic when tokens were not collected.
 					const keyword_bound =
 						node_fn.id?.start ?? node_fn.params?.[0]?.start ?? node_fn.body?.start ?? node_fn.end;
-					const lexer_tokens = ast_from_source.tsrx_keyword_tokens ?? [];
-					/**
-					 * @param {'async' | 'function'} keyword
-					 * @param {number} from
-					 * @returns {AST.SourceLocation | null}
-					 */
-					const keyword_loc = (keyword, from) => {
-						const token = lexer_tokens.find(
-							(candidate) =>
-								candidate.value === keyword &&
-								candidate.start >= from &&
-								candidate.start < keyword_bound,
-						);
-						if (token) return token.loc;
-						if (lexer_tokens.length > 0) return null;
-						// Arithmetic fallback (callers that do not collect tokens):
-						// assumes the historical `async` + one-space + `function`
-						// single-line layout.
-						const offset =
-							keyword === 'function' && node_fn.async
-								? node_fn.start + 'async '.length
-								: node_fn.start;
-						const start_pos = offset_to_line_col(offset, src_line_offsets);
-						const end_pos = offset_to_line_col(offset + keyword.length, src_line_offsets);
-						return { start: start_pos, end: end_pos };
-					};
 
 					let function_from = node_fn.start;
 					if (node_fn.async) {
-						const async_loc = keyword_loc('async', node_fn.start);
+						const async_loc = keyword_location('async', node_fn.start, keyword_bound, node_fn);
 						if (async_loc) {
 							tokens.push({
 								source: 'async',
@@ -1116,7 +1141,7 @@ export function convert_source_map_to_mappings(
 						}
 					}
 
-					const function_loc = keyword_loc('function', function_from);
+					const function_loc = keyword_location('function', function_from, keyword_bound, node_fn);
 					if (function_loc) {
 						tokens.push({
 							source: 'function',

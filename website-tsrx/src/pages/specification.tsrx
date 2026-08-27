@@ -764,13 +764,32 @@ export function SpecificationPage() @{
 							<h2 class="section-heading">4.7 Host-defined Server Extensions</h2>
 							<p class="section-body">
 								Submodule declarations are documented in the first edition as a generic extension
-								surface aligned with the TC39 module declarations proposal. Ripple currently defines
-								one host profile for this surface: module server declarations and imports from
-								server.
+								surface aligned with the TC39 module declarations proposal. Ripple and Octane both
+								define host profiles around a module server declaration. Ripple exposes
+								proposal-aligned imports from server, while Octane uses the file-local module
+								specifier
+								<code class="inline-code">'server'</code>
+								for RPC imports. The transport, serialization, and runtime behavior remain
+								host-defined.
+							</p>
+							<p class="section-body">
+								A server submodule is a structural boundary, not a directive annotation. Its nested
+								module scope gives host compilers and tooling an explicit region for isolation and
+								static analysis, including rejecting implicit cross-boundary captures and keeping
+								server-only dependencies out of client output. A host-specific
+								<code class="inline-code">"use server"</code>
+								directive, when supported, has separate semantics and is not interchangeable with
+								module server.
 							</p>
 							<pre class="code-block plain">
 								<code>{SERVER_EXTENSION_GRAMMAR}</code>
 							</pre>
+							<p class="section-body">
+								The identifier-source import production above describes the proposal-aligned form.
+								Octane's quoted
+								<code class="inline-code">'server'</code>
+								specifier uses the ordinary TypeScript import grammar.
+							</p>
 						</section>
 
 						<section class="doc-section" id="early-errors">
@@ -799,7 +818,11 @@ export function SpecificationPage() @{
 								</li>
 								<li>
 									In hosts that enable server-oriented submodules, server exports must be imported
-									before use, for example import &#123; load &#125; from server.
+									before use using the host profile's import form, for example
+									<code class="inline-code">import &#123; load &#125; from server</code>
+									in Ripple or
+									<code class="inline-code">import &#123; load &#125; from 'server'</code>
+									in Octane.
 								</li>
 								<li>
 									Host profiles may restrict which submodule names are supported and may impose
@@ -830,7 +853,7 @@ export function SpecificationPage() @{
 									constructors at runtime.
 								</li>
 								<li>
-									How submodule declarations and imports from identifier sources are compiled or
+									How submodule declarations and their associated import forms are compiled or
 									executed by a host profile that enables them.
 								</li>
 							</ul>
@@ -1024,6 +1047,12 @@ export function SpecificationPage() @{
 								<li>
 									Ripple records exported names from module server declarations for downstream RPC
 									analysis.
+								</li>
+								<li>
+									Octane associates string-literal imports from
+									<code class="inline-code">'server'</code>
+									with the file-local module server declaration for server exports or client RPC
+									stubs.
 								</li>
 								<li>
 									CSSStyleSheet metadata is attached to raw style elements in returned TSRX

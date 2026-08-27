@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { generate_docs_index, generated_docs_path } from '../scripts/generate-docs-index.js';
-import { find_documentation_section, list_documentation_sections } from '../src/index.js';
+import {
+	find_documentation_section,
+	find_similar_documentation_sections,
+	list_documentation_sections,
+} from '../src/index.js';
 
 describe('@tsrx/mcp documentation index', () => {
 	it('contains the core target-neutral sections', () => {
@@ -55,6 +59,19 @@ describe('@tsrx/mcp documentation index', () => {
 		expect(content).toContain('Do not use removed dynamic tag syntax');
 		expect(content).toContain('do not import a runtime `Dynamic` component with an `is` prop');
 		expect(content).not.toContain('<Dynamic is=');
+	});
+
+	it('makes host server profiles discoverable to MCP clients', () => {
+		for (const query of ['octane', 'octane rpc', 'server functions']) {
+			expect(find_similar_documentation_sections(query).map((section) => section.slug)).toContain(
+				'style-and-server',
+			);
+		}
+
+		const content = find_documentation_section('style-and-server')?.content ?? '';
+		expect(content).toContain('Ripple and Octane host profiles');
+		expect(content).toContain('https://octanejs.dev/llms.txt');
+		expect(content).toContain('does not expose an Octane target');
 	});
 
 	it('documents direct runtime dependencies for every standalone target runtime', () => {

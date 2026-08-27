@@ -224,7 +224,7 @@ Source: website-tsrx/src/pages/specification.tsrx#lazy`,
 			slug: 'style-and-server',
 			title: 'Style and Server Extensions',
 			use_cases:
-				'style expressions, scoped css, module server, submodule imports, compile-time identifiers',
+				'style expressions, scoped css, module server, submodule imports, compile-time identifiers, ripple server modules, octane rpc, server functions',
 			content: `# Style and Server Extensions
 
 Assign a \`<style>\` expression to expose scoped CSS class names declared in the current module.
@@ -241,7 +241,11 @@ export function ChildCard() @{
 }
 \`\`\`
 
-\`module server { ... }\` declares a server-oriented submodule in the Ripple host profile. Import exported functions with \`import { load } from server\` before use.
+\`module server { ... }\` declares an explicit server-oriented submodule in the Ripple and Octane host profiles. Ripple exposes proposal-aligned imports such as \`import { load } from server\`; Octane uses the file-local module specifier \`import { load } from 'server'\` for RPC imports. Transport, serialization, and runtime behavior remain target-defined.
+
+For Octane compiler, runtime, and validation guidance, use the Octane target documentation at https://octanejs.dev/llms.txt. The MCP \`compile-tsrx\` tool does not expose an Octane target.
+
+The nested module scope gives host compilers and tooling a structural boundary for isolation and static analysis, including rejecting implicit cross-boundary captures and keeping server-only dependencies out of client output. It is not interchangeable with a target-specific \`"use server"\` directive.
 
 Specification grammar:
 
@@ -251,7 +255,9 @@ ${style_grammar}
 ${server_extension_grammar}
 \`\`\`
 
-Source: website-tsrx/src/pages/specification.tsrx#style`,
+The identifier-source import production describes Ripple's proposal-aligned form. Octane's quoted \`'server'\` specifier uses the ordinary TypeScript import grammar.
+
+Source: website-tsrx/src/pages/specification.tsrx#server-profile`,
 		},
 		{
 			slug: 'dynamic-elements-and-components',

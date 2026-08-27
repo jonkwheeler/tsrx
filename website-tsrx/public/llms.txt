@@ -829,14 +829,24 @@ Octane compiles TSRX directly to DOM operations without a virtual DOM while
 keeping React-style function components and hooks. It supports TSRX control
 flow, scoped styles, client rendering, SSR, hydration, and Suspense. Octane
 dependency arrays are compiler-inferred when omitted, hooks use stable call-site
-slots, and text inputs use native `onInput` for per-edit updates.
+slots, and text inputs use native `onInput` for per-edit updates. File-local
+`module server { ... }` blocks define server functions; importing their named
+exports from `'server'` produces RPC calls in client output.
 
 ### Ripple
 
 Ripple is both a compiler target and a runtime. See the Ripple llms.txt
 (https://www.ripple-ts.com/llms.txt) for `track()`, `effect()`, `mount()`,
 `hydrate()`, collection primitives, raw HTML props, context, portals, and
-transporting reactivity across function boundaries.
+transporting reactivity across function boundaries. Ripple also defines a
+proposal-aligned `module server { ... }` profile with imports from `server`.
+
+`module server` is an explicit nested module scope rather than a directive
+annotation. That structural boundary supports isolation and static analysis and
+helps hosts reject implicit cross-boundary captures and keep server-only
+dependencies out of client output. It is not interchangeable with a
+target-specific `"use server"` directive; each target documents whether such a
+directive has any separate meaning.
 
 ## Common patterns
 

@@ -86,6 +86,11 @@ export namespace Parse {
 		parenthesizedAssign: number;
 		parenthesizedBind: number;
 		doubleProto: number;
+		/**
+		 * TSRX extension: position of a pending `&{…}`/`&[…]` lazy binding
+		 * pattern parsed in expression position, set only by TSRXPlugin.
+		 */
+		lazyBindingPos?: number;
 	}
 
 	/**
@@ -1605,11 +1610,13 @@ export namespace Parse {
 		 * @param node Expression to convert
 		 * @param isBinding Whether binding pattern
 		 * @param refDestructuringErrors Error collector
+		 * @param preserveTypeScriptWrapper Keep TS wrapper nodes (acorn-typescript extension)
 		 */
 		toAssignable(
 			node: AST.Node,
 			isBinding?: boolean,
 			refDestructuringErrors?: DestructuringErrors,
+			preserveTypeScriptWrapper?: boolean,
 		): AST.Pattern;
 
 		/**

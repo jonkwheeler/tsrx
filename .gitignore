@@ -60,5 +60,5 @@ temp/
 # differential test rig precompile cache
 **/.react-cache/
 
-# Generated optimization audit artifacts
-/docs/ce-optimize/
+# Generated agent artifacts
+/docs/

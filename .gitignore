@@ -60,5 +60,6 @@ temp/
 # differential test rig precompile cache
 **/.react-cache/
 
-# Generated agent artifacts
-/docs/
+# Agent-generated plans are local working artifacts, not repository content.
+/plans/
+/docs/plans/

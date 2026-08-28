@@ -60,5 +60,5 @@ temp/
 # differential test rig precompile cache
 **/.react-cache/
 
-# AI-generated documentation
+# Generated agent artifacts
 /docs/

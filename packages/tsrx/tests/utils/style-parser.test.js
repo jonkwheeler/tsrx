@@ -141,6 +141,7 @@ describe('CSS parser', () => {
 			background: url("/assets/a;b{c}.svg");
 			escaped: foo\\;bar;
 			&:hover { color: red; }
+			[data-x="a:b;c"] { color: blue; }
 			@media (width > 40rem) { .child { display: grid; } }
 			--tone: blue;
 		}`;
@@ -158,10 +159,15 @@ describe('CSS parser', () => {
 					},
 					{ type: 'Declaration', property: 'escaped', value: 'foo\\\\;;bar' },
 					{ type: 'Rule' },
+					{ type: 'Rule' },
 					{ type: 'Atrule', name: 'media' },
 					{ type: 'Declaration', property: '--tone', value: 'blue' },
 				],
 			},
 		});
+	});
+
+	it('does not read url function state from before the current value', () => {
+		expect(() => parseStyle('@url(foo;bar);', location, {})).toThrow('Expected identifier');
 	});
 });

@@ -11,6 +11,7 @@ const REGEX_PERCENTAGE = /^\d+(\.\d+)?%/;
 const REGEX_COMBINATOR = /^(\+|~|>|\|\|)/;
 const REGEX_VALID_IDENTIFIER_CHAR = /[a-zA-Z0-9_-]/;
 const REGEX_LEADING_HYPHEN_OR_DIGIT = /-?\d/;
+const REGEX_WHITESPACE_OR_COLON = /[\s:]/;
 const REGEX_NTH_OF =
 	/^(even|odd|\+?(\d+|\d*n(\s*[+-]\s*\d+)?)|-\d*n(\s*\+\s*\d+))((?=\s*[,)])|\s+of\s+)/;
 
@@ -271,32 +272,39 @@ function read_block_item(parser) {
 		return read_at_rule(parser);
 	}
 
-	// Parse the common declaration path once. A nested rule is the exceptional
-	// shape, so only that path rewinds and parses its selector after seeing `{`.
 	const start = parser.index;
-	const declaration = read_declaration(parser);
+	const declaration = try_read_declaration(parser);
 	if (declaration) {
 		return declaration;
 	}
 
 	parser.index = start;
+	if (declaration === undefined) {
+		read_value(parser);
+		const char = parser.template[parser.index];
+		parser.index = start;
+		return char === '{' ? read_rule(parser) : read_declaration(parser);
+	}
+
 	return read_rule(parser);
 }
 
 /**
+ * Parse an ordinary declaration once while leaving bracketed selector prefixes
+ * to the exact lookahead fallback in {@link read_block_item}.
  * @param {Parser} parser
- * @returns {AST.CSS.Declaration | null}
+ * @returns {AST.CSS.Declaration | null | undefined}
  */
-function read_declaration(parser) {
+function try_read_declaration(parser) {
 	const start = parser.index;
 
 	while (parser.index < parser.template.length) {
 		const char = parser.template[parser.index];
+		if (char === '[') return undefined;
 		if (char === ':' || char === '{' || regex_whitespace.test(char)) break;
 		parser.index++;
 	}
 	const property = parser.template.slice(start, parser.index);
-
 	parser.allow_whitespace();
 	if (parser.match('{')) return null;
 
@@ -306,12 +314,22 @@ function read_declaration(parser) {
 	const value = read_value(parser);
 	if (parser.match('{')) return null;
 
+	return create_declaration(parser, start, property, value);
+}
+
+/**
+ * @param {Parser} parser
+ * @param {number} start
+ * @param {string} property
+ * @param {string} value
+ * @returns {AST.CSS.Declaration}
+ */
+function create_declaration(parser, start, property, value) {
 	if (!value && !property.startsWith('--') && !parser.loose) {
 		throw new Error('CSS Declaration cannot be empty');
 	}
 
 	const end = parser.index;
-
 	if (!parser.match('}')) {
 		parser.eat(';', true);
 	}
@@ -323,6 +341,22 @@ function read_declaration(parser) {
 		property,
 		value,
 	};
+}
+
+/**
+ * @param {Parser} parser
+ * @returns {AST.CSS.Declaration}
+ */
+function read_declaration(parser) {
+	const start = parser.index;
+
+	const property = parser.read_until(REGEX_WHITESPACE_OR_COLON);
+	parser.allow_whitespace();
+	parser.eat(':');
+	parser.allow_whitespace();
+
+	const value = read_value(parser);
+	return create_declaration(parser, start, property, value);
 }
 
 /**
@@ -348,7 +382,13 @@ function read_value(parser) {
 			in_url = false;
 		} else if (quote_mark === null && (char === '"' || char === "'")) {
 			quote_mark = char;
-		} else if (char === '(' && parser.template.slice(parser.index - 3, parser.index) === 'url') {
+		} else if (
+			char === '(' &&
+			parser.index - start >= 3 &&
+			parser.template[parser.index - 3] === 'u' &&
+			parser.template[parser.index - 2] === 'r' &&
+			parser.template[parser.index - 1] === 'l'
+		) {
 			in_url = true;
 		} else if ((char === ';' || char === '{' || char === '}') && !in_url && !quote_mark) {
 			return parser.template.slice(start, parser.index).trim();

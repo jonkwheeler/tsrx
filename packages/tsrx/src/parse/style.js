@@ -11,7 +11,6 @@ const REGEX_PERCENTAGE = /^\d+(\.\d+)?%/;
 const REGEX_COMBINATOR = /^(\+|~|>|\|\|)/;
 const REGEX_VALID_IDENTIFIER_CHAR = /[a-zA-Z0-9_-]/;
 const REGEX_LEADING_HYPHEN_OR_DIGIT = /-?\d/;
-const REGEX_WHITESPACE_OR_COLON = /[\s:]/;
 const REGEX_NTH_OF =
 	/^(even|odd|\+?(\d+|\d*n(\s*[+-]\s*\d+)?)|-\d*n(\s*\+\s*\d+))((?=\s*[,)])|\s+of\s+)/;
 
@@ -272,30 +271,40 @@ function read_block_item(parser) {
 		return read_at_rule(parser);
 	}
 
-	// read ahead to understand whether we're dealing with a declaration or a nested rule.
-	// this involves some duplicated work, but avoids a try-catch that would disguise errors
+	// Parse the common declaration path once. A nested rule is the exceptional
+	// shape, so only that path rewinds and parses its selector after seeing `{`.
 	const start = parser.index;
-	read_value(parser);
-	const char = parser.template[parser.index];
-	parser.index = start;
+	const declaration = read_declaration(parser);
+	if (declaration) {
+		return declaration;
+	}
 
-	return char === '{' ? read_rule(parser) : read_declaration(parser);
+	parser.index = start;
+	return read_rule(parser);
 }
 
 /**
  * @param {Parser} parser
- * @returns {AST.CSS.Declaration}
+ * @returns {AST.CSS.Declaration | null}
  */
 function read_declaration(parser) {
 	const start = parser.index;
 
-	const property = parser.read_until(REGEX_WHITESPACE_OR_COLON);
+	while (parser.index < parser.template.length) {
+		const char = parser.template[parser.index];
+		if (char === ':' || char === '{' || regex_whitespace.test(char)) break;
+		parser.index++;
+	}
+	const property = parser.template.slice(start, parser.index);
+
 	parser.allow_whitespace();
+	if (parser.match('{')) return null;
+
 	parser.eat(':');
-	let index = parser.index;
 	parser.allow_whitespace();
 
 	const value = read_value(parser);
+	if (parser.match('{')) return null;
 
 	if (!value && !property.startsWith('--') && !parser.loose) {
 		throw new Error('CSS Declaration cannot be empty');
@@ -321,6 +330,42 @@ function read_declaration(parser) {
  * @returns {string}
  */
 function read_value(parser) {
+	const start = parser.index;
+	let in_url = false;
+
+	/** @type {null | '"' | "'"} */
+	let quote_mark = null;
+
+	while (parser.index < parser.template.length) {
+		const char = parser.template[parser.index];
+
+		if (char === '\\') {
+			parser.index = start;
+			return read_escaped_value(parser);
+		} else if (char === quote_mark) {
+			quote_mark = null;
+		} else if (char === ')') {
+			in_url = false;
+		} else if (quote_mark === null && (char === '"' || char === "'")) {
+			quote_mark = char;
+		} else if (char === '(' && parser.template.slice(parser.index - 3, parser.index) === 'url') {
+			in_url = true;
+		} else if ((char === ';' || char === '{' || char === '}') && !in_url && !quote_mark) {
+			return parser.template.slice(start, parser.index).trim();
+		}
+
+		parser.index++;
+	}
+
+	throw new Error('Unexpected end of input');
+}
+
+/**
+ * Preserve the existing escaped-value normalization on the uncommon path that
+ * cannot return a direct slice of the source.
+ * @param {Parser} parser
+ */
+function read_escaped_value(parser) {
 	let value = '';
 	let escaped = false;
 	let in_url = false;

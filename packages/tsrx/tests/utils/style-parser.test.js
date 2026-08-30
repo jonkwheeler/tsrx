@@ -134,4 +134,34 @@ describe('CSS parser', () => {
 			expect(parseStyle(source, location, {})).toEqual(first);
 		}
 	});
+
+	it('distinguishes declarations from nested rules without losing delimiters', () => {
+		const source = `.card {
+			content: "literal } ; {";
+			background: url("/assets/a;b{c}.svg");
+			escaped: foo\\;bar;
+			&:hover { color: red; }
+			@media (width > 40rem) { .child { display: grid; } }
+			--tone: blue;
+		}`;
+
+		const [rule] = parseStyle(source, location, {}).children;
+		expect(rule).toMatchObject({
+			type: 'Rule',
+			block: {
+				children: [
+					{ type: 'Declaration', property: 'content', value: '"literal } ; {"' },
+					{
+						type: 'Declaration',
+						property: 'background',
+						value: 'url("/assets/a;b{c}.svg")',
+					},
+					{ type: 'Declaration', property: 'escaped', value: 'foo\\\\;;bar' },
+					{ type: 'Rule' },
+					{ type: 'Atrule', name: 'media' },
+					{ type: 'Declaration', property: '--tone', value: 'blue' },
+				],
+			},
+		});
+	});
 });

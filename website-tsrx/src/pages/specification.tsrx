@@ -119,6 +119,14 @@ const LAZY_GRAMMAR = [
 	'  LazyArrayBindingPattern = AssignmentExpression ;',
 ].join('\n');
 
+const LAZY_LOOP_EXAMPLES = [
+	'for (const &{ value } of items) { use(value); }',
+	'for (let &[key] in table) { use(key); }',
+	'for (&{ value } of items) { use(value); }',
+	'for (let &{ value } = cursor; value < limit; value++) { use(value); }',
+	'for await (const &{ value } of stream) { use(value); }',
+].join('\n');
+
 const STYLE_GRAMMAR = [
 	'JSXStyleElement :',
 	'  <style JSXAttributesopt> CSSSource </style>',
@@ -744,6 +752,36 @@ export function SpecificationPage() @{
 							<pre class="code-block plain">
 								<code>{LAZY_GRAMMAR}</code>
 							</pre>
+							<p class="section-body">
+								Lazy binding patterns are permitted in ordinary JavaScript loop headers: in a
+								classic
+								<code class="inline-code">for</code>
+								initializer, in
+								<code class="inline-code">for...of</code>
+								and
+								<code class="inline-code">for...in</code>
+								declarations, and in
+								<code class="inline-code">for await...of</code>
+								declarations. A
+								<code class="inline-code">for...of</code>
+								or
+								<code class="inline-code">for...in</code>
+								header may also use a bare target that contains a lazy pattern; it behaves as a
+								per-iteration binding. Declaration kinds retain their ordinary ECMAScript scope,
+								including post-loop visibility for
+								<code class="inline-code">var</code>.
+							</p>
+							<pre class="code-block plain">
+								<code>{LAZY_LOOP_EXAMPLES}</code>
+							</pre>
+							<p class="section-body">
+								The iterable or right-hand expression is evaluated in the outer binding environment.
+								The lazy names introduced by the loop target apply to the loop's test, update, and
+								body only after that target has been established. These are ordinary JavaScript
+								loops used in setup or imperative logic; rendered list output continues to use the
+								<code class="inline-code">@for</code>
+								template directive.
+							</p>
 						</section>
 
 						<section class="doc-section" id="style">
@@ -813,6 +851,16 @@ export function SpecificationPage() @{
 									is not a template output node. Use a JSX fragment when a statement container or
 									control-flow block needs to render text, expression containers, or multiple
 									siblings.
+								</li>
+								<li>
+									A lazy destructuring assignment must have a directly lazy array or object target,
+									must be the complete expression statement, and must be a direct item in a Program,
+									BlockStatement, JSXCodeBlock, or SwitchCase statement list. Braceless control-flow
+									bodies, nested assignments, sequence operands, call arguments, and non-lazy outer
+									targets that contain a lazy pattern are early errors reported as
+									<code class="inline-code">tsrx-unsupported-lazy-assignment-position</code>.
+									Diagnostic-collecting tooling may preserve syntactically valid best-effort output,
+									but that recovery does not make the unsupported assignment conforming TSRX.
 								</li>
 								<li>
 									In hosts that enable server-oriented submodules, server exports must be imported

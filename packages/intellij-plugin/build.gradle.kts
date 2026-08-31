@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "dev.tsrx.intellij_plugin"
-version = "0.0.82"
+version = providers.gradleProperty("pluginVersion").get()
 
 repositories {
 	mavenCentral()
@@ -44,6 +44,9 @@ intellijPlatform {
 }
 
 val generatedPluginResources = layout.buildDirectory.dir("generated/tsrx-plugin-resources")
+val tsrxLspVersion = providers.gradleProperty("tsrxLspVersion").get().trim()
+require(tsrxLspVersion.isNotEmpty()) { "tsrxLspVersion must not be blank" }
+val generatedLspVersion = resources.text.fromString("$tsrxLspVersion\n")
 val generatePluginResources by tasks.registering(Sync::class) {
 	from(layout.projectDirectory.file("../../grammars/textmate/info.plist")) {
 		into("textmate")
@@ -53,6 +56,9 @@ val generatePluginResources by tasks.registering(Sync::class) {
 	}
 	from(layout.projectDirectory.file("LICENSE")) {
 		into("META-INF")
+	}
+	from(generatedLspVersion.asFile()) {
+		rename { "lsp-version.txt" }
 	}
 	into(generatedPluginResources)
 }

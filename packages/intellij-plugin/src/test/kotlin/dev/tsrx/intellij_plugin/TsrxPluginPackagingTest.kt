@@ -27,6 +27,15 @@ class TsrxPluginPackagingTest {
 			repositoryDir.resolve("grammars/textmate/tsrx.tmLanguage.json"),
 		)
 		assertResourceMatches("META-INF/LICENSE", packageDir.resolve("LICENSE"))
+		val expectedLspVersion = packageDir.resolve("gradle.properties")
+			.readText()
+			.lineSequence()
+			.single { it.startsWith("tsrxLspVersion=") }
+			.substringAfter('=')
+		assertEquals(
+			expectedLspVersion,
+			javaClass.classLoader.getResource("lsp-version.txt")!!.readText().trim(),
+		)
 	}
 
 	@Test

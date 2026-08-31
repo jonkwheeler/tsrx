@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { synchronizeIntellijPluginVersions } from '../../../scripts/sync-intellij-plugin-version.js';
 import { createVerificationMatrix } from '../scripts/verification-matrix.mjs';
+import { validateInstalledLanguageServer } from '../scripts/verify-language-server-release.mjs';
 
 const test_dir = dirname(fileURLToPath(import.meta.url));
 const repository_dir = resolve(test_dir, '../../..');
@@ -167,6 +168,56 @@ describe('@tsrx/intellij-plugin release contract', () => {
 		expect(ignored).toEqual([
 			"dev.tsrx.intellij_plugin::Package 'com\\.intellij\\.platform\\.lsp' is not found.*",
 		]);
+	});
+
+	it('accepts only the exact published language-server package and launcher', () => {
+		const valid = {
+			packageMetadata: {
+				name: '@tsrx/language-server',
+				version: '1.2.3',
+				bin: { 'tsrx-language-server': 'dist/language-server.js' },
+			},
+			expectedVersion: '1.2.3',
+			launcherExists: true,
+		};
+
+		expect(() => validateInstalledLanguageServer(valid)).not.toThrow();
+		expect(() =>
+			validateInstalledLanguageServer({
+				...valid,
+				packageMetadata: { ...valid.packageMetadata, version: '1.2.4' },
+			}),
+		).toThrow(/Expected version 1\.2\.3/);
+		expect(() => validateInstalledLanguageServer({ ...valid, launcherExists: false })).toThrow(
+			/installed tsrx-language-server launcher/,
+		);
+	});
+
+	it('protects signing and publishing behind the manual Marketplace environment', () => {
+		const workflow = readFileSync(
+			resolve(repository_dir, '.github/workflows/intellij-plugin-publish.yml'),
+			'utf8',
+		);
+
+		for (const required of [
+			'workflow_dispatch:',
+			'environment: jetbrains-marketplace',
+			'uses: ./.github/workflows/intellij-plugin.yml',
+			'verify-language-server-release.mjs',
+			'revision must resolve to the current main head',
+			'cmp --',
+			'signPlugin',
+			'verifyPluginSignature',
+			'certificateChainFile',
+			'unset CERTIFICATE_CHAIN',
+			"if: inputs.mode == 'publish'",
+			'publishPlugin',
+			'retention-days: 90',
+		]) {
+			expect(workflow).toContain(required);
+		}
+		expect(workflow).not.toMatch(/^\s*uses: (?!\.\/).*@v\d+/m);
+		expect(workflow).not.toContain('pull_request:');
 	});
 });
 

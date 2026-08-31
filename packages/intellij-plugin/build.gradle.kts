@@ -1,6 +1,15 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.models.ProductRelease
+import org.jetbrains.intellij.platform.gradle.tasks.PublishPluginTask
+import org.jetbrains.intellij.platform.gradle.tasks.SignPluginTask
 import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask
+import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginSignatureTask
 
 plugins {
 	id("java")
@@ -104,13 +113,31 @@ intellijPlatform {
 			}
 		}
 	}
+
+	signing {
+		certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
+		privateKey = providers.environmentVariable("PRIVATE_KEY")
+		password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
+	}
+
+	publishing {
+		token = providers.environmentVariable("PUBLISH_TOKEN")
+		channels = listOf("default")
+	}
 }
 
 val generatedPluginResources = layout.buildDirectory.dir("generated/tsrx-plugin-resources")
 val tsrxLspVersion = providers.gradleProperty("tsrxLspVersion").get().trim()
 require(tsrxLspVersion.isNotEmpty()) { "tsrxLspVersion must not be blank" }
-val generatedLspVersion = resources.text.fromString("$tsrxLspVersion\n")
+val releaseArchiveFile = providers.gradleProperty("releaseArchiveFile").orNull
+val releaseSignedArchiveFile = providers.gradleProperty("releaseSignedArchiveFile").orNull
+val releaseCertificateChainFile = providers.gradleProperty("certificateChainFile").orNull
+val generateLspVersion by tasks.registering(GenerateLspVersionTask::class) {
+	languageServerVersion.set(tsrxLspVersion)
+	outputFile.set(layout.buildDirectory.file("generated/tsrx-lsp-version/lsp-version.txt"))
+}
 val generatePluginResources by tasks.registering(Sync::class) {
+	dependsOn(generateLspVersion)
 	from(layout.projectDirectory.file("../../grammars/textmate/info.plist")) {
 		into("textmate")
 	}
@@ -120,7 +147,7 @@ val generatePluginResources by tasks.registering(Sync::class) {
 	from(layout.projectDirectory.file("LICENSE")) {
 		into("META-INF")
 	}
-	from(generatedLspVersion.asFile()) {
+	from(generateLspVersion.flatMap { it.outputFile }) {
 		rename { "lsp-version.txt" }
 	}
 	into(generatedPluginResources)
@@ -140,10 +167,43 @@ tasks {
 		sourceCompatibility = "21"
 		targetCompatibility = "21"
 	}
+
+	withType<AbstractArchiveTask> {
+		isPreserveFileTimestamps = false
+		isReproducibleFileOrder = true
+	}
+
+	named<SignPluginTask>("signPlugin") {
+		releaseArchiveFile?.let { archiveFile.set(file(it)) }
+	}
+
+	named<PublishPluginTask>("publishPlugin") {
+		releaseSignedArchiveFile?.let { archiveFile.set(file(it)) }
+	}
+
+	named<VerifyPluginSignatureTask>("verifyPluginSignature") {
+		releaseCertificateChainFile?.let { certificateChainFile.set(file(it)) }
+	}
 }
 
 kotlin {
 	compilerOptions {
 		jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+	}
+}
+
+abstract class GenerateLspVersionTask : DefaultTask() {
+	@get:Input
+	abstract val languageServerVersion: Property<String>
+
+	@get:OutputFile
+	abstract val outputFile: org.gradle.api.file.RegularFileProperty
+
+	@TaskAction
+	fun generate() {
+		outputFile.get().asFile.apply {
+			parentFile.mkdirs()
+			writeText("${languageServerVersion.get()}\n")
+		}
 	}
 }

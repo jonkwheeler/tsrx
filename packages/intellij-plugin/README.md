@@ -22,16 +22,22 @@ modules receive the LSP feature tier.
 
 ## Installation status
 
-The JetBrains Marketplace listing is not public yet. Until the first signed
-submission is approved, build the ZIP with:
+This repository has not published an official JetBrains Marketplace release. A
+[public listing](https://plugins.jetbrains.com/plugin/33925-tsrx) currently uses
+the configured plugin ID, but its source points to a different repository and
+ownership has not been confirmed as TSRX's release channel.
+
+Until maintainers resolve the Marketplace ID and publish a repository-controlled
+release, build the ZIP with:
 
 ```sh
 packages/intellij-plugin/gradlew -p packages/intellij-plugin buildPlugin
 ```
 
 Then use **Settings → Plugins → ⚙ → Install Plugin from Disk** and select the ZIP
-from `packages/intellij-plugin/build/distributions`. Do not publish or document a
-Marketplace URL until the release record contains the approved public page.
+from `packages/intellij-plugin/build/distributions`. Do not present the existing
+listing as this repository's official release until the release record contains
+confirmed ownership and public-install evidence.
 
 ## Language Server Resolution
 
@@ -51,8 +57,9 @@ shows an actionable notification instead of repeatedly starting a broken server.
 
 - See [DEVELOPMENT.md](./DEVELOPMENT.md) for local tests, compatibility
   verification, install-from-disk smoke tests, and protected publication setup.
-- Use [MARKETPLACE_RELEASE.md](./MARKETPLACE_RELEASE.md) as the first-submission
-  evidence record. Its no-go gates must be cleared before upload or issue closure.
+- Use [MARKETPLACE_RELEASE.md](./MARKETPLACE_RELEASE.md) as the first-official-
+  release evidence record. Its no-go gates must be cleared before upload or issue
+  closure.
 - Run `./gradlew runIde` from this directory to start a sandbox IDE with the
   plugin.
 

@@ -1,6 +1,6 @@
 # JetBrains Marketplace first-release record
 
-Status: **NO-GO — external submission and approval pending**
+Status: **NO-GO — Marketplace ID ownership unresolved**
 
 This file is the durable evidence record for the first public release of the TSRX
 JetBrains plugin. It must not contain signing keys, tokens, passwords, or other
@@ -13,27 +13,41 @@ credentials.
 - Source: `https://github.com/tsrx-org/tsrx`
 - License: MIT
 - Homepage: `https://tsrx.dev/`
-- Marketplace URL: pending first-submission approval
-- Numeric Marketplace plugin ID: pending first-submission creation
+- Observed Marketplace URL: `https://plugins.jetbrains.com/plugin/33925-tsrx`
+- Observed numeric Marketplace plugin ID: `33925`
+- Repository-controlled Marketplace URL: pending ownership resolution
 
-On 2026-08-31, JetBrains' public plugin-details endpoint returned an empty
-`<plugin-repository/>` for this XML ID, and public Marketplace search found no
-TSRX listing. This establishes that no public listing currently claims the ID; it
-does not prove that the logged-in vendor can create it.
+On 2026-08-31, JetBrains' public APIs returned a public listing for this XML ID.
+The listing reports version `1.0.6`, an unverified vendor named `TSRX`, and a
+source URL of `https://github.com/rodrigobertin/TSRX-jetbrains-plugin`. This
+repository has not established that it controls that vendor or listing. Do not
+treat the observed listing as this repository's official release channel until
+ownership is confirmed.
 
-Before upload, an accountable maintainer must sign in to Marketplace, select the
-intended TSRX vendor, confirm that the vendor can accept
-`dev.tsrx.intellij_plugin`, and record the confirmation below. Stop if the ID or
-vendor is disputed. The XML ID is immutable after the first release.
+Before upload, an accountable maintainer must choose and record one of these
+paths:
+
+1. Establish or transfer control of Marketplace plugin `33925` with the current
+   vendor and JetBrains. Confirm the TSRX vendor and token can update the listing,
+   then use `publish` mode.
+2. Select a new immutable XML ID for this repository's official plugin. Update
+   code, tests, release metadata, and this record, confirm the new ID is free,
+   then use `stage` mode.
+
+Stop if the ID or vendor remains disputed. A Marketplace XML ID cannot be changed
+after its first public release.
 
 - [ ] Vendor profile confirmed by: pending
 - [ ] Vendor ownership confirmed at: pending
+- [ ] Ownership path selected (transfer/control or new XML ID): pending
 - [ ] Developer Agreement accepted by: pending
 - [ ] Trader/non-trader and EEA declarations completed by: pending
 
 ## Signed artifact evidence
 
-Run **Publish IntelliJ Plugin** in `stage` mode from `main`. Copy values from the
+After the ownership path is resolved, run **Publish IntelliJ Plugin** from `main`
+in the matching mode. Use `publish` only for a confirmed repository-controlled
+existing listing. Use `stage` only for a free XML ID. Copy values from the
 retained workflow artifact; do not calculate them from a rebuilt ZIP.
 
 - Workflow run URL: pending
@@ -55,6 +69,7 @@ No-go conditions:
 - The rebuilt unsigned ZIP differs from the verified artifact.
 - Signature verification fails, or a credential appears in logs/artifacts.
 - Vendor ownership, legal declarations, or rollback ownership is unresolved.
+- The selected release mode does not match the confirmed Marketplace ID state.
 
 ## Listing metadata
 
@@ -78,8 +93,8 @@ Submission record:
 - Marketplace submission/update ID: pending
 - Submitted by: pending
 - Submitted at: pending
-- Review state: not submitted
-- Review thread/link: pending
+- Review state: blocked by existing-listing ownership review
+- Review thread/link: pending maintainer/vendor/JetBrains coordination
 
 ## Review log
 
@@ -117,7 +132,8 @@ After approval:
       restart/upgrade smoke.
 
 Issue #8 stays open until these checks pass. Repository readiness, a staged ZIP,
-or a submission awaiting review is not equivalent to a public installable listing.
+an unverified third-party listing, or a submission awaiting review is not
+equivalent to a repository-controlled public release.
 
 ## Rollback drill
 

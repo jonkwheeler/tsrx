@@ -250,7 +250,7 @@ describe('@tsrx/intellij-plugin release contract', () => {
 		expect(() => validateMarketplaceState('invalid', empty)).toThrow(/mode stage or publish/);
 	});
 
-	it('keeps public documentation in no-go state until Marketplace approval', () => {
+	it('keeps public documentation in no-go state until Marketplace ownership is resolved', () => {
 		const packageReadme = readFileSync(
 			resolve(repository_dir, 'packages/intellij-plugin/README.md'),
 			'utf8',
@@ -260,9 +260,13 @@ describe('@tsrx/intellij-plugin release contract', () => {
 			'utf8',
 		);
 
-		expect(packageReadme).toContain('Marketplace listing is not public yet');
-		expect(releaseRecord).toContain('NO-GO — external submission and approval pending');
-		expect(releaseRecord).toContain('Marketplace URL: pending first-submission approval');
+		expect(packageReadme).toContain(
+			'This repository has not published an official JetBrains Marketplace release',
+		);
+		expect(packageReadme).toContain('https://plugins.jetbrains.com/plugin/33925-tsrx');
+		expect(releaseRecord).toContain('NO-GO — Marketplace ID ownership unresolved');
+		expect(releaseRecord).toContain('Repository-controlled Marketplace URL: pending');
+		expect(releaseRecord).toContain('https://github.com/rodrigobertin/TSRX-jetbrains-plugin');
 		expect(releaseRecord).toContain('README.md`');
 		expect(releaseRecord).toContain('website-tsrx/public/llms.txt');
 	});

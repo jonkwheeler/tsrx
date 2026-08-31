@@ -151,6 +151,8 @@ describe('@tsrx/intellij-plugin release contract', () => {
 			'verifyPluginProjectConfiguration',
 			'buildPlugin',
 			'verifyPluginStructure',
+			'Download tested plugin archive',
+			'verificationArchiveFile',
 			'verifyPlugin',
 		]) {
 			expect(workflow).toContain(required);
@@ -233,6 +235,10 @@ describe('@tsrx/intellij-plugin release contract', () => {
 			/already has a public listing/,
 		);
 		expect(() => validateMarketplaceState('publish', empty)).toThrow(/no public listing/);
+		expect(() => validateMarketplaceState('stage', `${empty}${published}`)).toThrow(
+			/already has a public listing/,
+		);
+		expect(() => validateMarketplaceState('invalid', empty)).toThrow(/mode stage or publish/);
 	});
 
 	it('keeps public documentation in no-go state until Marketplace approval', () => {

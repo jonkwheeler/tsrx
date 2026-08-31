@@ -129,6 +129,7 @@ intellijPlatform {
 val generatedPluginResources = layout.buildDirectory.dir("generated/tsrx-plugin-resources")
 val tsrxLspVersion = providers.gradleProperty("tsrxLspVersion").get().trim()
 require(tsrxLspVersion.isNotEmpty()) { "tsrxLspVersion must not be blank" }
+val verificationArchiveFile = providers.gradleProperty("verificationArchiveFile").orNull
 val releaseArchiveFile = providers.gradleProperty("releaseArchiveFile").orNull
 val releaseSignedArchiveFile = providers.gradleProperty("releaseSignedArchiveFile").orNull
 val releaseCertificateChainFile = providers.gradleProperty("certificateChainFile").orNull
@@ -175,6 +176,10 @@ tasks {
 
 	named<SignPluginTask>("signPlugin") {
 		releaseArchiveFile?.let { archiveFile.set(file(it)) }
+	}
+
+	named<VerifyPluginTask>("verifyPlugin") {
+		verificationArchiveFile?.let { archiveFile.set(file(it)) }
 	}
 
 	named<PublishPluginTask>("publishPlugin") {

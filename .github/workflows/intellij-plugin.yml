@@ -119,11 +119,23 @@ jobs:
       - name: Setup Gradle cache
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
 
+      - name: Download tested plugin archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: intellij-plugin-unsigned
+          path: release/unsigned
+
       - name: Verify binary compatibility
-        run: >-
-          packages/intellij-plugin/gradlew -p packages/intellij-plugin verifyPlugin
-          -PverificationProductType=${{ matrix.productType }}
-          -PverificationProductVersion=${{ matrix.productVersion }}
+        run: |
+          mapfile -t archives < <(find release/unsigned -maxdepth 1 -type f -name '*.zip')
+          if [[ "${#archives[@]}" -ne 1 ]]; then
+            echo "Expected exactly one tested plugin archive." >&2
+            exit 1
+          fi
+          packages/intellij-plugin/gradlew -p packages/intellij-plugin verifyPlugin \
+            "-PverificationArchiveFile=$(realpath "${archives[0]}")" \
+            -PverificationProductType=${{ matrix.productType }} \
+            -PverificationProductVersion=${{ matrix.productVersion }}
 
       - name: Upload Plugin Verifier reports
         if: always()

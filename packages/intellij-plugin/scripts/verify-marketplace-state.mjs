@@ -23,7 +23,10 @@ export async function verifyMarketplaceState(mode, request = fetch) {
 }
 
 export function validateMarketplaceState(mode, xml) {
-	const isEmpty = /<plugin-repository\s*\/>/.test(xml);
+	if (mode !== 'stage' && mode !== 'publish') {
+		throw new Error(`Expected Marketplace mode stage or publish, received ${mode}`);
+	}
+	const isEmpty = /^\s*(?:<\?xml[^?]*\?>\s*)?<plugin-repository\s*\/>\s*$/.test(xml);
 	const containsPlugin =
 		xml.includes('<idea-plugin') &&
 		new RegExp(`<id>\\s*${escapeRegex(plugin_id)}\\s*</id>`).test(xml);

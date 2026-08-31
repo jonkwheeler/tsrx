@@ -214,6 +214,10 @@ describe('@tsrx/intellij-plugin release contract', () => {
 			'verifyPluginSignature',
 			'certificateChainFile',
 			'unset CERTIFICATE_CHAIN',
+			'id: signature',
+			'id: evidence',
+			"steps.signature.outcome == 'success'",
+			"steps.evidence.outcome == 'success'",
 			"if: inputs.mode == 'publish'",
 			'publishPlugin',
 			'retention-days: 90',
@@ -222,6 +226,11 @@ describe('@tsrx/intellij-plugin release contract', () => {
 		}
 		expect(workflow).not.toMatch(/^\s*uses: (?!\.\/).*@v\d+/m);
 		expect(workflow).not.toContain('pull_request:');
+		const gradleBuild = readFileSync(
+			resolve(repository_dir, 'packages/intellij-plugin/build.gradle.kts'),
+			'utf8',
+		);
+		expect(gradleBuild).toContain('setDependsOn(listOf("initializeIntellijPlatformPlugin"))');
 	});
 
 	it('separates first-submission staging from existing-listing publication', () => {

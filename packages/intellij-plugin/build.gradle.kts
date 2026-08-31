@@ -183,7 +183,10 @@ tasks {
 	}
 
 	named<PublishPluginTask>("publishPlugin") {
-		releaseSignedArchiveFile?.let { archiveFile.set(file(it)) }
+		releaseSignedArchiveFile?.let {
+			archiveFile.set(file(it))
+			setDependsOn(listOf("initializeIntellijPlatformPlugin"))
+		}
 	}
 
 	named<VerifyPluginSignatureTask>("verifyPluginSignature") {

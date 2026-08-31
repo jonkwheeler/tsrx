@@ -250,9 +250,7 @@ describe('target-neutral TSRX analysis', () => {
 				const errors = unsupported_lazy_assignment_errors(analyze(source));
 
 				expect(errors, source).toHaveLength(1);
-				expect(errors[0].message, source).toBe(
-					TSRX_UNSUPPORTED_LAZY_ASSIGNMENT_POSITION_ERROR,
-				);
+				expect(errors[0].message, source).toBe(TSRX_UNSUPPORTED_LAZY_ASSIGNMENT_POSITION_ERROR);
 			}
 		});
 
@@ -267,9 +265,7 @@ describe('target-neutral TSRX analysis', () => {
 				const errors = unsupported_lazy_assignment_errors(analyze(source));
 
 				expect(errors, source).toHaveLength(1);
-				expect(errors[0].message, source).toBe(
-					TSRX_UNSUPPORTED_LAZY_ASSIGNMENT_POSITION_ERROR,
-				);
+				expect(errors[0].message, source).toBe(TSRX_UNSUPPORTED_LAZY_ASSIGNMENT_POSITION_ERROR);
 			}
 		});
 

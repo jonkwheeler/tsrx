@@ -5,7 +5,6 @@
 
 import { walk } from 'zimmerframe';
 import {
-	child_nodes,
 	is_code_block_function_body,
 	is_statement_position,
 	is_supported_lazy_assignment_position,
@@ -18,9 +17,9 @@ import {
 } from './validation.js';
 
 /**
- * Find the first authored lazy pattern in a node's subtree. Assignment
- * validation calls this once for the whole target so an unsupported outer
- * target reports one diagnostic even when it contains several lazy patterns.
+ * Find the first authored lazy pattern along an assignment target's binding
+ * edges. Default-value expressions and computed keys are evaluated
+ * expressions, so nested assignments there own their own diagnostics.
  *
  * @param {AST.Node} node
  * @returns {import('../../types/index').LazyPattern | null}
@@ -30,12 +29,34 @@ function find_first_lazy_pattern(node) {
 		return node;
 	}
 
-	for (const child of child_nodes(node)) {
-		const lazy = find_first_lazy_pattern(child);
-		if (lazy) return lazy;
+	switch (node.type) {
+		case 'AssignmentPattern':
+			return find_first_lazy_pattern(node.left);
+		case 'RestElement':
+			return find_first_lazy_pattern(node.argument);
+		case 'ObjectPattern':
+			for (const property of node.properties) {
+				const lazy =
+					property.type === 'Property'
+						? find_first_lazy_pattern(property.value)
+						: find_first_lazy_pattern(property.argument);
+				if (lazy) return lazy;
+			}
+			return null;
+		case 'ArrayPattern':
+			for (const element of node.elements) {
+				if (!element) continue;
+				const lazy = find_first_lazy_pattern(element);
+				if (lazy) return lazy;
+			}
+			return null;
+		default: {
+			const expression = /** @type {{ expression?: AST.Node }} */ (node).expression;
+			return expression && is_transparent_expression_wrapper(node, expression)
+				? find_first_lazy_pattern(expression)
+				: null;
+		}
 	}
-
-	return null;
 }
 
 /**

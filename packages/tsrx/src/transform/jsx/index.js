@@ -858,11 +858,13 @@ export function createJsxTransform(platform) {
 
 		// Apply lazy destructuring transforms to module-level code (top-level function
 		// declarations, arrow functions, etc.).
-		// In type-only mode, the lazy patterns survive untouched: esrap ignores the
+		// In type-only mode, ordinary lazy patterns survive untouched: esrap ignores the
 		// non-standard `lazy` flag, so `&{ a, b }` prints as `{ a, b }`, `let &[a]
 		// = expr` prints as `let [a] = expr`, and the bare statement-level form
-		// `&[x] = expr;` (used when `x` is already declared) prints as `[x] =
-		// expr;` — a valid destructuring assignment to the existing binding.
+		// `&[x] = expr;` standalone assignment is the exception: it must take the
+		// same declaration path as runtime output so transparent editor-only wrappers
+		// cannot turn it into an eager destructure. The assignment-only preallocation
+		// below leaves params and declarations on their existing type-only path.
 		//
 		// Re-run `preallocate_lazy_ids` first. The initial pre-walk pass stamps
 		// `metadata.has_lazy_descendants` (the fast-path gate that tells
@@ -874,12 +876,10 @@ export function createJsxTransform(platform) {
 		// stamps them too (it is idempotent: already-allocated `lazy_id`s are kept),
 		// so lazy bindings declared inside a nested block or directive body are
 		// rewritten just like a flat function body.
-		if (!transform_context.typeOnly) {
-			preallocate_lazy_ids(lowered_program, transform_context);
-		}
-		const final_program = transform_context.typeOnly
-			? lowered_program
-			: /** @type {AST.Program} */ (apply_lazy_transforms(lowered_program, new Map()));
+		preallocate_lazy_ids(lowered_program, transform_context, transform_context.typeOnly);
+		const final_program = /** @type {AST.Program} */ (
+			apply_lazy_transforms(lowered_program, new Map())
+		);
 
 		const result = print(
 			final_program,

@@ -73,6 +73,20 @@ export function runSharedCompileDiagnosticsTests({ compile_to_volar_mappings, na
 			}
 		});
 
+		it('lowers transparent standalone lazy assignments in type-only output', () => {
+			for (const source of [
+				'function recover() { (&{ value } = source); consume(value); }',
+				'function recover() { (&{ value } = source) as unknown; consume(value); }',
+			]) {
+				const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+				expect(result.errors, source).toEqual([]);
+				expect(result.code, source).toContain('const __lazy0 = source');
+				expect(result.code, source).toContain('consume(__lazy0.value)');
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+			}
+		});
+
 		it('preserves deferred imports in type-only output', () => {
 			const result = compile_to_volar_mappings(
 				`import defer * as feature from './feature.js';
@@ -1068,6 +1082,22 @@ export function runSharedLazyLoopTests({ compile, name }) {
 			expect(code).toContain('consume(__lazy0.value, doubled)');
 		});
 
+		it('keeps outer lazy bindings active through classic-for initializers', () => {
+			const { code } = compile(
+				`export function self(&{ value }) {
+					for (let &{ value } = value; false;) consume(value);
+				}
+				export function later(&{ value }, source) {
+					for (let before = value, &{ value } = source; false;) consume(before, value);
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (let __lazy1 = __lazy0.value; false; )');
+			expect(code).toContain('for (let before = __lazy2.value, __lazy3 = source; false; )');
+			expect(code).toContain('consume(before, __lazy3.value)');
+		});
+
 		it('keeps classic-for var sources visible after nested control flow', () => {
 			const { code } = compile(
 				`export function count(ready, source, limit) {
@@ -1097,6 +1127,20 @@ export function runSharedLazyLoopTests({ compile, name }) {
 			expect(code).toContain('for (const __lazy1 of __lazy0.item.children)');
 			expect(code).toContain('consume(__lazy1.item)');
 			expect(code).toContain('return __lazy0.item');
+		});
+
+		it('shadows outer lazy names with non-lazy siblings in bare loop targets', () => {
+			const { code } = compile(
+				`export function read(&{ existing }, items) {
+					for ([existing, &{ value }] of items) consume(existing, value);
+					return existing;
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (const [existing, __lazy1] of items)');
+			expect(code).toContain('consume(existing, __lazy1.value)');
+			expect(code).toContain('return __lazy0.existing');
 		});
 
 		it('preserves for-await and var last-source lifetime lowering', () => {
@@ -1162,6 +1206,23 @@ export function runSharedLazyLoopTests({ compile, name }) {
 			expect(code).toContain('return __lazy0.value');
 			expect(code).toContain('return [inner, value]');
 			expect(code).not.toContain('return [inner, __lazy0.value]');
+		});
+
+		it('keeps static-block var loop bindings inside the static block', () => {
+			const { code } = compile(
+				`class Example {
+					static {
+						for (var &{ value } of items) consume(value);
+						consume(value);
+					}
+				}
+				consume(value);`,
+				'App.tsrx',
+			);
+
+			expect(count_substring(code, 'consume(__lazy0.value)')).toBe(2);
+			expect(code).toMatch(/}\s*consume\(value\);?$/);
+			expect(code).not.toMatch(/}\s*consume\(__lazy0\.value\);?$/);
 		});
 	});
 }
@@ -2220,6 +2281,20 @@ export function runSharedCompileTests({
 			expect(result.code).toContain('const __lazy0 = source');
 			expect(result.code).toContain('consume(__lazy0.value)');
 			expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+		});
+
+		it('lowers transparent standalone lazy assignments in strict output', () => {
+			for (const source of [
+				'function recover() { (&{ value } = source); consume(value); }',
+				'function recover() { (&{ value } = source) as unknown; consume(value); }',
+			]) {
+				const result = compile(source, 'App.tsrx');
+
+				expect(result.errors, source).toEqual([]);
+				expect(result.code, source).toContain('const __lazy0 = source');
+				expect(result.code, source).toContain('consume(__lazy0.value)');
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+			}
 		});
 
 		it('keeps every diagnosed assignment shape on a parseable best-effort path', () => {

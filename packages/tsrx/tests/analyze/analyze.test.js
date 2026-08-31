@@ -282,6 +282,21 @@ describe('target-neutral TSRX analysis', () => {
 			expect(source.slice(errors[0].pos, errors[0].end)).toBe(target);
 		});
 
+		it('leaves lazy assignments in evaluated target expressions to their own visitor', () => {
+			for (const [source, target] of [
+				['[x = (&{ value } = source)] = items;', '{ value }'],
+				['({ [(&{ x } = source).key]: value } = object);', '{ x }'],
+			]) {
+				const errors = unsupported_lazy_assignment_errors(analyze(source));
+				const start = source.indexOf(target);
+
+				expect(errors, source).toHaveLength(1);
+				expect(errors[0].pos, source).toBe(start);
+				expect(errors[0].end, source).toBe(start + target.length);
+				expect(source.slice(errors[0].pos, errors[0].end), source).toBe(target);
+			}
+		});
+
 		it('throws in strict analysis and collects in editor and type-only modes', () => {
 			const source = 'if (ready) &{ value } = source;';
 			const ast = parseModule(source, filename);

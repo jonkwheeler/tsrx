@@ -24,9 +24,7 @@ const rootDir = path.join(path.dirname(__filename), '..');
 const sourceJson = path.join(rootDir, 'grammars/textmate/tsrx.tmLanguage.json');
 const assetBundleGrammar = path.join(rootDir, 'assets/TSRX.tmbundle/Syntaxes/tsrx.tmLanguage');
 
-const jsonTargetFiles = [
-	'packages/vscode-plugin/syntaxes/tsrx.tmLanguage.json',
-];
+const jsonTargetFiles = ['packages/vscode-plugin/syntaxes/tsrx.tmLanguage.json'];
 
 const main = async () => {
 	console.log('Copying TextMate grammar files...\n');

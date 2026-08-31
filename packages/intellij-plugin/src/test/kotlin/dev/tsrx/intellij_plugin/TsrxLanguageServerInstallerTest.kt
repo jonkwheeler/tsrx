@@ -154,17 +154,44 @@ class TsrxLanguageServerInstallerTest {
 	}
 
 	@Test
-	fun `windows batch launchers use the command shell without merging stdio arguments`() {
+	fun `windows batch launchers pass one quoted command string to the command shell`() {
 		val commandLine = createTsrxLauncherCommandLine(
 			Path.of("C:/Program Files/TSRX/tsrx-language-server.cmd"),
-			listOf("--stdio"),
+			listOf("--stdio", "--workspace", "C:/Users/TSRX Developer/example project"),
 			isWindows = true,
 			windowsShell = "cmd.exe",
 		)
 
 		assertEquals("cmd.exe", commandLine.exePath)
-		assertTrue(commandLine.getCommandLineList(null).contains("C:/Program Files/TSRX/tsrx-language-server.cmd"))
-		assertTrue(commandLine.getCommandLineList(null).contains("--stdio"))
+		assertEquals(
+			listOf(
+				"cmd.exe",
+				"/d",
+				"/s",
+				"/c",
+				"\"\"C:/Program Files/TSRX/tsrx-language-server.cmd\" \"--stdio\" \"--workspace\" \"C:/Users/TSRX Developer/example project\"\"",
+			),
+			commandLine.getCommandLineList(null),
+		)
+	}
+
+	@Test
+	fun `non batch launchers keep executable and arguments separate`() {
+		val commandLine = createTsrxLauncherCommandLine(
+			Path.of("C:/Program Files/TSRX/tsrx-language-server.exe"),
+			listOf("--workspace", "C:/Users/TSRX Developer/example project"),
+			isWindows = true,
+			windowsShell = "cmd.exe",
+		)
+
+		assertEquals(
+			listOf(
+				"C:/Program Files/TSRX/tsrx-language-server.exe",
+				"--workspace",
+				"C:/Users/TSRX Developer/example project",
+			),
+			commandLine.getCommandLineList(null),
+		)
 	}
 
 	private fun installer(run: (TsrxProcessCommand) -> TsrxProcessOutput) =

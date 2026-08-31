@@ -207,7 +207,9 @@ internal fun createTsrxLauncherCommandLine(
 	val isBatch = launcher.fileName.toString().endsWith(".cmd", ignoreCase = true) ||
 		launcher.fileName.toString().endsWith(".bat", ignoreCase = true)
 	val command = if (isWindows && isBatch) {
-		listOf(windowsShell, "/d", "/s", "/c", launcher.toString()) + arguments
+		val invocation = (listOf(launcher.toString()) + arguments)
+			.joinToString(" ") { argument -> "\"${argument.replace("\"", "\"\"")}\"" }
+		listOf(windowsShell, "/d", "/s", "/c", "\"$invocation\"")
 	} else {
 		listOf(launcher.toString()) + arguments
 	}

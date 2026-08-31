@@ -28,7 +28,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: intellij-plugin-${{ github.event.pull_request.number || github.ref }}
+  group: intellij-plugin-${{ inputs.revision || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -147,6 +147,7 @@ describe('@tsrx/intellij-plugin release contract', () => {
 			'packages/intellij-plugin/**',
 			'grammars/textmate/**',
 			'scripts/sync-intellij-plugin-version.js',
+			'inputs.revision || github.event.pull_request.number || github.ref',
 			'packages/intellij-plugin/gradlew -p packages/intellij-plugin test',
 			'verifyPluginProjectConfiguration',
 			'buildPlugin',
@@ -235,10 +236,12 @@ describe('@tsrx/intellij-plugin release contract', () => {
 
 	it('separates first-submission staging from existing-listing publication', () => {
 		const empty = "<?xml version='1.0'?><plugin-repository/>";
+		const explicitlyEmpty = '<plugin-repository>\n  \n</plugin-repository>';
 		const published =
 			'<plugin-repository><idea-plugin><id>dev.tsrx.intellij_plugin</id></idea-plugin></plugin-repository>';
 
 		expect(() => validateMarketplaceState('stage', empty)).not.toThrow();
+		expect(() => validateMarketplaceState('stage', explicitlyEmpty)).not.toThrow();
 		expect(() => validateMarketplaceState('publish', published)).not.toThrow();
 		expect(() => validateMarketplaceState('stage', published)).toThrow(
 			/already has a public listing/,

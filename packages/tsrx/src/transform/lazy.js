@@ -463,6 +463,13 @@ export function preallocate_lazy_ids(root, context) {
 			assign_id(node.id);
 		}
 
+		if (
+			(node.type === 'ForOfStatement' || node.type === 'ForInStatement') &&
+			node.left.type !== 'VariableDeclaration'
+		) {
+			assign_id(node.left);
+		}
+
 		if (node.type === 'AssignmentExpression' && is_supported_lazy_assignment_position(node, path)) {
 			assign_id(node.left);
 		}
@@ -583,6 +590,138 @@ function apply_lazy_transforms_to_slot(node, lazy_bindings) {
 }
 
 /**
+ * Add every preallocated lazy binding below a binding pattern to `lazy_bindings`.
+ *
+ * @param {AST.Node | null | undefined} pattern
+ * @param {Map<string, LazyBinding>} lazy_bindings
+ */
+function collect_preallocated_lazy_bindings(pattern, lazy_bindings) {
+	visit_topmost_lazy_patterns(pattern, (lazy) => {
+		if (!lazy.metadata?.lazy_id) return;
+		collect_lazy_bindings(lazy, lazy.metadata.lazy_id, lazy_bindings);
+	});
+}
+
+/**
+ * Collect lazy `var` bindings introduced by JavaScript loop headers in the
+ * current function. A generated `var __lazyN` has the same function lifetime
+ * as the source binding, including when the loop is nested in ordinary control
+ * flow. Nested functions own a different var environment and are not visited.
+ *
+ * @param {unknown} value
+ * @param {Map<string, LazyBinding>} lazy_bindings
+ */
+function collect_function_var_loop_bindings(value, lazy_bindings) {
+	if (!value || typeof value !== 'object') return;
+	if (Array.isArray(value)) {
+		for (const child of value) collect_function_var_loop_bindings(child, lazy_bindings);
+		return;
+	}
+	if (!is_ast_node(value)) return;
+
+	const node = value;
+	if (is_function_or_component_node(node)) return;
+
+	if (
+		node.type === 'ForStatement' &&
+		node.init?.type === 'VariableDeclaration' &&
+		node.init.kind === 'var'
+	) {
+		for (const declarator of node.init.declarations) {
+			collect_preallocated_lazy_bindings(declarator.id, lazy_bindings);
+		}
+	} else if (
+		(node.type === 'ForOfStatement' || node.type === 'ForInStatement') &&
+		node.left.type === 'VariableDeclaration' &&
+		node.left.kind === 'var'
+	) {
+		for (const declarator of node.left.declarations) {
+			collect_preallocated_lazy_bindings(declarator.id, lazy_bindings);
+		}
+	}
+
+	const entries = /** @type {AST.TraversableAstNode} */ (node);
+	for (const key of Object.keys(entries)) {
+		if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
+		collect_function_var_loop_bindings(entries[key], lazy_bindings);
+	}
+}
+
+/**
+ * Rewrite a classic-for declaration in source order. Later initializers can
+ * read lazy names introduced by earlier declarators, while the initializer of
+ * each declarator is evaluated before that declarator's own lazy bindings are
+ * installed.
+ *
+ * @param {AST.VariableDeclaration} declaration
+ * @param {Map<string, LazyBinding>} lazy_bindings
+ * @returns {{ declaration: AST.VariableDeclaration, lazy_bindings: Map<string, LazyBinding> }}
+ */
+function transform_classic_for_declaration(declaration, lazy_bindings) {
+	let effective_bindings = lazy_bindings;
+	let changed = false;
+	const declarations = declaration.declarations.map((declarator) => {
+		const new_init =
+			declarator.init && apply_lazy_transforms_to_slot(declarator.init, effective_bindings);
+		const new_id = replace_lazy_in_pattern(declarator.id);
+		if (new_init !== declarator.init || new_id !== declarator.id) changed = true;
+
+		/** @type {Map<string, LazyBinding>} */
+		const own_bindings = new Map();
+		collect_preallocated_lazy_bindings(declarator.id, own_bindings);
+		if (own_bindings.size > 0) {
+			effective_bindings = new Map([...effective_bindings, ...own_bindings]);
+		}
+
+		return new_init !== declarator.init || new_id !== declarator.id
+			? rebuild(declarator, { id: new_id, init: new_init })
+			: declarator;
+	});
+
+	return {
+		declaration: changed ? rebuild(declaration, { declarations }) : declaration,
+		lazy_bindings: effective_bindings,
+	};
+}
+
+/**
+ * Rewrite a for-of/in binding target and return the lazy bindings visible in
+ * the loop body. Bare targets become per-iteration `const` declarations so all
+ * generated source identifiers have an owning declaration.
+ *
+ * @param {AST.ForOfStatement['left'] | AST.ForInStatement['left']} left
+ * @returns {{ left: AST.VariableDeclaration, lazy_bindings: Map<string, LazyBinding> } | { left: AST.ForOfStatement['left'] | AST.ForInStatement['left'], lazy_bindings: Map<string, LazyBinding> }}
+ */
+function transform_for_each_left(left) {
+	/** @type {Map<string, LazyBinding>} */
+	const own_bindings = new Map();
+
+	if (left.type === 'VariableDeclaration') {
+		let changed = false;
+		const declarations = left.declarations.map((declarator) => {
+			collect_preallocated_lazy_bindings(declarator.id, own_bindings);
+			const new_id = replace_lazy_in_pattern(declarator.id);
+			if (new_id === declarator.id) return declarator;
+			changed = true;
+			return rebuild(declarator, { id: new_id });
+		});
+		return {
+			left: changed ? rebuild(left, { declarations }) : left,
+			lazy_bindings: own_bindings,
+		};
+	}
+
+	collect_preallocated_lazy_bindings(left, own_bindings);
+	if (own_bindings.size === 0) return { left, lazy_bindings: own_bindings };
+
+	const new_id = replace_lazy_in_pattern(left);
+	return {
+		left: b.declaration('const', [b.declarator(new_id)]),
+		lazy_bindings: own_bindings,
+	};
+}
+
+/**
  * Recursively rewrite lazy-binding references in `node`.
  *
  * @param {AST.Node} node
@@ -630,9 +769,18 @@ export function apply_lazy_transforms(node, lazy_bindings) {
 			own_bindings.size > 0
 				? new Map([...outer_minus_shadow, ...own_bindings])
 				: outer_minus_shadow;
+		/** @type {Map<string, LazyBinding>} */
+		const function_var_bindings = new Map();
+		if (node.metadata?.has_lazy_descendants) {
+			collect_function_var_loop_bindings(node.body, function_var_bindings);
+		}
+		const function_bindings =
+			function_var_bindings.size > 0
+				? new Map([...inner_bindings, ...function_var_bindings])
+				: inner_bindings;
 
 		if (
-			inner_bindings.size === 0 &&
+			function_bindings.size === 0 &&
 			!params_changed &&
 			!had_lazy_param &&
 			!node.metadata?.has_lazy_descendants
@@ -644,7 +792,7 @@ export function apply_lazy_transforms(node, lazy_bindings) {
 		// params to replace, defaults referencing outer lazy, or the body
 		// contains lazy descendants the BlockStatement handler will collect.
 		// In every case the body needs to be walked.
-		const new_body = apply_lazy_transforms_to_slot(node.body, inner_bindings);
+		const new_body = apply_lazy_transforms_to_slot(node.body, function_bindings);
 
 		const final_params_src = params_changed ? new_params : node.params;
 		const final_params = had_lazy_param ? replace_lazy_params(final_params_src) : final_params_src;
@@ -697,10 +845,17 @@ export function apply_lazy_transforms(node, lazy_bindings) {
 				if (decl.id) collect_shadowed_names(decl.id, lazy_bindings, shadowed);
 			}
 		}
-		const effective_bindings =
+		let effective_bindings =
 			shadowed.size > 0 ? remove_shadowed(lazy_bindings, shadowed) : lazy_bindings;
 		let changed = false;
-		const new_init = node.init && apply_lazy_transforms_to_slot(node.init, effective_bindings);
+		let new_init = node.init;
+		if (node.init?.type === 'VariableDeclaration') {
+			const transformed = transform_classic_for_declaration(node.init, effective_bindings);
+			new_init = transformed.declaration;
+			effective_bindings = transformed.lazy_bindings;
+		} else if (node.init) {
+			new_init = apply_lazy_transforms_to_slot(node.init, effective_bindings);
+		}
 		if (new_init !== node.init) changed = true;
 		const new_test = node.test && apply_lazy_transforms_to_slot(node.test, effective_bindings);
 		if (new_test !== node.test) changed = true;
@@ -722,23 +877,24 @@ export function apply_lazy_transforms(node, lazy_bindings) {
 				if (decl.id) collect_shadowed_names(decl.id, lazy_bindings, shadowed);
 			}
 		}
-		const effective_bindings =
+		const after_shadow =
 			shadowed.size > 0 ? remove_shadowed(lazy_bindings, shadowed) : lazy_bindings;
-		// `node.left` is a binding site, not an expression context: a declaration
-		// like `const x` or `const [a, b]` has no outer references to rewrite,
-		// and recursing here would hit the VariableDeclarator handler and
-		// rewrite a lazy declarator id that `preallocate_lazy_ids` already
-		// tagged — double-processing the loop variable. Leave `node.left`
-		// untouched; the body and right-hand side are the only scopes with
-		// live references.
+		const transformed_left = transform_for_each_left(node.left);
+		const effective_bindings =
+			transformed_left.lazy_bindings.size > 0
+				? new Map([...after_shadow, ...transformed_left.lazy_bindings])
+				: after_shadow;
 		let changed = false;
+		if (transformed_left.left !== node.left) changed = true;
 		// The right-hand side is evaluated in the outer scope (before the loop
 		// variable is bound), so use the unshadowed bindings there.
 		const new_right = apply_lazy_transforms_to_slot(node.right, lazy_bindings);
 		if (new_right !== node.right) changed = true;
 		const new_body = apply_lazy_transforms_to_slot(node.body, effective_bindings);
 		if (new_body !== node.body) changed = true;
-		return changed ? rebuild(node, { right: new_right, body: new_body }) : node;
+		return changed
+			? rebuild(node, { left: transformed_left.left, right: new_right, body: new_body })
+			: node;
 	}
 
 	if (node.type === 'SwitchStatement') {

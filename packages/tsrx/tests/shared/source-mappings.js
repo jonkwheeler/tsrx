@@ -841,6 +841,45 @@ function C() @{
 	});
 
 	describe(`[${name}] lazy destructuring mappings`, () => {
+		it('maps generated loop sources and rewritten body references to authored lazy bindings', () => {
+			const source = `function read(items) {
+	for (const &{ value } of items) {
+		consume(value);
+	}
+}`;
+			const result = compile(source, 'App.tsrx');
+			const generated_line_offsets = build_line_offsets(result.code);
+			const [src_to_gen_map] = build_src_to_gen_map(
+				result.map,
+				new Map(),
+				generated_line_offsets,
+				result.code,
+			);
+			const source_line_offsets = build_line_offsets(source);
+			const loop_pattern = offset_to_line_col(source.indexOf('&{ value }'), source_line_offsets);
+			const body_value = offset_to_line_col(source.lastIndexOf('value'), source_line_offsets);
+			const generated_pattern = get_generated_position(
+				loop_pattern.line,
+				loop_pattern.column,
+				src_to_gen_map,
+			);
+			const generated_body = get_generated_position(
+				body_value.line,
+				body_value.column,
+				src_to_gen_map,
+			);
+
+			expect(result.code).toContain('for (const __lazy0 of items)');
+			expect(result.code).toContain('consume(__lazy0.value)');
+			if (generated_pattern instanceof Error) throw generated_pattern;
+			if (generated_body instanceof Error) throw generated_body;
+			const pattern_offset =
+				generated_line_offsets[generated_pattern.line - 1] + generated_pattern.column;
+			const body_offset = generated_line_offsets[generated_body.line - 1] + generated_body.column;
+			expect(result.code.slice(pattern_offset, pattern_offset + '__lazy0'.length)).toBe('__lazy0');
+			expect(result.code.slice(body_offset, body_offset + 'value'.length)).toBe('value');
+		});
+
 		it('preserves untyped lazy object patterns so source identifiers map identity-style', () => {
 			const source = `function Hello(&{ a: value, b }) @{
 	<>{value}{b}</>

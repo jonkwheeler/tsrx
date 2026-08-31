@@ -82,6 +82,11 @@ jobs:
       - name: Verify the published language-server package
         run: node packages/intellij-plugin/scripts/verify-language-server-release.mjs
 
+      - name: Verify Marketplace listing state
+        env:
+          RELEASE_MODE: ${{ inputs.mode }}
+        run: node packages/intellij-plugin/scripts/verify-marketplace-state.mjs "$RELEASE_MODE"
+
   verification:
     name: Verify release archive
     needs: resolve

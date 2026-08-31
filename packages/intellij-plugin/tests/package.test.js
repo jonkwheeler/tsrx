@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { synchronizeIntellijPluginVersions } from '../../../scripts/sync-intellij-plugin-version.js';
 import { createVerificationMatrix } from '../scripts/verification-matrix.mjs';
 import { validateInstalledLanguageServer } from '../scripts/verify-language-server-release.mjs';
+import { validateMarketplaceState } from '../scripts/verify-marketplace-state.mjs';
 
 const test_dir = dirname(fileURLToPath(import.meta.url));
 const repository_dir = resolve(test_dir, '../../..');
@@ -204,6 +205,7 @@ describe('@tsrx/intellij-plugin release contract', () => {
 			'environment: jetbrains-marketplace',
 			'uses: ./.github/workflows/intellij-plugin.yml',
 			'verify-language-server-release.mjs',
+			'verify-marketplace-state.mjs',
 			'revision must resolve to the current main head',
 			'cmp --',
 			'signPlugin',
@@ -218,6 +220,36 @@ describe('@tsrx/intellij-plugin release contract', () => {
 		}
 		expect(workflow).not.toMatch(/^\s*uses: (?!\.\/).*@v\d+/m);
 		expect(workflow).not.toContain('pull_request:');
+	});
+
+	it('separates first-submission staging from existing-listing publication', () => {
+		const empty = "<?xml version='1.0'?><plugin-repository/>";
+		const published =
+			'<plugin-repository><idea-plugin><id>dev.tsrx.intellij_plugin</id></idea-plugin></plugin-repository>';
+
+		expect(() => validateMarketplaceState('stage', empty)).not.toThrow();
+		expect(() => validateMarketplaceState('publish', published)).not.toThrow();
+		expect(() => validateMarketplaceState('stage', published)).toThrow(
+			/already has a public listing/,
+		);
+		expect(() => validateMarketplaceState('publish', empty)).toThrow(/no public listing/);
+	});
+
+	it('keeps public documentation in no-go state until Marketplace approval', () => {
+		const packageReadme = readFileSync(
+			resolve(repository_dir, 'packages/intellij-plugin/README.md'),
+			'utf8',
+		);
+		const releaseRecord = readFileSync(
+			resolve(repository_dir, 'packages/intellij-plugin/MARKETPLACE_RELEASE.md'),
+			'utf8',
+		);
+
+		expect(packageReadme).toContain('Marketplace listing is not public yet');
+		expect(releaseRecord).toContain('NO-GO — external submission and approval pending');
+		expect(releaseRecord).toContain('Marketplace URL: pending first-submission approval');
+		expect(releaseRecord).toContain('README.md`');
+		expect(releaseRecord).toContain('website-tsrx/public/llms.txt');
 	});
 });
 

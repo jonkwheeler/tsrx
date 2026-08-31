@@ -96,6 +96,10 @@ Plugin Verifier reports as diagnostic artifacts.
 Do not sign or publish from a maintainer workstation. The manual **Publish
 IntelliJ Plugin** workflow accepts an exact commit SHA and has two routes:
 
+Use [MARKETPLACE_RELEASE.md](./MARKETPLACE_RELEASE.md) for the accountable
+first-submission record and post-approval smoke evidence. A public-ID lookup is
+not a substitute for the logged-in vendor ownership check recorded there.
+
 - `stage` signs and verifies the already-tested ZIP, records both SHA-256 digests,
   and retains the signed artifact for the first Marketplace UI upload. It never
   reads `PUBLISH_TOKEN` or invokes `publishPlugin`.

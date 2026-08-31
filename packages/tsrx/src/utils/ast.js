@@ -209,6 +209,28 @@ export function is_statement_list_item(parent, child) {
 }
 
 /**
+ * Whether `parent` preserves `child` as the same expression value. Looking
+ * through these wrappers keeps strict and editor-oriented ASTs on the same
+ * semantic path.
+ *
+ * @param {AST.Node} parent
+ * @param {AST.Node} child
+ * @returns {boolean}
+ */
+export function is_transparent_expression_wrapper(parent, child) {
+	return (
+		(parent.type === 'ParenthesizedExpression' ||
+			parent.type === 'TSAsExpression' ||
+			parent.type === 'TSSatisfiesExpression' ||
+			parent.type === 'TSNonNullExpression' ||
+			parent.type === 'TSInstantiationExpression' ||
+			parent.type === 'TSTypeAssertion' ||
+			parent.type === 'ChainExpression') &&
+		/** @type {{ expression?: AST.Node }} */ (parent).expression === child
+	);
+}
+
+/**
  * Whether a lazy destructuring assignment can be lowered from an expression
  * statement into a declaration without changing the syntactic category of its
  * parent slot. Transparent expression wrappers are allowed, but the assignment
@@ -237,16 +259,7 @@ export function is_supported_lazy_assignment_position(node, path) {
 
 	for (let i = path.length - 1; i >= 0; i -= 1) {
 		const parent = path[i];
-		if (
-			(parent.type === 'ParenthesizedExpression' ||
-				parent.type === 'TSAsExpression' ||
-				parent.type === 'TSSatisfiesExpression' ||
-				parent.type === 'TSNonNullExpression' ||
-				parent.type === 'TSInstantiationExpression' ||
-				parent.type === 'TSTypeAssertion' ||
-				parent.type === 'ChainExpression') &&
-			/** @type {{ expression?: AST.Node }} */ (parent).expression === child
-		) {
+		if (is_transparent_expression_wrapper(parent, child)) {
 			child = parent;
 			continue;
 		}

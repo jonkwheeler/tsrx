@@ -9,34 +9,13 @@ import {
 	is_code_block_function_body,
 	is_statement_position,
 	is_supported_lazy_assignment_position,
+	is_transparent_expression_wrapper,
 	is_tsrx_render_output_node,
 } from '../utils/ast.js';
 import {
 	validate_forgotten_statement_container,
 	validate_unsupported_lazy_assignment_position,
 } from './validation.js';
-
-/**
- * Wrappers that preserve an expression's value and therefore do not turn a
- * template into a used value on their own. Looking through them keeps strict
- * builds and `preserveParens` type-only builds on the same diagnostic path.
- *
- * @param {AST.Node} parent
- * @param {AST.Node} child
- * @returns {boolean}
- */
-function is_transparent_expression_wrapper(parent, child) {
-	return (
-		(parent.type === 'ParenthesizedExpression' ||
-			parent.type === 'TSAsExpression' ||
-			parent.type === 'TSSatisfiesExpression' ||
-			parent.type === 'TSNonNullExpression' ||
-			parent.type === 'TSInstantiationExpression' ||
-			parent.type === 'TSTypeAssertion' ||
-			parent.type === 'ChainExpression') &&
-		/** @type {{ expression?: AST.Node }} */ (parent).expression === child
-	);
-}
 
 /**
  * Find the first authored lazy pattern in a node's subtree. Assignment

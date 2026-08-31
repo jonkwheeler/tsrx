@@ -4,6 +4,7 @@
 
 import * as b from '../utils/builders.js';
 import {
+	child_nodes,
 	has_location,
 	is_ast_node,
 	is_function_or_component_node,
@@ -426,6 +427,11 @@ function replace_lazy_in_pattern(pattern, is_top = true) {
  * @param {LazyContext} context
  */
 export function preallocate_lazy_ids(root, context) {
+	const HAS_LAZY = 1;
+	const HAS_VAR_LOOP = 2;
+	/** @type {AST.Node[]} */
+	const path = [];
+
 	/** @param {AST.Node | null | undefined} pattern */
 	const assign_id = (pattern) => {
 		visit_topmost_lazy_patterns(pattern, (lazy) => {
@@ -434,21 +440,29 @@ export function preallocate_lazy_ids(root, context) {
 		});
 	};
 
+	/** @param {AST.Node | null | undefined} pattern */
+	const has_preallocated_lazy_binding = (pattern) => {
+		let found = false;
+		visit_topmost_lazy_patterns(pattern, (lazy) => {
+			if (lazy.metadata?.lazy_id) found = true;
+		});
+		return found;
+	};
+
 	/**
 	 * @param {unknown} value
-	 * @param {AST.Node[]} path
-	 * @returns {boolean} true if `value`'s subtree contains any lazy pattern.
+	 * @returns {number} bit flags for lazy syntax and current-scope lazy var loops.
 	 */
-	const visit = (value, path) => {
-		if (!value || typeof value !== 'object') return false;
+	const visit = (value) => {
+		if (!value || typeof value !== 'object') return 0;
 		if (Array.isArray(value)) {
-			let found = false;
+			let flags = 0;
 			for (const child of value) {
-				if (visit(child, path)) found = true;
+				flags |= visit(child);
 			}
-			return found;
+			return flags;
 		}
-		if (!is_ast_node(value)) return false;
+		if (!is_ast_node(value)) return 0;
 
 		const node = value;
 		const is_function_like = is_function_or_component_node(node);
@@ -474,24 +488,54 @@ export function preallocate_lazy_ids(root, context) {
 			assign_id(node.left);
 		}
 
-		let found =
-			(node.type === 'ObjectPattern' || node.type === 'ArrayPattern') && node.lazy === true;
+		let flags =
+			(node.type === 'ObjectPattern' || node.type === 'ArrayPattern') && node.lazy === true
+				? HAS_LAZY
+				: 0;
 
 		const entries = /** @type {AST.TraversableAstNode} */ (node);
-		const child_path = [...path, node];
+		path.push(node);
 		for (const key of Object.keys(entries)) {
 			if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
-			if (visit(entries[key], child_path)) found = true;
+			flags |= visit(entries[key]);
+		}
+		path.pop();
+
+		const loop_declaration =
+			node.type === 'ForStatement'
+				? node.init
+				: node.type === 'ForOfStatement' || node.type === 'ForInStatement'
+					? node.left
+					: null;
+		if (
+			loop_declaration?.type === 'VariableDeclaration' &&
+			loop_declaration.kind === 'var' &&
+			loop_declaration.declarations.some((declarator) =>
+				has_preallocated_lazy_binding(declarator.id),
+			)
+		) {
+			flags |= HAS_VAR_LOOP;
 		}
 
-		if (is_function_like && found) {
-			node.metadata = { ...node.metadata, has_lazy_descendants: true };
+		if (is_function_like) {
+			if (flags & HAS_LAZY) {
+				node.metadata = { ...node.metadata, has_lazy_descendants: true };
+			}
+			if (flags & HAS_VAR_LOOP) {
+				node.metadata = { ...node.metadata, has_lazy_var_loop_descendants: true };
+			}
+			// A nested function owns its own var environment. Its caller still
+			// needs the general lazy-descendant signal so traversal reaches it,
+			// but must not scan for the nested function's loop bindings.
+			flags &= ~HAS_VAR_LOOP;
+		} else if (node.type === 'Program' && flags & HAS_VAR_LOOP) {
+			node.metadata = { ...node.metadata, has_lazy_var_loop_descendants: true };
 		}
 
-		return found;
+		return flags;
 	};
 
-	visit(root, []);
+	visit(root);
 }
 
 /**
@@ -608,18 +652,10 @@ function collect_preallocated_lazy_bindings(pattern, lazy_bindings) {
  * as the source binding, including when the loop is nested in ordinary control
  * flow. Nested functions own a different var environment and are not visited.
  *
- * @param {unknown} value
+ * @param {AST.Node} node
  * @param {Map<string, LazyBinding>} lazy_bindings
  */
-function collect_function_var_loop_bindings(value, lazy_bindings) {
-	if (!value || typeof value !== 'object') return;
-	if (Array.isArray(value)) {
-		for (const child of value) collect_function_var_loop_bindings(child, lazy_bindings);
-		return;
-	}
-	if (!is_ast_node(value)) return;
-
-	const node = value;
+function collect_function_var_loop_bindings(node, lazy_bindings) {
 	if (is_function_or_component_node(node)) return;
 
 	if (
@@ -640,10 +676,8 @@ function collect_function_var_loop_bindings(value, lazy_bindings) {
 		}
 	}
 
-	const entries = /** @type {AST.TraversableAstNode} */ (node);
-	for (const key of Object.keys(entries)) {
-		if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
-		collect_function_var_loop_bindings(entries[key], lazy_bindings);
+	for (const child of child_nodes(node)) {
+		collect_function_var_loop_bindings(child, lazy_bindings);
 	}
 }
 
@@ -659,6 +693,8 @@ function collect_function_var_loop_bindings(value, lazy_bindings) {
  */
 function transform_classic_for_declaration(declaration, lazy_bindings) {
 	let effective_bindings = lazy_bindings;
+	/** @type {Map<string, LazyBinding> | null} */
+	let mutable_bindings = null;
 	let changed = false;
 	const declarations = declaration.declarations.map((declarator) => {
 		const new_init =
@@ -670,7 +706,9 @@ function transform_classic_for_declaration(declaration, lazy_bindings) {
 		const own_bindings = new Map();
 		collect_preallocated_lazy_bindings(declarator.id, own_bindings);
 		if (own_bindings.size > 0) {
-			effective_bindings = new Map([...effective_bindings, ...own_bindings]);
+			mutable_bindings ??= new Map(effective_bindings);
+			for (const [name, binding] of own_bindings) mutable_bindings.set(name, binding);
+			effective_bindings = mutable_bindings;
 		}
 
 		return new_init !== declarator.init || new_id !== declarator.id
@@ -771,7 +809,7 @@ export function apply_lazy_transforms(node, lazy_bindings) {
 				: outer_minus_shadow;
 		/** @type {Map<string, LazyBinding>} */
 		const function_var_bindings = new Map();
-		if (node.metadata?.has_lazy_descendants) {
+		if (node.metadata?.has_lazy_var_loop_descendants) {
 			collect_function_var_loop_bindings(node.body, function_var_bindings);
 		}
 		const function_bindings =
@@ -806,9 +844,18 @@ export function apply_lazy_transforms(node, lazy_bindings) {
 	if (node.type === 'BlockStatement' || node.type === 'Program') {
 		/** @type {AST.Program['body']} */
 		const body = node.body;
-		const block_bindings = collect_block_shadowed_names(body, lazy_bindings);
+		/** @type {Map<string, LazyBinding>} */
+		const program_var_bindings = new Map();
+		if (node.type === 'Program' && node.metadata?.has_lazy_var_loop_descendants) {
+			collect_function_var_loop_bindings(node, program_var_bindings);
+		}
+		const scope_bindings =
+			program_var_bindings.size > 0
+				? new Map([...lazy_bindings, ...program_var_bindings])
+				: lazy_bindings;
+		const block_bindings = collect_block_shadowed_names(body, scope_bindings);
 		const after_shadow =
-			block_bindings.size > 0 ? remove_shadowed(lazy_bindings, block_bindings) : lazy_bindings;
+			block_bindings.size > 0 ? remove_shadowed(scope_bindings, block_bindings) : scope_bindings;
 
 		/** @type {Map<string, LazyBinding>} */
 		const block_lazy = new Map();

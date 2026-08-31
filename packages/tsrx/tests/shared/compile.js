@@ -45,6 +45,14 @@ function virtual_parse_diagnostics(code) {
 const TSRX_TEMPLATE_RETURN_ERROR =
 	'Return statements are not allowed inside TSRX templates. Move the return before the TSRX return value, or use conditional rendering instead.';
 
+const UNSUPPORTED_LAZY_ASSIGNMENT_SOURCES = [
+	'function recover() { if (ready) &{ value } = source; }',
+	'function recover() { (&{ value } = source, consume()); }',
+	'function recover() { consume(&{ value } = source); }',
+	'function recover() { target = (&{ value } = source); }',
+	'function recover() { [&{ value }] = pairs; }',
+];
+
 /**
  * Shared compile/editor diagnostics. These do not assert source-map structure;
  * they only verify that editor-facing compile entry points collect diagnostics.
@@ -54,13 +62,7 @@ const TSRX_TEMPLATE_RETURN_ERROR =
 export function runSharedCompileDiagnosticsTests({ compile_to_volar_mappings, name }) {
 	describe(`[${name}] compile diagnostics`, () => {
 		it('collects unsupported lazy assignment positions in type-only output', () => {
-			for (const source of [
-				'function recover() { if (ready) &{ value } = source; }',
-				'function recover() { (&{ value } = source, consume()); }',
-				'function recover() { consume(&{ value } = source); }',
-				'function recover() { target = (&{ value } = source); }',
-				'function recover() { [&{ value }] = pairs; }',
-			]) {
+			for (const source of UNSUPPORTED_LAZY_ASSIGNMENT_SOURCES) {
 				const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
 
 				expect(diagnostic_codes(result), source).toContain(
@@ -1109,6 +1111,18 @@ export function runSharedLazyLoopTests({ compile, name }) {
 			expect(code).toContain('for await (var __lazy0 of items)');
 			expect(code).toContain('consume(__lazy0.value)');
 			expect(code).toContain('return __lazy0.value');
+		});
+
+		it('keeps module-level var loop bindings visible after the loop', () => {
+			const { code } = compile(
+				`for (var &{ value } of items) consume(value);
+				consume(value);`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (var __lazy0 of items)');
+			expect(code).toContain('consume(__lazy0.value)');
+			expect(count_substring(code, 'consume(__lazy0.value)')).toBe(2);
 		});
 
 		it('retains the last for-of var source and the initialized classic-for source', () => {
@@ -2209,13 +2223,7 @@ export function runSharedCompileTests({
 		});
 
 		it('keeps every diagnosed assignment shape on a parseable best-effort path', () => {
-			for (const source of [
-				'function recover() { if (ready) &{ value } = source; }',
-				'function recover() { (&{ value } = source, consume()); }',
-				'function recover() { consume(&{ value } = source); }',
-				'function recover() { target = (&{ value } = source); }',
-				'function recover() { [&{ value }] = pairs; }',
-			]) {
+			for (const source of UNSUPPORTED_LAZY_ASSIGNMENT_SOURCES) {
 				const result = compile(source, 'App.tsrx', { collect: true });
 
 				expect(diagnostic_codes(result), source).toContain(

@@ -1,0 +1,122 @@
+name: IntelliJ Plugin
+
+on:
+  push:
+    branches: [main]
+    tags: ["!**"]
+    paths:
+      - "packages/intellij-plugin/**"
+      - "grammars/textmate/**"
+      - "scripts/sync-intellij-plugin-version.js"
+      - ".changeset/**"
+      - ".github/workflows/intellij-plugin.yml"
+  pull_request:
+    paths:
+      - "packages/intellij-plugin/**"
+      - "grammars/textmate/**"
+      - "scripts/sync-intellij-plugin-version.js"
+      - ".changeset/**"
+      - ".github/workflows/intellij-plugin.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: intellij-plugin-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: Resolve compatibility matrix
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Resolve advertised product targets
+        id: targets
+        run: echo "targets=$(node packages/intellij-plugin/scripts/verification-matrix.mjs)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Test and build archive
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Verify synchronized versions
+        run: node scripts/sync-intellij-plugin-version.js --check
+
+      - name: Run platform tests
+        run: packages/intellij-plugin/gradlew -p packages/intellij-plugin test
+
+      - name: Verify project configuration
+        run: packages/intellij-plugin/gradlew -p packages/intellij-plugin verifyPluginProjectConfiguration
+
+      - name: Build plugin archive
+        run: packages/intellij-plugin/gradlew -p packages/intellij-plugin buildPlugin
+
+      - name: Verify plugin archive structure
+        run: packages/intellij-plugin/gradlew -p packages/intellij-plugin verifyPluginStructure
+
+      - name: Upload unsigned plugin archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: intellij-plugin-unsigned
+          path: packages/intellij-plugin/build/distributions/*.zip
+          if-no-files-found: error
+
+  verify:
+    name: Verify ${{ matrix.productType }} (${{ matrix.channel }})
+    needs: [matrix, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.targets) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Verify binary compatibility
+        run: >-
+          packages/intellij-plugin/gradlew -p packages/intellij-plugin verifyPlugin
+          -PverificationProductType=${{ matrix.productType }}
+          -PverificationProductVersion=${{ matrix.productVersion }}
+
+      - name: Upload Plugin Verifier reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: plugin-verifier-${{ matrix.slug }}
+          path: packages/intellij-plugin/build/reports/pluginVerifier
+          if-no-files-found: error

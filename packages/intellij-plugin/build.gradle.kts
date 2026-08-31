@@ -1,3 +1,7 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import org.jetbrains.intellij.platform.gradle.models.ProductRelease
+import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask
+
 plugins {
 	id("java")
 	id("org.jetbrains.kotlin.jvm") version "2.1.20"
@@ -6,6 +10,33 @@ plugins {
 
 group = "dev.tsrx.intellij_plugin"
 version = providers.gradleProperty("pluginVersion").get()
+
+val targetPlatformVersion = providers.gradleProperty("targetPlatformVersion").get()
+val minimumPlatformVersion = providers.gradleProperty("minimumPlatformVersion").get()
+val advertisedProductTypes = providers.gradleProperty("advertisedProductTypes").get()
+	.split(',')
+	.map(String::trim)
+	.filter(String::isNotEmpty)
+	.map(IntelliJPlatformType::valueOf)
+val verificationProductType = providers.gradleProperty("verificationProductType").orNull
+	?.let(IntelliJPlatformType::valueOf)
+val verificationProductVersion = providers.gradleProperty("verificationProductVersion").orNull
+
+require(advertisedProductTypes.distinct().size == advertisedProductTypes.size) {
+	"advertisedProductTypes must not contain duplicates"
+}
+require(IntelliJPlatformType.WebStorm in advertisedProductTypes) {
+	"advertisedProductTypes must include WebStorm"
+}
+require(IntelliJPlatformType.IntellijIdeaUltimate in advertisedProductTypes) {
+	"advertisedProductTypes must include IntellijIdeaUltimate"
+}
+require((verificationProductType == null) == (verificationProductVersion == null)) {
+	"verificationProductType and verificationProductVersion must be provided together"
+}
+require(verificationProductType == null || verificationProductType in advertisedProductTypes) {
+	"verificationProductType must be one of the advertisedProductTypes"
+}
 
 repositories {
 	mavenCentral()
@@ -19,7 +50,7 @@ dependencies {
 	testImplementation("junit:junit:4.13.2")
 
 	intellijPlatform {
-		webstorm("2025.2.4")
+		webstorm(targetPlatformVersion)
 		testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
 
 		// Add plugin dependencies for compilation here:
@@ -40,6 +71,38 @@ intellijPlatform {
 				<li>Optional language-server integration in supported JetBrains IDEs.</li>
 			</ul>
 		""".trimIndent()
+	}
+
+	pluginVerification {
+		failureLevel = listOf(
+			VerifyPluginTask.FailureLevel.COMPATIBILITY_PROBLEMS,
+			VerifyPluginTask.FailureLevel.INTERNAL_API_USAGES,
+			VerifyPluginTask.FailureLevel.OVERRIDE_ONLY_API_USAGES,
+			VerifyPluginTask.FailureLevel.INVALID_PLUGIN,
+		)
+		ignoredProblemsFile = layout.projectDirectory.file("plugin-verifier-ignored-problems.txt")
+		verificationReportsDirectory = layout.buildDirectory.dir("reports/pluginVerifier")
+		verificationReportsFormats = VerifyPluginTask.VerificationReportsFormats.ALL.toList()
+
+		ides {
+			if (verificationProductType != null && verificationProductVersion != null) {
+				if (verificationProductVersion == "latest") {
+					latest {
+						types = listOf(verificationProductType)
+						channels = listOf(ProductRelease.Channel.RELEASE)
+					}
+				} else {
+					create(verificationProductType, verificationProductVersion)
+				}
+			} else {
+				create(IntelliJPlatformType.WebStorm, minimumPlatformVersion)
+				create(IntelliJPlatformType.IntellijIdeaUltimate, minimumPlatformVersion)
+				latest {
+					types = advertisedProductTypes
+					channels = listOf(ProductRelease.Channel.RELEASE)
+				}
+			}
+		}
 	}
 }
 

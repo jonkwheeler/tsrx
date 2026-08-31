@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { synchronizeIntellijPluginVersions } from '../../../scripts/sync-intellij-plugin-version.js';
+import { createVerificationMatrix } from '../scripts/verification-matrix.mjs';
 
 const test_dir = dirname(fileURLToPath(import.meta.url));
 const repository_dir = resolve(test_dir, '../../..');
@@ -99,6 +100,73 @@ describe('@tsrx/intellij-plugin release contract', () => {
 		});
 
 		expect(() => synchronizeIntellijPluginVersions({ rootDir: fixture })).toThrow(expected);
+	});
+
+	it('covers every advertised product plus minimum WebStorm and IntelliJ IDEA anchors', () => {
+		const properties = readFileSync(
+			resolve(repository_dir, 'packages/intellij-plugin/gradle.properties'),
+			'utf8',
+		);
+		const matrix = createVerificationMatrix(properties).include;
+		const advertised = [
+			'WebStorm',
+			'IntellijIdeaUltimate',
+			'IntellijIdeaCommunity',
+			'PhpStorm',
+			'PyCharm',
+			'DataSpell',
+			'RubyMine',
+			'CLion',
+			'DataGrip',
+			'GoLand',
+			'Rider',
+			'RustRover',
+		];
+
+		expect(
+			matrix.filter(({ channel }) => channel === 'current').map(({ productType }) => productType),
+		).toEqual(advertised);
+		expect(matrix.filter(({ channel }) => channel === 'minimum')).toEqual([
+			expect.objectContaining({ productType: 'WebStorm', productVersion: '2025.2' }),
+			expect.objectContaining({
+				productType: 'IntellijIdeaUltimate',
+				productVersion: '2025.2',
+			}),
+		]);
+	});
+
+	it('keeps the dedicated workflow scoped, credential-free, and fully gated', () => {
+		const workflow = readFileSync(
+			resolve(repository_dir, '.github/workflows/intellij-plugin.yml'),
+			'utf8',
+		);
+
+		for (const required of [
+			'packages/intellij-plugin/**',
+			'grammars/textmate/**',
+			'scripts/sync-intellij-plugin-version.js',
+			'packages/intellij-plugin/gradlew -p packages/intellij-plugin test',
+			'verifyPluginProjectConfiguration',
+			'buildPlugin',
+			'verifyPluginStructure',
+			'verifyPlugin',
+		]) {
+			expect(workflow).toContain(required);
+		}
+		expect(workflow).not.toMatch(/CERTIFICATE_CHAIN|PRIVATE_KEY|PUBLISH_TOKEN|secrets\./);
+	});
+
+	it('ignores only the absent optional LSP package in syntax-only IDEs', () => {
+		const ignored = readFileSync(
+			resolve(repository_dir, 'packages/intellij-plugin/plugin-verifier-ignored-problems.txt'),
+			'utf8',
+		)
+			.trim()
+			.split(/\r?\n/);
+
+		expect(ignored).toEqual([
+			"dev.tsrx.intellij_plugin::Package 'com\\.intellij\\.platform\\.lsp' is not found.*",
+		]);
 	});
 });
 

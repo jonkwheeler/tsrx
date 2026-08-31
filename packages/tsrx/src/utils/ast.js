@@ -167,14 +167,9 @@ export function is_code_block_function_body(node, parent) {
  * @returns {boolean}
  */
 export function is_statement_position(parent, child) {
+	if (is_statement_list_item(parent, child)) return true;
+
 	switch (parent.type) {
-		case 'Program':
-		case 'BlockStatement':
-			return parent.body.includes(/** @type {AST.Statement} */ (child));
-		case 'SwitchCase':
-			return parent.consequent.includes(/** @type {AST.Statement} */ (child));
-		case 'JSXCodeBlock':
-			return parent.body.includes(/** @type {AST.Statement} */ (child));
 		case 'IfStatement':
 			return parent.consequent === child || parent.alternate === child;
 		case 'ForStatement':
@@ -185,6 +180,29 @@ export function is_statement_position(parent, child) {
 		case 'LabeledStatement':
 		case 'WithStatement':
 			return parent.body === child;
+		default:
+			return false;
+	}
+}
+
+/**
+ * Returns whether `child` is a direct item in a statement list. Unlike
+ * {@link is_statement_position}, this deliberately excludes single-statement
+ * control-flow bodies: transforms may replace a list item with declarations,
+ * but a declaration is not valid in those braceless statement slots.
+ *
+ * @param {AST.Node} parent
+ * @param {AST.Node} child
+ * @returns {boolean}
+ */
+export function is_statement_list_item(parent, child) {
+	switch (parent.type) {
+		case 'Program':
+		case 'BlockStatement':
+		case 'JSXCodeBlock':
+			return parent.body.includes(/** @type {AST.Statement} */ (child));
+		case 'SwitchCase':
+			return parent.consequent.includes(/** @type {AST.Statement} */ (child));
 		default:
 			return false;
 	}

@@ -5,11 +5,16 @@
 
 import { walk } from 'zimmerframe';
 import {
+	child_nodes,
 	is_code_block_function_body,
+	is_statement_list_item,
 	is_statement_position,
 	is_tsrx_render_output_node,
 } from '../utils/ast.js';
-import { validate_forgotten_statement_container } from './validation.js';
+import {
+	validate_forgotten_statement_container,
+	validate_unsupported_lazy_assignment_position,
+} from './validation.js';
 
 /**
  * Wrappers that preserve an expression's value and therefore do not turn a
@@ -31,6 +36,77 @@ function is_transparent_expression_wrapper(parent, child) {
 			parent.type === 'ChainExpression') &&
 		/** @type {{ expression?: AST.Node }} */ (parent).expression === child
 	);
+}
+
+/**
+ * Find the first authored lazy pattern in a node's subtree. Assignment
+ * validation calls this once for the whole target so an unsupported outer
+ * target reports one diagnostic even when it contains several lazy patterns.
+ *
+ * @param {AST.Node} node
+ * @returns {import('../../types/index').LazyPattern | null}
+ */
+function find_first_lazy_pattern(node) {
+	if ((node.type === 'ObjectPattern' || node.type === 'ArrayPattern') && node.lazy) {
+		return node;
+	}
+
+	for (const child of child_nodes(node)) {
+		const lazy = find_first_lazy_pattern(child);
+		if (lazy) return lazy;
+	}
+
+	return null;
+}
+
+/**
+ * A supported lazy assignment may be parenthesized, but it must otherwise be
+ * the entire expression statement and that statement must be a list item.
+ *
+ * @param {AST.AssignmentExpression} node
+ * @param {AST.Node[]} path
+ * @returns {boolean}
+ */
+function is_complete_statement_list_assignment(node, path) {
+	/** @type {AST.Node} */
+	let child = node;
+
+	for (let i = path.length - 1; i >= 0; i -= 1) {
+		const parent = path[i];
+
+		if (is_transparent_expression_wrapper(parent, child)) {
+			child = parent;
+			continue;
+		}
+
+		if (parent.type !== 'ExpressionStatement' || parent.expression !== child) return false;
+
+		const container = path[i - 1];
+		return !!container && is_statement_list_item(container, parent);
+	}
+
+	return false;
+}
+
+/**
+ * @param {AST.AssignmentExpression} node
+ * @param {{ next: () => unknown, path: AST.Node[], state: TSRXAnalysisState }} context
+ */
+function visit_assignment_expression(node, { next, path, state }) {
+	const lazy = find_first_lazy_pattern(node.left);
+	const directly_lazy =
+		(node.left.type === 'ObjectPattern' || node.left.type === 'ArrayPattern') && node.left.lazy;
+
+	if (lazy && (!directly_lazy || !is_complete_statement_list_assignment(node, path))) {
+		validate_unsupported_lazy_assignment_position(
+			lazy,
+			state.filename,
+			state.collect ? state.errors : undefined,
+			state.comments,
+		);
+	}
+
+	next();
 }
 
 /**
@@ -126,6 +202,8 @@ function visit_class(_node, { next, state }) {
 }
 
 const visitors = {
+	AssignmentExpression: visit_assignment_expression,
+
 	FunctionDeclaration: visit_function,
 	FunctionExpression: visit_function,
 	ArrowFunctionExpression: visit_function,

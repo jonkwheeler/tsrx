@@ -94,6 +94,7 @@ export {
 	is_template_directive as isTemplateDirective,
 	is_tsrx_render_output_node as isTsrxRenderOutputNode,
 	is_code_block_function_body as isCodeBlockFunctionBody,
+	is_statement_list_item as isStatementListItem,
 	is_statement_position as isStatementPosition,
 } from './utils/ast.js';
 
@@ -262,6 +263,7 @@ export {
 	TSRX_LOOP_CONTINUE_ERROR,
 	TSRX_LOOP_RETURN_ERROR,
 	TSRX_RETURN_STATEMENT_ERROR,
+	TSRX_UNSUPPORTED_LAZY_ASSIGNMENT_POSITION_ERROR,
 	TSRX_WHILE_STATEMENT_ERROR,
 	get_return_keyword_node as getReturnKeywordNode,
 	get_statement_keyword_node as getStatementKeywordNode,
@@ -272,6 +274,7 @@ export {
 	validate_tsrx_loop_continue_statement as validateTsrxLoopContinueStatement,
 	validate_tsrx_loop_return_statement as validateTsrxLoopReturnStatement,
 	validate_tsrx_return_statement as validateTsrxReturnStatement,
+	validate_unsupported_lazy_assignment_position as validateUnsupportedLazyAssignmentPosition,
 	validate_tsrx_unsupported_loop_statement as validateTsrxUnsupportedLoopStatement,
 	validate_forgotten_statement_container as validateForgottenStatementContainer,
 	validate_nesting as validateNesting,

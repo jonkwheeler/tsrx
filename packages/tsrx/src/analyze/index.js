@@ -7,8 +7,8 @@ import { walk } from 'zimmerframe';
 import {
 	child_nodes,
 	is_code_block_function_body,
-	is_statement_list_item,
 	is_statement_position,
+	is_supported_lazy_assignment_position,
 	is_tsrx_render_output_node,
 } from '../utils/ast.js';
 import {
@@ -60,44 +60,13 @@ function find_first_lazy_pattern(node) {
 }
 
 /**
- * A supported lazy assignment may be parenthesized, but it must otherwise be
- * the entire expression statement and that statement must be a list item.
- *
- * @param {AST.AssignmentExpression} node
- * @param {AST.Node[]} path
- * @returns {boolean}
- */
-function is_complete_statement_list_assignment(node, path) {
-	/** @type {AST.Node} */
-	let child = node;
-
-	for (let i = path.length - 1; i >= 0; i -= 1) {
-		const parent = path[i];
-
-		if (is_transparent_expression_wrapper(parent, child)) {
-			child = parent;
-			continue;
-		}
-
-		if (parent.type !== 'ExpressionStatement' || parent.expression !== child) return false;
-
-		const container = path[i - 1];
-		return !!container && is_statement_list_item(container, parent);
-	}
-
-	return false;
-}
-
-/**
  * @param {AST.AssignmentExpression} node
  * @param {{ next: () => unknown, path: AST.Node[], state: TSRXAnalysisState }} context
  */
 function visit_assignment_expression(node, { next, path, state }) {
 	const lazy = find_first_lazy_pattern(node.left);
-	const directly_lazy =
-		(node.left.type === 'ObjectPattern' || node.left.type === 'ArrayPattern') && node.left.lazy;
 
-	if (lazy && (!directly_lazy || !is_complete_statement_list_assignment(node, path))) {
+	if (lazy && !is_supported_lazy_assignment_position(node, path)) {
 		validate_unsupported_lazy_assignment_position(
 			lazy,
 			state.filename,

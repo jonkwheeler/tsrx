@@ -3,7 +3,12 @@
 /** @import { BaseNodeMetaData, LazyBinding, LazyContext, LazyPattern, MaybeLocated } from '../../types/index' */
 
 import * as b from '../utils/builders.js';
-import { has_location, is_ast_node, is_function_or_component_node } from '../utils/ast.js';
+import {
+	has_location,
+	is_ast_node,
+	is_function_or_component_node,
+	is_supported_lazy_assignment_position,
+} from '../utils/ast.js';
 
 /**
  * Lazy destructuring transform — framework-agnostic.
@@ -408,7 +413,7 @@ function replace_lazy_in_pattern(pattern, is_top = true) {
 
 /**
  * Walk the AST and pre-allocate `lazy_id` metadata on every lazy destructuring
- * pattern: function params, variable declarator ids, and statement-level
+ * pattern: function params, variable declarator ids, and supported standalone
  * assignment LHS. Walks into non-lazy outer patterns to
  * find nested lazy ones, e.g. `{ pair: &[a, b] }` allocates an id for the inner
  * `&[a, b]`. Idempotent: skips patterns that already have a `lazy_id`.
@@ -431,14 +436,15 @@ export function preallocate_lazy_ids(root, context) {
 
 	/**
 	 * @param {unknown} value
+	 * @param {AST.Node[]} path
 	 * @returns {boolean} true if `value`'s subtree contains any lazy pattern.
 	 */
-	const visit = (value) => {
+	const visit = (value, path) => {
 		if (!value || typeof value !== 'object') return false;
 		if (Array.isArray(value)) {
 			let found = false;
 			for (const child of value) {
-				if (visit(child)) found = true;
+				if (visit(child, path)) found = true;
 			}
 			return found;
 		}
@@ -457,21 +463,18 @@ export function preallocate_lazy_ids(root, context) {
 			assign_id(node.id);
 		}
 
-		if (
-			node.type === 'ExpressionStatement' &&
-			node.expression.type === 'AssignmentExpression' &&
-			node.expression.operator === '='
-		) {
-			assign_id(node.expression.left);
+		if (node.type === 'AssignmentExpression' && is_supported_lazy_assignment_position(node, path)) {
+			assign_id(node.left);
 		}
 
 		let found =
 			(node.type === 'ObjectPattern' || node.type === 'ArrayPattern') && node.lazy === true;
 
 		const entries = /** @type {AST.TraversableAstNode} */ (node);
+		const child_path = [...path, node];
 		for (const key of Object.keys(entries)) {
 			if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
-			if (visit(entries[key])) found = true;
+			if (visit(entries[key], child_path)) found = true;
 		}
 
 		if (is_function_like && found) {
@@ -481,7 +484,7 @@ export function preallocate_lazy_ids(root, context) {
 		return found;
 	};
 
-	visit(root);
+	visit(root, []);
 }
 
 /**
@@ -826,6 +829,24 @@ export function apply_lazy_transforms(node, lazy_bindings) {
 				},
 			};
 		}
+	}
+
+	// Diagnosed lazy assignments remain ordinary destructuring assignments in
+	// best-effort output. Wrapping the recovery expression is valid in every
+	// expression slot, including braceless statement bodies and nested
+	// assignments where an object-pattern target would otherwise be ambiguous.
+	// Supported standalone assignments have a preallocated ID and are handled
+	// by the declaration branch above before traversal reaches this node.
+	if (
+		node.type === 'AssignmentExpression' &&
+		node.operator === '=' &&
+		(node.left.type === 'ObjectPattern' || node.left.type === 'ArrayPattern') &&
+		node.left.lazy &&
+		!node.left.metadata?.lazy_id
+	) {
+		const new_right = apply_lazy_transforms_to_slot(node.right, lazy_bindings);
+		const recovered = new_right === node.right ? node : { ...node, right: new_right };
+		return b.parenthesized(recovered, has_location(node) ? node : undefined);
 	}
 
 	// AssignmentExpression / UpdateExpression whose target is a lazy identifier.

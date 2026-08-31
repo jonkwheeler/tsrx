@@ -1,5 +1,7 @@
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { DIAGNOSTIC_CODES } from '../../src/diagnostics.js';
+import { createLazyContext, parseModule, preallocateLazyIds } from '../../src/index.js';
 
 /** @import { CompileDiagnosticsHarness, CompileHarness } from '../../types/index' */
 
@@ -20,6 +22,26 @@ function diagnostic_codes(result) {
 	return result.errors.map((error) => error.code);
 }
 
+/**
+ * Parse generated target output as TSX and return syntax diagnostics. Target
+ * compilers intentionally leave TypeScript and JSX for downstream tooling, so
+ * this checks the same grammar boundary their virtual modules must satisfy.
+ *
+ * @param {string} code
+ * @returns {readonly ts.Diagnostic[]}
+ */
+function virtual_parse_diagnostics(code) {
+	const source_file = ts.createSourceFile(
+		'virtual.tsx',
+		code,
+		ts.ScriptTarget.Latest,
+		true,
+		ts.ScriptKind.TSX,
+	);
+	return /** @type {ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }} */ (source_file)
+		.parseDiagnostics;
+}
+
 const TSRX_TEMPLATE_RETURN_ERROR =
 	'Return statements are not allowed inside TSRX templates. Move the return before the TSRX return value, or use conditional rendering instead.';
 
@@ -31,6 +53,24 @@ const TSRX_TEMPLATE_RETURN_ERROR =
  */
 export function runSharedCompileDiagnosticsTests({ compile_to_volar_mappings, name }) {
 	describe(`[${name}] compile diagnostics`, () => {
+		it('collects unsupported lazy assignment positions in type-only output', () => {
+			for (const source of [
+				'function recover() { if (ready) &{ value } = source; }',
+				'function recover() { (&{ value } = source, consume()); }',
+				'function recover() { consume(&{ value } = source); }',
+				'function recover() { target = (&{ value } = source); }',
+				'function recover() { [&{ value }] = pairs; }',
+			]) {
+				const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+				expect(diagnostic_codes(result), source).toContain(
+					DIAGNOSTIC_CODES.UNSUPPORTED_LAZY_ASSIGNMENT_POSITION,
+				);
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+				expect(result.code, source).not.toContain('__lazy');
+			}
+		});
+
 		it('preserves deferred imports in type-only output', () => {
 			const result = compile_to_volar_mappings(
 				`import defer * as feature from './feature.js';
@@ -1987,6 +2027,65 @@ export function runSharedCompileTests({
 	runSharedNestedLazyDestructuringTests({ compile, name });
 	runSharedLazyScopeNestingTests({ compile, name });
 	runSharedLazyJsxNameTests({ compile, name });
+
+	describe(`[${name}] lazy assignment recovery`, () => {
+		it('keeps a supported standalone lazy assignment on the declaration path', () => {
+			const result = compile(
+				`function recover() {
+					&{ value } = source;
+					consume(value);
+				}`,
+				'App.tsrx',
+				{ collect: true },
+			);
+
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain('const __lazy0 = source');
+			expect(result.code).toContain('consume(__lazy0.value)');
+			expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+		});
+
+		it('keeps every diagnosed assignment shape on a parseable best-effort path', () => {
+			for (const source of [
+				'function recover() { if (ready) &{ value } = source; }',
+				'function recover() { (&{ value } = source, consume()); }',
+				'function recover() { consume(&{ value } = source); }',
+				'function recover() { target = (&{ value } = source); }',
+				'function recover() { [&{ value }] = pairs; }',
+			]) {
+				const result = compile(source, 'App.tsrx', { collect: true });
+
+				expect(diagnostic_codes(result), source).toContain(
+					DIAGNOSTIC_CODES.UNSUPPORTED_LAZY_ASSIGNMENT_POSITION,
+				);
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+				expect(result.code, source).not.toContain('__lazy');
+				expect(result.code, source).not.toMatch(/if\s*\([^)]*\)\s+(?:const|let|var)\s/);
+			}
+		});
+
+		it('keeps lazy ID preallocation idempotent for supported assignments', () => {
+			const ast = parseModule(
+				'function recover() { &{ value } = source; consume(value); }',
+				'App.tsrx',
+			);
+			const context = createLazyContext();
+			const statement = /** @type {import('estree').FunctionDeclaration} */ (ast.body[0]).body
+				.body[0];
+			const assignment = /** @type {import('estree').AssignmentExpression} */ (
+				/** @type {import('estree').ExpressionStatement} */ (statement).expression
+			);
+			const pattern = /** @type {import('../../types/index').LazyPattern} */ (assignment.left);
+
+			preallocateLazyIds(ast, context);
+			const first_id = pattern.metadata?.lazy_id;
+			preallocateLazyIds(ast, context);
+
+			expect(first_id).toBe('__lazy0');
+			expect(pattern.metadata?.lazy_id).toBe(first_id);
+			expect(context.lazy_next_id).toBe(1);
+		});
+	});
 
 	describe(`[${name}] deferred imports`, () => {
 		it('preserves deferred imports in compiled output', () => {

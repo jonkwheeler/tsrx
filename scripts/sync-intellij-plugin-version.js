@@ -11,18 +11,13 @@ export function synchronizeIntellijPluginVersions({
 	logger = console,
 } = {}) {
 	const plugin_package_path = join(rootDir, 'packages/intellij-plugin/package.json');
-	const language_server_path = join(rootDir, 'packages/language-server/package.json');
 	const gradle_properties_path = join(rootDir, 'packages/intellij-plugin/gradle.properties');
 	const plugin_package = read_package(plugin_package_path, '@tsrx/intellij-plugin');
-	const language_server = read_package(language_server_path, '@tsrx/language-server');
 	const original_properties = readFileSync(gradle_properties_path, 'utf8');
 	let properties = original_properties;
 	const changes = [];
 
-	for (const [property, expected] of [
-		['pluginVersion', plugin_package.version],
-		['tsrxLspVersion', language_server.version],
-	]) {
+	for (const [property, expected] of [['pluginVersion', plugin_package.version]]) {
 		const result = synchronize_property(properties, property, expected, gradle_properties_path);
 		properties = result.content;
 		if (result.previous !== expected) {

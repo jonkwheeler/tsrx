@@ -4,7 +4,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { synchronizeIntellijPluginVersions } from '../../../scripts/sync-intellij-plugin-version.js';
-import { validateInstalledLanguageServer } from '../scripts/verify-language-server-release.mjs';
+import {
+	readLanguageServerVersion,
+	validateInstalledLanguageServer,
+} from '../scripts/verify-language-server-release.mjs';
 
 const test_dir = dirname(fileURLToPath(import.meta.url));
 const repository_dir = resolve(test_dir, '../../..');
@@ -28,25 +31,30 @@ describe('@tsrx/intellij-plugin release contract', () => {
 		const gradle_properties = read_properties(
 			readFileSync(resolve(repository_dir, 'packages/intellij-plugin/gradle.properties'), 'utf8'),
 		);
+		const gradle_build = readFileSync(
+			resolve(repository_dir, 'packages/intellij-plugin/build.gradle.kts'),
+			'utf8',
+		);
 
 		expect(package_json.private).toBe(true);
 		expect(changesets.ignore).not.toContain('@tsrx/intellij-plugin');
 		expect(changesets.privatePackages).toEqual({ version: true, tag: false });
 		expect(gradle_properties.pluginVersion).toBe(package_json.version);
-		expect(gradle_properties.tsrxLspVersion).toBe(language_server.version);
+		expect(gradle_properties).not.toHaveProperty('tsrxLspVersion');
+		expect(gradle_build).toContain('../language-server/package.json');
+		expect(gradle_build).not.toContain('providers.gradleProperty("tsrxLspVersion")');
+		expect(readLanguageServerVersion(language_server)).toBe(language_server.version);
 		expect(() =>
 			synchronizeIntellijPluginVersions({ rootDir: repository_dir, check: true }),
 		).not.toThrow();
 	});
 
-	it('updates only the two owned Gradle properties and is idempotent', () => {
+	it('updates only the owned Gradle property and is idempotent', () => {
 		const fixture = create_fixture({
 			pluginVersion: '1.2.3',
-			languageServerVersion: '4.5.6',
 			gradleProperties: [
 				'org.gradle.caching=true',
 				'pluginVersion=0.0.1',
-				'tsrxLspVersion=0.0.2',
 				'customProperty=preserved',
 				'',
 			].join('\n'),
@@ -64,7 +72,6 @@ describe('@tsrx/intellij-plugin release contract', () => {
 		);
 
 		expect(first_pass).toContain('pluginVersion=1.2.3');
-		expect(first_pass).toContain('tsrxLspVersion=4.5.6');
 		expect(first_pass).toContain('customProperty=preserved');
 		expect(second_pass).toBe(first_pass);
 	});
@@ -72,30 +79,24 @@ describe('@tsrx/intellij-plugin release contract', () => {
 	it('reports drift in check mode without rewriting files', () => {
 		const fixture = create_fixture({
 			pluginVersion: '1.2.3',
-			languageServerVersion: '4.5.6',
-			gradleProperties: 'pluginVersion=0.0.1\ntsrxLspVersion=0.0.2\n',
+			gradleProperties: 'pluginVersion=0.0.1\n',
 		});
 		const properties_path = resolve(fixture, 'packages/intellij-plugin/gradle.properties');
 		const before = readFileSync(properties_path, 'utf8');
 
 		expect(() => synchronizeIntellijPluginVersions({ rootDir: fixture, check: true })).toThrow(
-			/out of sync.*pluginVersion.*tsrxLspVersion/is,
+			/out of sync.*pluginVersion/is,
 		);
 		expect(readFileSync(properties_path, 'utf8')).toBe(before);
 	});
 
 	it.each([
-		['missing', 'tsrxLspVersion=4.5.6\n', /pluginVersion.*exactly once/i],
-		[
-			'duplicate',
-			'pluginVersion=1.2.3\npluginVersion=1.2.3\ntsrxLspVersion=4.5.6\n',
-			/pluginVersion.*exactly once/i,
-		],
-		['malformed', 'pluginVersion =1.2.3\ntsrxLspVersion=4.5.6\n', /pluginVersion.*exactly once/i],
+		['missing', '', /pluginVersion.*exactly once/i],
+		['duplicate', 'pluginVersion=1.2.3\npluginVersion=1.2.3\n', /pluginVersion.*exactly once/i],
+		['malformed', 'pluginVersion =1.2.3\n', /pluginVersion.*exactly once/i],
 	])('rejects a %s owned Gradle property', (_name, gradleProperties, expected) => {
 		const fixture = create_fixture({
 			pluginVersion: '1.2.3',
-			languageServerVersion: '4.5.6',
 			gradleProperties,
 		});
 
@@ -227,18 +228,13 @@ describe('@tsrx/intellij-plugin release contract', () => {
 	});
 });
 
-function create_fixture({ pluginVersion, languageServerVersion, gradleProperties }) {
+function create_fixture({ pluginVersion, gradleProperties }) {
 	const root = mkdtempSync(resolve(tmpdir(), 'tsrx-intellij-version-'));
 	temporary_dirs.push(root);
 	mkdirSync(resolve(root, 'packages/intellij-plugin'), { recursive: true });
-	mkdirSync(resolve(root, 'packages/language-server'), { recursive: true });
 	writeFileSync(
 		resolve(root, 'packages/intellij-plugin/package.json'),
 		JSON.stringify({ name: '@tsrx/intellij-plugin', version: pluginVersion }),
-	);
-	writeFileSync(
-		resolve(root, 'packages/language-server/package.json'),
-		JSON.stringify({ name: '@tsrx/language-server', version: languageServerVersion }),
 	);
 	writeFileSync(resolve(root, 'packages/intellij-plugin/gradle.properties'), gradleProperties);
 	return root;

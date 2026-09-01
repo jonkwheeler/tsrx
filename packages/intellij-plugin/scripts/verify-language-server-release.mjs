@@ -10,8 +10,10 @@ const package_name = '@tsrx/language-server';
 const launcher_name = 'tsrx-language-server';
 
 export function verifyPublishedLanguageServer({ rootDir = package_dir } = {}) {
-	const properties = readFileSync(resolve(rootDir, 'gradle.properties'), 'utf8');
-	const expectedVersion = readProperty(properties, 'tsrxLspVersion');
+	const sourcePackage = JSON.parse(
+		readFileSync(resolve(rootDir, '../language-server/package.json'), 'utf8'),
+	);
+	const expectedVersion = readLanguageServerVersion(sourcePackage);
 	const installRoot = mkdtempSync(join(tmpdir(), 'tsrx-language-server-release-'));
 
 	try {
@@ -59,6 +61,19 @@ export function verifyPublishedLanguageServer({ rootDir = package_dir } = {}) {
 	}
 }
 
+export function readLanguageServerVersion(packageMetadata) {
+	if (packageMetadata.name !== package_name) {
+		throw new Error(`Expected package ${package_name}, received ${packageMetadata.name}`);
+	}
+	if (
+		typeof packageMetadata.version !== 'string' ||
+		!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(packageMetadata.version)
+	) {
+		throw new Error(`Expected ${package_name} to contain a valid version`);
+	}
+	return packageMetadata.version;
+}
+
 export function validateInstalledLanguageServer({
 	packageMetadata,
 	expectedVersion,
@@ -74,14 +89,6 @@ export function validateInstalledLanguageServer({
 		throw new Error(`Expected the ${launcher_name} launcher declaration`);
 	}
 	if (!launcherExists) throw new Error(`Expected the installed ${launcher_name} launcher`);
-}
-
-function readProperty(content, name) {
-	const matches = [...content.matchAll(new RegExp(`^${name}=([^\\r\\n]+)$`, 'gm'))];
-	if (matches.length !== 1) {
-		throw new Error(`Expected ${name} exactly once, found ${matches.length}`);
-	}
-	return matches[0][1].trim();
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === script_path) {

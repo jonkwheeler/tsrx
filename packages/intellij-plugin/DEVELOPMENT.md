@@ -30,7 +30,10 @@ formatting. In a syntax-only IDE, confirm the file type and highlighting work
 without starting a language-server download.
 
 The managed language server is installed with npm lifecycle scripts disabled.
-Before changing its pinned version, verify the published package with:
+Gradle derives its exact pinned version directly from
+`packages/language-server/package.json`; do not duplicate that version in IntelliJ
+configuration. Before releasing a new language-server version, verify the
+published package with:
 
 ```sh
 node packages/intellij-plugin/scripts/verify-language-server-release.mjs

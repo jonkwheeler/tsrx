@@ -1,7 +1,9 @@
+import groovy.json.JsonSlurper
 import org.gradle.api.DefaultTask
-import org.gradle.api.provider.Property
-import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
@@ -82,10 +84,8 @@ intellijPlatform {
 }
 
 val generatedPluginResources = layout.buildDirectory.dir("generated/tsrx-plugin-resources")
-val tsrxLspVersion = providers.gradleProperty("tsrxLspVersion").get().trim()
-require(tsrxLspVersion.isNotEmpty()) { "tsrxLspVersion must not be blank" }
 val generateLspVersion by tasks.registering(GenerateLspVersionTask::class) {
-	languageServerVersion.set(tsrxLspVersion)
+	languageServerPackage.set(layout.projectDirectory.file("../language-server/package.json"))
 	outputFile.set(layout.buildDirectory.file("generated/tsrx-lsp-version/lsp-version.txt"))
 }
 val generatePluginResources by tasks.registering(Sync::class) {
@@ -133,17 +133,29 @@ kotlin {
 }
 
 abstract class GenerateLspVersionTask : DefaultTask() {
-	@get:Input
-	abstract val languageServerVersion: Property<String>
+	@get:InputFile
+	@get:PathSensitive(PathSensitivity.RELATIVE)
+	abstract val languageServerPackage: org.gradle.api.file.RegularFileProperty
 
 	@get:OutputFile
 	abstract val outputFile: org.gradle.api.file.RegularFileProperty
 
 	@TaskAction
 	fun generate() {
+		val packageFile = languageServerPackage.get().asFile
+		val metadata = JsonSlurper().parse(packageFile) as? Map<*, *>
+			?: error("Expected $packageFile to contain a JSON object")
+		require(metadata["name"] == "@tsrx/language-server") {
+			"Expected $packageFile to define package @tsrx/language-server"
+		}
+		val version = metadata["version"] as? String
+			?: error("Expected $packageFile to contain a version")
+		require(Regex("""^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$""").matches(version)) {
+			"Expected $packageFile to contain a valid version"
+		}
 		outputFile.get().asFile.apply {
 			parentFile.mkdirs()
-			writeText("${languageServerVersion.get()}\n")
+			writeText("$version\n")
 		}
 	}
 }

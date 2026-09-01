@@ -30,6 +30,8 @@ export const TSRX_DO_WHILE_STATEMENT_ERROR =
 	'Do...while loops are not supported in TSRX templates. Move the do...while loop into a function.';
 export const TSRX_FORGOTTEN_STATEMENT_CONTAINER_ERROR =
 	"This TSRX template output is unused. Return it, assign it to a value that is rendered, or make it part of the rendered output of a function '@{...}' body.";
+export const TSRX_UNSUPPORTED_LAZY_ASSIGNMENT_POSITION_ERROR =
+	'Lazy destructuring assignments require a directly lazy target as a standalone statement inside a program, block, TSRX code block, or switch case.';
 
 const invalid_nestings = {
 	// <p> cannot contain block-level elements
@@ -217,6 +219,23 @@ export function validate_forgotten_statement_container(node, filename, errors, c
 		errors,
 		comments,
 		DIAGNOSTIC_CODES.FORGOTTEN_STATEMENT_CONTAINER,
+	);
+}
+
+/**
+ * @param {import('../../types/index').LazyPattern} node
+ * @param {string | null | undefined} filename
+ * @param {CompileError[]} [errors]
+ * @param {AST.CommentWithLocation[]} [comments]
+ */
+export function validate_unsupported_lazy_assignment_position(node, filename, errors, comments) {
+	error(
+		TSRX_UNSUPPORTED_LAZY_ASSIGNMENT_POSITION_ERROR,
+		filename ?? null,
+		node,
+		errors,
+		comments,
+		DIAGNOSTIC_CODES.UNSUPPORTED_LAZY_ASSIGNMENT_POSITION,
 	);
 }
 

@@ -514,6 +514,36 @@ const UserCard = (&{ name, age }: { name: string; age: number }) =>
 let &[count, setCount] = createSignal(0);
 ```
 
+Lazy patterns are also supported in ordinary JavaScript loop headers: classic
+`for` initializers, `for...of`, `for...in`, and `for await...of`. A `for...of`
+or `for...in` target may be either a declaration or a bare target containing a
+lazy pattern; a bare target is normalized to a per-iteration binding. The
+iterable or right-hand expression uses the outer binding environment, while the
+new lazy names apply after the target is established. Declaration kinds keep
+their normal ECMAScript scope, including post-loop visibility for `var`.
+
+```tsrx
+for (const &{ value } of items) consume(value);
+for (let &[key] in table) consume(key);
+for (&{ value } of items) consume(value);
+for (let &{ value } = cursor; value < limit; value++) consume(value);
+for await (const &{ value } of stream) consume(value);
+```
+
+These are imperative JavaScript loops, not rendered-list constructs. Use the
+`@for` template directive when the loop itself produces UI.
+
+A lazy destructuring assignment is supported only when its entire left-hand
+side is a directly lazy array or object pattern and the assignment is the
+complete expression statement in a program, block, TSRX `@{...}` code block, or
+`switch` case statement list. Braceless control-flow bodies, nested
+assignments, sequence operands, call arguments, and non-lazy outer targets that
+contain a lazy pattern report
+`tsrx-unsupported-lazy-assignment-position`. Strict compilation rejects the
+source. Diagnostic-collecting, type-only, and editor paths report the error and
+retain syntactically valid best-effort output; that recovery does not give the
+unsupported assignment lazy semantics.
+
 ### Prop shorthand
 
 When a prop name matches the variable, use `{name}` instead of `name={name}`.
@@ -917,6 +947,7 @@ const List = <T,>({ items, render }: Props<T>) =>
 | Expression children    | `<List children={items.map(render)} />`                |
 | Lazy prop destructure  | `const C = (&{ x, y }: Props) => <div />;`             |
 | Lazy array destructure | `let &[count, set] = createSignal(0);`                 |
+| Lazy JS loop target    | `for (const &{ x } of items) use(x);`                  |
 | Prop shorthand         | `<Input {value} {onChange} />`                         |
 | Conditional rendering  | `@if (cond) { <Panel /> }`                             |
 | List rendering         | `@for (const x of xs; index i; key x.id) { <li /> }`   |

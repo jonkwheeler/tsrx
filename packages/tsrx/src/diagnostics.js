@@ -5,4 +5,5 @@ export const DIAGNOSTIC_CODES = {
 	TEMPLATE_EXPRESSION_TRAILING_SEMICOLON: 'tsrx-template-expression-trailing-semicolon',
 	TEMPLATE_RETURN_STATEMENT: 'tsrx-template-return-statement',
 	FORGOTTEN_STATEMENT_CONTAINER: 'tsrx-forgotten-statement-container',
+	UNSUPPORTED_LAZY_ASSIGNMENT_POSITION: 'tsrx-unsupported-lazy-assignment-position',
 };

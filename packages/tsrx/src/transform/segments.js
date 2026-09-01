@@ -1477,10 +1477,23 @@ export function convert_source_map_to_mappings(
 				if (node.type === 'AssignmentPattern') {
 					// We need a mapping for the whole AssignmentPattern for diagnostics
 					// Only enable diagnostic verification here to avoid duplicate mappings
-					// that can cause things like double definitions
-					mappings.push(
-						get_mapping_from_node(node, src_to_gen_map, gen_line_offsets, mapping_data_verify_only),
-					);
+					// that can cause things like double definitions. A type-only lazy
+					// pattern drops its leading `&`, so there is no generated source-map
+					// position for the AssignmentPattern's authored start; its child
+					// mappings still provide diagnostics for the emitted pattern/default.
+					if (
+						(node.left.type !== 'ObjectPattern' && node.left.type !== 'ArrayPattern') ||
+						!node.left.lazy
+					) {
+						mappings.push(
+							get_mapping_from_node(
+								node,
+								src_to_gen_map,
+								gen_line_offsets,
+								mapping_data_verify_only,
+							),
+						);
+					}
 				}
 
 				return;

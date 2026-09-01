@@ -87,6 +87,43 @@ export function runSharedCompileDiagnosticsTests({ compile_to_volar_mappings, na
 			}
 		});
 
+		it('declares bare lazy loop targets in type-only output', () => {
+			const result = compile_to_volar_mappings(
+				`export function read(items, table) {
+					for (&{ value } of items) consume(value);
+					for ({ pair: &[first] } of items) consume(first);
+					for ([&{ key }] in table) consume(key);
+				}`,
+				'App.tsrx',
+				{ loose: true },
+			);
+
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain('for (const __lazy0 of items)');
+			expect(result.code).toContain('consume(__lazy0.value)');
+			expect(result.code).toMatch(/for \(const \{\s*pair:\s*__lazy1\s*\} of items\)/);
+			expect(result.code).toContain('consume(__lazy1[0])');
+			expect(result.code).toMatch(/for \(const \[__lazy2\] in table\)/);
+			expect(result.code).toContain('consume(__lazy2.key)');
+			expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+		});
+
+		it('maps nested lazy loop targets with defaults in type-only output', () => {
+			const result = compile_to_volar_mappings(
+				`export function read(items, fallback) {
+					for (const { pair: &[value] = fallback } of items) consume(value);
+					for (let { pair: &[other] = fallback } = items[0]; false;) consume(other);
+				}`,
+				'App.tsrx',
+				{ loose: true },
+			);
+
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain('pair: [value] = fallback');
+			expect(result.code).toContain('pair: [other] = fallback');
+			expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+		});
+
 		it('preserves deferred imports in type-only output', () => {
 			const result = compile_to_volar_mappings(
 				`import defer * as feature from './feature.js';
@@ -1098,6 +1135,55 @@ export function runSharedLazyLoopTests({ compile, name }) {
 			expect(code).toContain('consume(before, __lazy3.value)');
 		});
 
+		it('advances same-name lazy var loops in source order', () => {
+			const { code } = compile(
+				`export function read(&{ item }) {
+					consume(item);
+					for (var &{ item } of item.children) consume(item);
+					consume(item);
+					for (var &{ item } of item.children) consume(item);
+					for (var &{ item } = item.next; false;) consume(item);
+					return item;
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('function read(__lazy0)');
+			expect(code).toMatch(
+				/consume\(__lazy0\.item\);\s*for \(var __lazy1 of __lazy0\.item\.children\)/,
+			);
+			expect(code).toMatch(
+				/consume\(__lazy1\.item\);\s*consume\(__lazy1\.item\);\s*for \(var __lazy2 of __lazy1\.item\.children\)/,
+			);
+			expect(code).toMatch(
+				/consume\(__lazy2\.item\);\s*for \(var __lazy3 = __lazy2\.item\.next; false; \)\s*consume\(__lazy3\.item\)/,
+			);
+			expect(code).toMatch(/return __lazy3\.item/);
+		});
+
+		it('advances lazy var loop bindings through nested control flow', () => {
+			const { code } = compile(
+				`export function read(&{ value }, ready, items) {
+					consume(value);
+					if (ready) {
+						consume(value);
+						for (var &{ value } of items) consume(value);
+						consume(value);
+					}
+					return value;
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toMatch(
+				/consume\(__lazy0\.value\);\s*if \(ready\) \{\s*consume\(__lazy0\.value\)/,
+			);
+			expect(code).toMatch(
+				/for \(var __lazy1 of items\)\s*consume\(__lazy1\.value\);\s*consume\(__lazy1\.value\)/,
+			);
+			expect(code).toMatch(/}\s*return __lazy1\.value/);
+		});
+
 		it('keeps classic-for var sources visible after nested control flow', () => {
 			const { code } = compile(
 				`export function count(ready, source, limit) {
@@ -1127,6 +1213,28 @@ export function runSharedLazyLoopTests({ compile, name }) {
 			expect(code).toContain('for (const __lazy1 of __lazy0.item.children)');
 			expect(code).toContain('consume(__lazy1.item)');
 			expect(code).toContain('return __lazy0.item');
+		});
+
+		it('rewrites outer lazy names in loop target computed keys and defaults', () => {
+			const { code } = compile(
+				`export function read(&{ key, fallback }, items, source) {
+					for (const &{ [key]: value } of items) consume(value);
+					for (const { pair: &[nested] = fallback, [key]: current = fallback } of items) {
+						consume(nested, current);
+					}
+					for (let { pair: &[classic] = fallback, [key]: current = fallback } = source; false;) {
+						consume(classic, current);
+					}
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (const __lazy1 of items) consume(__lazy1[__lazy0.key])');
+			expect(code).toContain('pair: __lazy2 = __lazy0.fallback');
+			expect(code).toContain('[__lazy0.key]: current = __lazy0.fallback');
+			expect(code).toContain('pair: __lazy3 = __lazy0.fallback');
+			expect(count_substring(code, '[__lazy0.key]: current = __lazy0.fallback')).toBe(2);
+			expect(virtual_parse_diagnostics(code), code).toEqual([]);
 		});
 
 		it('shadows outer lazy names with non-lazy siblings in bare loop targets', () => {

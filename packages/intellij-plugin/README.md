@@ -15,29 +15,25 @@ TSRX language support for compatible IntelliJ-based IDEs.
 - LSP features require both the Ultimate and LSP modules
 - Node.js 22+ with npm available on PATH (for LSP features)
 
-The verified product set is WebStorm, IntelliJ IDEA Ultimate and Community,
-PhpStorm, PyCharm, DataSpell, RubyMine, CLion, DataGrip, GoLand, Rider, and
-RustRover. IntelliJ IDEA Community is syntax-only; products with the optional
-modules receive the LSP feature tier.
+WebStorm 2025.2.4 is the reference build used by CI. Syntax-only IDEs receive the
+baseline feature tier; products with the optional modules receive the LSP feature
+tier.
 
 ## Installation status
 
-This repository has not published an official JetBrains Marketplace release. A
-[public listing](https://plugins.jetbrains.com/plugin/33925-tsrx) currently uses
-the configured plugin ID, but its source points to a different repository and
-ownership has not been confirmed as TSRX's release channel.
+The official plugin, using the XML ID `tsrx.intellij-plugin`, has been submitted
+to [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/33991-tsrx) and is
+under review. The deleted third-party listing and its old ID are intentionally not
+reused.
 
-Until maintainers resolve the Marketplace ID and publish a repository-controlled
-release, build the ZIP with:
+Until the first Marketplace submission is approved, build the ZIP with:
 
 ```sh
 packages/intellij-plugin/gradlew -p packages/intellij-plugin buildPlugin
 ```
 
 Then use **Settings → Plugins → ⚙ → Install Plugin from Disk** and select the ZIP
-from `packages/intellij-plugin/build/distributions`. Do not present the existing
-listing as this repository's official release until the release record contains
-confirmed ownership and public-install evidence.
+from `packages/intellij-plugin/build/distributions`.
 
 ## Language Server Resolution
 
@@ -57,9 +53,8 @@ shows an actionable notification instead of repeatedly starting a broken server.
 
 - See [DEVELOPMENT.md](./DEVELOPMENT.md) for local tests, compatibility
   verification, install-from-disk smoke tests, and protected publication setup.
-- Use [MARKETPLACE_RELEASE.md](./MARKETPLACE_RELEASE.md) as the first-official-
-  release evidence record. Its no-go gates must be cleared before upload or issue
-  closure.
+- Use [MARKETPLACE_RELEASE.md](./MARKETPLACE_RELEASE.md) for the first-submission
+  checklist and release record.
 - Run `./gradlew runIde` from this directory to start a sandbox IDE with the
   plugin.
 

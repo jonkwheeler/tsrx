@@ -5,11 +5,7 @@ import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
-import org.jetbrains.intellij.platform.gradle.models.ProductRelease
-import org.jetbrains.intellij.platform.gradle.tasks.PublishPluginTask
-import org.jetbrains.intellij.platform.gradle.tasks.SignPluginTask
 import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask
-import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginSignatureTask
 
 plugins {
 	id("java")
@@ -17,35 +13,10 @@ plugins {
 	id("org.jetbrains.intellij.platform") version "2.18.1"
 }
 
-group = "dev.tsrx.intellij_plugin"
+group = "tsrx"
 version = providers.gradleProperty("pluginVersion").get()
 
 val targetPlatformVersion = providers.gradleProperty("targetPlatformVersion").get()
-val minimumPlatformVersion = providers.gradleProperty("minimumPlatformVersion").get()
-val advertisedProductTypes = providers.gradleProperty("advertisedProductTypes").get()
-	.split(',')
-	.map(String::trim)
-	.filter(String::isNotEmpty)
-	.map(IntelliJPlatformType::valueOf)
-val verificationProductType = providers.gradleProperty("verificationProductType").orNull
-	?.let(IntelliJPlatformType::valueOf)
-val verificationProductVersion = providers.gradleProperty("verificationProductVersion").orNull
-
-require(advertisedProductTypes.distinct().size == advertisedProductTypes.size) {
-	"advertisedProductTypes must not contain duplicates"
-}
-require(IntelliJPlatformType.WebStorm in advertisedProductTypes) {
-	"advertisedProductTypes must include WebStorm"
-}
-require(IntelliJPlatformType.IntellijIdeaUltimate in advertisedProductTypes) {
-	"advertisedProductTypes must include IntellijIdeaUltimate"
-}
-require((verificationProductType == null) == (verificationProductVersion == null)) {
-	"verificationProductType and verificationProductVersion must be provided together"
-}
-require(verificationProductType == null || verificationProductType in advertisedProductTypes) {
-	"verificationProductType must be one of the advertisedProductTypes"
-}
 
 repositories {
 	mavenCentral()
@@ -94,23 +65,7 @@ intellijPlatform {
 		verificationReportsFormats = VerifyPluginTask.VerificationReportsFormats.ALL.toList()
 
 		ides {
-			if (verificationProductType != null && verificationProductVersion != null) {
-				if (verificationProductVersion == "latest") {
-					latest {
-						types = listOf(verificationProductType)
-						channels = listOf(ProductRelease.Channel.RELEASE)
-					}
-				} else {
-					create(verificationProductType, verificationProductVersion)
-				}
-			} else {
-				create(IntelliJPlatformType.WebStorm, minimumPlatformVersion)
-				create(IntelliJPlatformType.IntellijIdeaUltimate, minimumPlatformVersion)
-				latest {
-					types = advertisedProductTypes
-					channels = listOf(ProductRelease.Channel.RELEASE)
-				}
-			}
+			create(IntelliJPlatformType.WebStorm, targetPlatformVersion)
 		}
 	}
 
@@ -129,10 +84,6 @@ intellijPlatform {
 val generatedPluginResources = layout.buildDirectory.dir("generated/tsrx-plugin-resources")
 val tsrxLspVersion = providers.gradleProperty("tsrxLspVersion").get().trim()
 require(tsrxLspVersion.isNotEmpty()) { "tsrxLspVersion must not be blank" }
-val verificationArchiveFile = providers.gradleProperty("verificationArchiveFile").orNull
-val releaseArchiveFile = providers.gradleProperty("releaseArchiveFile").orNull
-val releaseSignedArchiveFile = providers.gradleProperty("releaseSignedArchiveFile").orNull
-val releaseCertificateChainFile = providers.gradleProperty("certificateChainFile").orNull
 val generateLspVersion by tasks.registering(GenerateLspVersionTask::class) {
 	languageServerVersion.set(tsrxLspVersion)
 	outputFile.set(layout.buildDirectory.file("generated/tsrx-lsp-version/lsp-version.txt"))
@@ -172,25 +123,6 @@ tasks {
 	withType<AbstractArchiveTask> {
 		isPreserveFileTimestamps = false
 		isReproducibleFileOrder = true
-	}
-
-	named<SignPluginTask>("signPlugin") {
-		releaseArchiveFile?.let { archiveFile.set(file(it)) }
-	}
-
-	named<VerifyPluginTask>("verifyPlugin") {
-		verificationArchiveFile?.let { archiveFile.set(file(it)) }
-	}
-
-	named<PublishPluginTask>("publishPlugin") {
-		releaseSignedArchiveFile?.let {
-			archiveFile.set(file(it))
-			setDependsOn(listOf("initializeIntellijPlatformPlugin"))
-		}
-	}
-
-	named<VerifyPluginSignatureTask>("verifyPluginSignature") {
-		releaseCertificateChainFile?.let { certificateChainFile.set(file(it)) }
 	}
 }
 

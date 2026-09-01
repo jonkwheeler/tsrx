@@ -1,1 +1,1 @@
-dev.tsrx.intellij_plugin::Package 'com\.intellij\.platform\.lsp' is not found.*
+tsrx.intellij-plugin::Package 'com\.intellij\.platform\.lsp' is not found.*

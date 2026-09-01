@@ -1,9 +1,8 @@
 package dev.tsrx.intellij_plugin
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.extensions.PluginId
 import java.net.URL
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -29,7 +28,6 @@ class TsrxTextMateBundleProvider internal constructor(
 	}
 
 	companion object {
-		private const val PLUGIN_ID = "dev.tsrx.intellij_plugin"
 		private const val BUNDLE_RESOURCE_ROOT = "textmate"
 		private val LOG = Logger.getInstance(TsrxTextMateBundleProvider::class.java)
 
@@ -40,7 +38,7 @@ class TsrxTextMateBundleProvider internal constructor(
 					.getResource("$BUNDLE_RESOURCE_ROOT/$relativePath")
 			},
 			pluginVersion = {
-				PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.version ?: "dev"
+				PluginManager.getPluginByClass(TsrxTextMateBundleProvider::class.java)?.version ?: "dev"
 			},
 		)
 	}

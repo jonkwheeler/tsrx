@@ -2,11 +2,13 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { synchronizeIntellijPluginVersions } from '../../../scripts/sync-intellij-plugin-version.js';
-import { createVerificationMatrix } from '../scripts/verification-matrix.mjs';
 import { validateInstalledLanguageServer } from '../scripts/verify-language-server-release.mjs';
-import { validateMarketplaceState } from '../scripts/verify-marketplace-state.mjs';
+import {
+	detectMarketplaceListing,
+	hasMarketplaceListing,
+} from '../scripts/verify-marketplace-state.mjs';
 
 const test_dir = dirname(fileURLToPath(import.meta.url));
 const repository_dir = resolve(test_dir, '../../..');
@@ -104,74 +106,87 @@ describe('@tsrx/intellij-plugin release contract', () => {
 		expect(() => synchronizeIntellijPluginVersions({ rootDir: fixture })).toThrow(expected);
 	});
 
-	it('covers every advertised product plus minimum WebStorm and IntelliJ IDEA anchors', () => {
-		const properties = readFileSync(
-			resolve(repository_dir, 'packages/intellij-plugin/gradle.properties'),
+	it('uses a fresh Marketplace identity without renaming Kotlin packages', () => {
+		const descriptor = readFileSync(
+			resolve(repository_dir, 'packages/intellij-plugin/src/main/resources/META-INF/plugin.xml'),
 			'utf8',
 		);
-		const matrix = createVerificationMatrix(properties).include;
-		const advertised = [
-			'WebStorm',
-			'IntellijIdeaUltimate',
-			'IntellijIdeaCommunity',
-			'PhpStorm',
-			'PyCharm',
-			'DataSpell',
-			'RubyMine',
-			'CLion',
-			'DataGrip',
-			'GoLand',
-			'Rider',
-			'RustRover',
-		];
+		const provider = readFileSync(
+			resolve(
+				repository_dir,
+				'packages/intellij-plugin/src/main/kotlin/dev/tsrx/intellij_plugin/TsrxTextMateBundleProvider.kt',
+			),
+			'utf8',
+		);
+		const ignored = readFileSync(
+			resolve(repository_dir, 'packages/intellij-plugin/plugin-verifier-ignored-problems.txt'),
+			'utf8',
+		);
 
-		expect(
-			matrix.filter(({ channel }) => channel === 'current').map(({ productType }) => productType),
-		).toEqual(advertised);
-		expect(matrix.filter(({ channel }) => channel === 'minimum')).toEqual([
-			expect.objectContaining({ productType: 'WebStorm', productVersion: '2025.2' }),
-			expect.objectContaining({
-				productType: 'IntellijIdeaUltimate',
-				productVersion: '2025.2',
-			}),
-		]);
+		expect(descriptor).toContain('<id>tsrx.intellij-plugin</id>');
+		expect(provider).toContain(
+			'PluginManager.getPluginByClass(TsrxTextMateBundleProvider::class.java)',
+		);
+		expect(provider).not.toContain('PluginManagerCore');
+		expect(ignored).toBe(
+			"tsrx.intellij-plugin::Package 'com\\.intellij\\.platform\\.lsp' is not found.*\n",
+		);
 	});
 
-	it('keeps the dedicated workflow scoped, credential-free, and fully gated', () => {
+	it('keeps pull-request verification in one job and one reference IDE', () => {
 		const workflow = readFileSync(
 			resolve(repository_dir, '.github/workflows/intellij-plugin.yml'),
 			'utf8',
 		);
+		const gradle = readFileSync(
+			resolve(repository_dir, 'packages/intellij-plugin/build.gradle.kts'),
+			'utf8',
+		);
 
-		for (const required of [
-			'packages/intellij-plugin/**',
-			'grammars/textmate/**',
-			'scripts/sync-intellij-plugin-version.js',
-			'inputs.revision || github.event.pull_request.number || github.ref',
-			'packages/intellij-plugin/gradlew -p packages/intellij-plugin test',
-			'verifyPluginProjectConfiguration',
-			'buildPlugin',
-			'verifyPluginStructure',
-			'Download tested plugin archive',
-			'verificationArchiveFile',
-			'verifyPlugin',
-		]) {
-			expect(workflow).toContain(required);
-		}
-		expect(workflow).not.toMatch(/CERTIFICATE_CHAIN|PRIVATE_KEY|PUBLISH_TOKEN|secrets\./);
+		expect(workflow.match(/^    runs-on:/gm)).toHaveLength(1);
+		expect(workflow).toContain('test verifyPluginProjectConfiguration buildPlugin');
+		expect(workflow).toContain('verifyPluginStructure verifyPlugin');
+		expect(workflow).not.toContain('strategy:');
+		expect(workflow).not.toContain('workflow_call:');
+		expect(workflow).not.toMatch(/^\s*uses: (?!\.\/).*@v\d+/m);
+		expect(gradle).toContain('create(IntelliJPlatformType.WebStorm, targetPlatformVersion)');
+		expect(gradle).not.toContain('advertisedProductTypes');
 	});
 
-	it('ignores only the absent optional LSP package in syntax-only IDEs', () => {
-		const ignored = readFileSync(
-			resolve(repository_dir, 'packages/intellij-plugin/plugin-verifier-ignored-problems.txt'),
+	it('publishes in one Changesets-gated job', () => {
+		const workflow = readFileSync(
+			resolve(repository_dir, '.github/workflows/intellij-plugin-publish.yml'),
 			'utf8',
-		)
-			.trim()
-			.split(/\r?\n/);
+		);
 
-		expect(ignored).toEqual([
-			"dev.tsrx.intellij_plugin::Package 'com\\.intellij\\.platform\\.lsp' is not found.*",
-		]);
+		expect(workflow.match(/^    runs-on:/gm)).toHaveLength(1);
+		expect(workflow).toContain("contains(github.event.head_commit.message, 'Version Packages')");
+		expect(workflow).toContain('packages/intellij-plugin/package.json');
+		expect(workflow).toContain('environment: jetbrains-marketplace');
+		expect(workflow).toContain('signPlugin');
+		expect(workflow).toContain('publishPlugin');
+		expect(workflow).toContain("steps.marketplace.outputs.published == 'true'");
+		expect(workflow).toContain('Upload signed plugin archive');
+		expect(workflow).not.toContain('workflow_dispatch:');
+		expect(workflow).not.toContain('uses: ./.github/workflows/intellij-plugin.yml');
+		expect(workflow).not.toMatch(/^\s*uses: (?!\.\/).*@v\d+/m);
+	});
+
+	it('detects whether the fresh ID has a Marketplace listing', async () => {
+		const empty = "<?xml version='1.0'?><plugin-repository/>";
+		const published =
+			'<plugin-repository><idea-plugin><id>tsrx.intellij-plugin</id></idea-plugin></plugin-repository>';
+
+		expect(hasMarketplaceListing(empty)).toBe(false);
+		expect(hasMarketplaceListing(published)).toBe(true);
+		expect(
+			await detectMarketplaceListing(vi.fn().mockResolvedValue({ status: 404, ok: false })),
+		).toBe(false);
+		expect(
+			await detectMarketplaceListing(
+				vi.fn().mockResolvedValue({ status: 200, ok: true, text: async () => published }),
+			),
+		).toBe(true);
 	});
 
 	it('accepts only the exact published language-server package and launcher', () => {
@@ -197,81 +212,23 @@ describe('@tsrx/intellij-plugin release contract', () => {
 		);
 	});
 
-	it('protects signing and publishing behind the manual Marketplace environment', () => {
-		const workflow = readFileSync(
-			resolve(repository_dir, '.github/workflows/intellij-plugin-publish.yml'),
-			'utf8',
-		);
-
-		for (const required of [
-			'workflow_dispatch:',
-			'environment: jetbrains-marketplace',
-			'uses: ./.github/workflows/intellij-plugin.yml',
-			'verify-language-server-release.mjs',
-			'verify-marketplace-state.mjs',
-			'revision must resolve to the current main head',
-			'cmp --',
-			'signPlugin',
-			'verifyPluginSignature',
-			'certificateChainFile',
-			'unset CERTIFICATE_CHAIN',
-			'id: signature',
-			'id: evidence',
-			"steps.signature.outcome == 'success'",
-			"steps.evidence.outcome == 'success'",
-			"if: inputs.mode == 'publish'",
-			'publishPlugin',
-			'retention-days: 90',
-		]) {
-			expect(workflow).toContain(required);
-		}
-		expect(workflow).not.toMatch(/^\s*uses: (?!\.\/).*@v\d+/m);
-		expect(workflow).not.toContain('pull_request:');
-		const gradleBuild = readFileSync(
-			resolve(repository_dir, 'packages/intellij-plugin/build.gradle.kts'),
-			'utf8',
-		);
-		expect(gradleBuild).toContain('setDependsOn(listOf("initializeIntellijPlatformPlugin"))');
-	});
-
-	it('separates first-submission staging from existing-listing publication', () => {
-		const empty = "<?xml version='1.0'?><plugin-repository/>";
-		const explicitlyEmpty = '<plugin-repository>\n  \n</plugin-repository>';
-		const published =
-			'<plugin-repository><idea-plugin><id>dev.tsrx.intellij_plugin</id></idea-plugin></plugin-repository>';
-
-		expect(() => validateMarketplaceState('stage', empty)).not.toThrow();
-		expect(() => validateMarketplaceState('stage', explicitlyEmpty)).not.toThrow();
-		expect(() => validateMarketplaceState('publish', published)).not.toThrow();
-		expect(() => validateMarketplaceState('stage', published)).toThrow(
-			/already has a public listing/,
-		);
-		expect(() => validateMarketplaceState('publish', empty)).toThrow(/no public listing/);
-		expect(() => validateMarketplaceState('stage', `${empty}${published}`)).toThrow(
-			/already has a public listing/,
-		);
-		expect(() => validateMarketplaceState('invalid', empty)).toThrow(/mode stage or publish/);
-	});
-
-	it('keeps public documentation in no-go state until Marketplace ownership is resolved', () => {
-		const packageReadme = readFileSync(
+	it('documents the Marketplace submission', () => {
+		const readme = readFileSync(
 			resolve(repository_dir, 'packages/intellij-plugin/README.md'),
 			'utf8',
 		);
-		const releaseRecord = readFileSync(
+		const release = readFileSync(
 			resolve(repository_dir, 'packages/intellij-plugin/MARKETPLACE_RELEASE.md'),
 			'utf8',
 		);
 
-		expect(packageReadme).toContain(
-			'This repository has not published an official JetBrains Marketplace release',
-		);
-		expect(packageReadme).toContain('https://plugins.jetbrains.com/plugin/33925-tsrx');
-		expect(releaseRecord).toContain('NO-GO — Marketplace ID ownership unresolved');
-		expect(releaseRecord).toContain('Repository-controlled Marketplace URL: pending');
-		expect(releaseRecord).toContain('https://github.com/rodrigobertin/TSRX-jetbrains-plugin');
-		expect(releaseRecord).toContain('README.md`');
-		expect(releaseRecord).toContain('website-tsrx/public/llms.txt');
+		expect(readme).toContain('https://plugins.jetbrains.com/plugin/33991-tsrx');
+		expect(release).toContain('Status: **under review — version 0.0.82**');
+		expect(release).toContain('Plugin XML ID: `tsrx.intellij-plugin`');
+		expect(release).toContain('Marketplace ID: `33991`');
+		expect(release).toContain('https://plugins.jetbrains.com/plugin/33991-tsrx');
+		expect(release).toContain('`dev.tsrx.intellij_plugin` XML');
+		expect(release).toContain('ID were deleted');
 	});
 });
 

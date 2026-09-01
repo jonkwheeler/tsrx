@@ -779,6 +779,28 @@ function collect_statement_var_loop_bindings(node, lazy_bindings) {
 }
 
 /**
+ * Install lazy `var` loop bindings introduced by a statement slot before
+ * transforming a later-evaluated slot of the same compound statement. The
+ * preallocation pass marks only subtrees that can contribute bindings in the
+ * current var environment, so unaffected slots keep the existing map without
+ * a rescan or allocation.
+ *
+ * @param {AST.Node} node
+ * @param {Map<string, LazyBinding>} lazy_bindings
+ * @returns {Map<string, LazyBinding>}
+ */
+function advance_statement_var_loop_bindings(node, lazy_bindings) {
+	if (!node.metadata?.has_lazy_var_loop_descendants) return lazy_bindings;
+
+	/** @type {Map<string, LazyBinding>} */
+	const statement_bindings = new Map();
+	collect_statement_var_loop_bindings(node, statement_bindings);
+	return statement_bindings.size > 0
+		? new Map([...lazy_bindings, ...statement_bindings])
+		: lazy_bindings;
+}
+
+/**
  * Rewrite a statement list in source order, installing lazy `var` loop
  * bindings only after the statement that establishes them. The mapping then
  * remains visible to subsequent statements in the current var environment.
@@ -796,12 +818,7 @@ function transform_statement_list(statements, lazy_bindings, has_lazy_var_loop_d
 		if (transformed !== statement) changed = true;
 
 		if (has_lazy_var_loop_descendants && statement.metadata?.has_lazy_var_loop_descendants) {
-			/** @type {Map<string, LazyBinding>} */
-			const statement_bindings = new Map();
-			collect_statement_var_loop_bindings(statement, statement_bindings);
-			if (statement_bindings.size > 0) {
-				effective_bindings = new Map([...effective_bindings, ...statement_bindings]);
-			}
+			effective_bindings = advance_statement_var_loop_bindings(statement, effective_bindings);
 		}
 
 		return transformed;
@@ -993,6 +1010,60 @@ export function apply_lazy_transforms(node, lazy_bindings) {
 			shadowed.size > 0 ? remove_shadowed(lazy_bindings, shadowed) : lazy_bindings;
 		const new_body = apply_lazy_transforms_to_slot(node.body, effective_bindings);
 		if (new_body !== node.body) return rebuild(node, { body: new_body });
+		return node;
+	}
+
+	if (node.type === 'DoWhileStatement') {
+		const new_body = apply_lazy_transforms_to_slot(node.body, lazy_bindings);
+		const test_bindings = advance_statement_var_loop_bindings(node.body, lazy_bindings);
+		const new_test = apply_lazy_transforms_to_slot(node.test, test_bindings);
+		if (new_body !== node.body || new_test !== node.test) {
+			return rebuild(node, { body: new_body, test: new_test });
+		}
+		return node;
+	}
+
+	if (node.type === 'IfStatement') {
+		const new_test = apply_lazy_transforms_to_slot(node.test, lazy_bindings);
+		const new_consequent = apply_lazy_transforms_to_slot(node.consequent, lazy_bindings);
+		const alternate_bindings = advance_statement_var_loop_bindings(node.consequent, lazy_bindings);
+		const new_alternate =
+			node.alternate && apply_lazy_transforms_to_slot(node.alternate, alternate_bindings);
+		if (
+			new_test !== node.test ||
+			new_consequent !== node.consequent ||
+			new_alternate !== node.alternate
+		) {
+			return rebuild(node, {
+				test: new_test,
+				consequent: new_consequent,
+				alternate: new_alternate,
+			});
+		}
+		return node;
+	}
+
+	if (node.type === 'TryStatement') {
+		const new_block = apply_lazy_transforms_to_slot(node.block, lazy_bindings);
+		const handler_bindings = advance_statement_var_loop_bindings(node.block, lazy_bindings);
+		const new_handler =
+			node.handler && apply_lazy_transforms_to_slot(node.handler, handler_bindings);
+		const finalizer_bindings = node.handler
+			? advance_statement_var_loop_bindings(node.handler, handler_bindings)
+			: handler_bindings;
+		const new_finalizer =
+			node.finalizer && apply_lazy_transforms_to_slot(node.finalizer, finalizer_bindings);
+		if (
+			new_block !== node.block ||
+			new_handler !== node.handler ||
+			new_finalizer !== node.finalizer
+		) {
+			return rebuild(node, {
+				block: new_block,
+				handler: new_handler,
+				finalizer: new_finalizer,
+			});
+		}
 		return node;
 	}
 

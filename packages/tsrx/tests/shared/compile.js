@@ -1184,6 +1184,39 @@ export function runSharedLazyLoopTests({ compile, name }) {
 			expect(code).toMatch(/}\s*return __lazy1\.value/);
 		});
 
+		it('advances lazy var loop bindings through later compound-statement slots', () => {
+			const { code } = compile(
+				`export function repeat(items) {
+					do {
+						for (var &{ value } of items) consume(value);
+					} while (value);
+				}
+				export function branch(ready, items) {
+					if (ready) {
+						for (var &{ value } of items) consume(value);
+					} else consume(value);
+				}
+				export function recover(items) {
+					try {
+						for (var &{ value } of items) consume(value);
+					} catch {
+						consume(value);
+						for (var &{ recovered } of items) consume(recovered);
+					} finally {
+						consume(value, recovered);
+					}
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toMatch(/}\s*while \(__lazy0\.value\)/);
+			expect(code).toMatch(/}\s*else consume\(__lazy1\.value\)/);
+			expect(code).toMatch(/}\s*catch \{\s*consume\(__lazy2\.value\)/);
+			expect(code).toMatch(/for \(var __lazy3 of items\) consume\(__lazy3\.recovered\)/);
+			expect(code).toMatch(/}\s*finally \{\s*consume\(__lazy2\.value, __lazy3\.recovered\)/);
+			expect(virtual_parse_diagnostics(code), code).toEqual([]);
+		});
+
 		it('keeps classic-for var sources visible after nested control flow', () => {
 			const { code } = compile(
 				`export function count(ready, source, limit) {

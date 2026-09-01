@@ -57,8 +57,10 @@ is only responsible for later versions. It always retains the signed ZIP when
 signing succeeds, including when Marketplace rejects the upload.
 
 Configure `CERTIFICATE_CHAIN`, `PRIVATE_KEY`, `PRIVATE_KEY_PASSWORD`, and
-`PUBLISH_TOKEN` in the protected `jetbrains-marketplace` GitHub environment. All
-four values are required for automated updates.
+`JETBRAINS_MARKETPLACE_PUBLISH_TOKEN` in the protected `jetbrains-marketplace`
+GitHub environment. All four values are required for automated updates. The
+workflow maps the namespaced GitHub token secret to the `PUBLISH_TOKEN`
+environment variable expected by Gradle.
 
 See [MARKETPLACE_RELEASE.md](./MARKETPLACE_RELEASE.md) for the first-submission
 checklist.

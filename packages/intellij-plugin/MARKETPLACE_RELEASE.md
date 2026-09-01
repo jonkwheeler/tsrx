@@ -28,8 +28,8 @@ Remaining release steps:
 1. Address any Marketplace reviewer feedback with a new patch version; do not
    change the XML ID.
 2. After the listing is public, create a Marketplace token from an authorized
-   maintainer's account and store it as `PUBLISH_TOKEN` in the protected
-   `jetbrains-marketplace` GitHub environment.
+   maintainer's account and store it as `JETBRAINS_MARKETPLACE_PUBLISH_TOKEN` in
+   the protected `jetbrains-marketplace` GitHub environment.
 3. Smoke-test installation from Marketplace in WebStorm.
 
 Every later version is reviewed separately. The release workflow always attempts

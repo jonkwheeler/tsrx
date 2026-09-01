@@ -151,20 +151,34 @@ describe('@tsrx/intellij-plugin release contract', () => {
 
 	it('publishes in one Changesets-gated job after npm publication', () => {
 		const workflow = readFileSync(resolve(repository_dir, '.github/workflows/publish.yml'), 'utf8');
-		const intellij_job = workflow.slice(workflow.indexOf('  publish-intellij-plugin:'));
+		const publish_job_start = workflow.indexOf('  publish:');
+		const zed_job_start = workflow.indexOf('  publish-zed:');
+		const intellij_job_start = workflow.indexOf('  publish-intellij-plugin:');
+		const workflow_header = workflow.slice(0, publish_job_start);
+		const publish_job = workflow.slice(publish_job_start, zed_job_start);
+		const zed_job = workflow.slice(zed_job_start, intellij_job_start);
+		const intellij_job = workflow.slice(intellij_job_start);
 
 		expect(intellij_job.match(/^    runs-on:/gm)).toHaveLength(1);
 		expect(workflow).toContain("contains(github.event.head_commit.message, 'Version Packages')");
 		expect(workflow).toContain('packages/intellij-plugin/package.json');
 		expect(workflow).toContain('intellij-version-changed: ${{ steps.intellij.outputs.changed }}');
+		expect(workflow_header).not.toContain('concurrency:');
+		expect(publish_job).toContain('group: npm-publish');
+		expect(publish_job).not.toContain('Submit Zed extension update');
+		expect(zed_job).toContain('needs: publish');
+		expect(zed_job).toContain('group: zed-publish');
 		expect(intellij_job).toContain('needs: publish');
 		expect(intellij_job).toContain("needs.publish.result == 'success'");
 		expect(intellij_job).toContain("needs.publish.outputs.intellij-version-changed == 'true'");
 		expect(intellij_job).toContain('environment: jetbrains-marketplace');
+		expect(intellij_job).toContain('group: intellij-plugin-publish');
 		expect(intellij_job).toContain('verify-language-server-release.mjs');
 		expect(intellij_job).toContain('signPlugin');
 		expect(intellij_job).toContain('publishPlugin');
+		expect(intellij_job).toContain('secrets.JETBRAINS_MARKETPLACE_PUBLISH_TOKEN');
 		expect(intellij_job).toContain('Upload signed plugin archive');
+		expect(intellij_job).not.toContain('secrets.PUBLISH_TOKEN');
 		expect(intellij_job).not.toContain('verify-marketplace-state.mjs');
 		expect(intellij_job).not.toContain('steps.marketplace.outputs');
 		expect(intellij_job).not.toMatch(/^\s*uses: (?!\.\/).*@v\d+/m);

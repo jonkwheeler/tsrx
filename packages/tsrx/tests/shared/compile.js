@@ -1,5 +1,7 @@
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { DIAGNOSTIC_CODES } from '../../src/diagnostics.js';
+import { createLazyContext, parseModule, preallocateLazyIds } from '../../src/index.js';
 
 /** @import { CompileDiagnosticsHarness, CompileHarness } from '../../types/index' */
 
@@ -20,8 +22,36 @@ function diagnostic_codes(result) {
 	return result.errors.map((error) => error.code);
 }
 
+/**
+ * Parse generated target output as TSX and return syntax diagnostics. Target
+ * compilers intentionally leave TypeScript and JSX for downstream tooling, so
+ * this checks the same grammar boundary their virtual modules must satisfy.
+ *
+ * @param {string} code
+ * @returns {readonly ts.Diagnostic[]}
+ */
+function virtual_parse_diagnostics(code) {
+	const source_file = ts.createSourceFile(
+		'virtual.tsx',
+		code,
+		ts.ScriptTarget.Latest,
+		true,
+		ts.ScriptKind.TSX,
+	);
+	return /** @type {ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }} */ (source_file)
+		.parseDiagnostics;
+}
+
 const TSRX_TEMPLATE_RETURN_ERROR =
 	'Return statements are not allowed inside TSRX templates. Move the return before the TSRX return value, or use conditional rendering instead.';
+
+const UNSUPPORTED_LAZY_ASSIGNMENT_SOURCES = [
+	'function recover() { if (ready) &{ value } = source; }',
+	'function recover() { (&{ value } = source, consume()); }',
+	'function recover() { consume(&{ value } = source); }',
+	'function recover() { target = (&{ value } = source); }',
+	'function recover() { [&{ value }] = pairs; }',
+];
 
 /**
  * Shared compile/editor diagnostics. These do not assert source-map structure;
@@ -31,6 +61,69 @@ const TSRX_TEMPLATE_RETURN_ERROR =
  */
 export function runSharedCompileDiagnosticsTests({ compile_to_volar_mappings, name }) {
 	describe(`[${name}] compile diagnostics`, () => {
+		it('collects unsupported lazy assignment positions in type-only output', () => {
+			for (const source of UNSUPPORTED_LAZY_ASSIGNMENT_SOURCES) {
+				const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+				expect(diagnostic_codes(result), source).toContain(
+					DIAGNOSTIC_CODES.UNSUPPORTED_LAZY_ASSIGNMENT_POSITION,
+				);
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+				expect(result.code, source).not.toContain('__lazy');
+			}
+		});
+
+		it('lowers transparent standalone lazy assignments in type-only output', () => {
+			for (const source of [
+				'function recover() { (&{ value } = source); consume(value); }',
+				'function recover() { (&{ value } = source) as unknown; consume(value); }',
+			]) {
+				const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+				expect(result.errors, source).toEqual([]);
+				expect(result.code, source).toContain('const __lazy0 = source');
+				expect(result.code, source).toContain('consume(__lazy0.value)');
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+			}
+		});
+
+		it('declares bare lazy loop targets in type-only output', () => {
+			const result = compile_to_volar_mappings(
+				`export function read(items, table) {
+					for (&{ value } of items) consume(value);
+					for ({ pair: &[first] } of items) consume(first);
+					for ([&{ key }] in table) consume(key);
+				}`,
+				'App.tsrx',
+				{ loose: true },
+			);
+
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain('for (const __lazy0 of items)');
+			expect(result.code).toContain('consume(__lazy0.value)');
+			expect(result.code).toMatch(/for \(const \{\s*pair:\s*__lazy1\s*\} of items\)/);
+			expect(result.code).toContain('consume(__lazy1[0])');
+			expect(result.code).toMatch(/for \(const \[__lazy2\] in table\)/);
+			expect(result.code).toContain('consume(__lazy2.key)');
+			expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+		});
+
+		it('maps nested lazy loop targets with defaults in type-only output', () => {
+			const result = compile_to_volar_mappings(
+				`export function read(items, fallback) {
+					for (const { pair: &[value] = fallback } of items) consume(value);
+					for (let { pair: &[other] = fallback } = items[0]; false;) consume(other);
+				}`,
+				'App.tsrx',
+				{ loose: true },
+			);
+
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain('pair: [value] = fallback');
+			expect(result.code).toContain('pair: [other] = fallback');
+			expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+		});
+
 		it('preserves deferred imports in type-only output', () => {
 			const result = compile_to_volar_mappings(
 				`import defer * as feature from './feature.js';
@@ -951,6 +1044,331 @@ export function runSharedNestedLazyDestructuringTests({ compile, name }) {
 }
 
 /**
+ * JavaScript loop headers are binding sites with different evaluation and
+ * lifetime rules from ordinary declarations. These regressions stay in the
+ * shared harness so every target consumes the same lazy lowering.
+ *
+ * @param {Pick<CompileHarness, 'compile' | 'name'>} harness
+ */
+export function runSharedLazyLoopTests({ compile, name }) {
+	describe(`[${name}] lazy destructuring in JavaScript loops`, () => {
+		it('lowers for-of and for-in declaration targets without changing their kind', () => {
+			const { code } = compile(
+				`export function read(items, table) {
+					for (const &{ value } of items) consume(value);
+					for (let &[entry] of items) consume(entry);
+					for (var &{ key } in table) consume(key);
+					return key;
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (const __lazy0 of items)');
+			expect(code).toContain('consume(__lazy0.value)');
+			expect(code).toContain('for (let __lazy1 of items)');
+			expect(code).toContain('consume(__lazy1[0])');
+			expect(code).toContain('for (var __lazy2 in table)');
+			expect(code).toContain('consume(__lazy2.key)');
+			expect(code).toContain('return __lazy2.key');
+		});
+
+		it('normalizes bare direct and nested lazy targets to per-iteration const declarations', () => {
+			const { code } = compile(
+				`export function read(items, table) {
+					for (&{ value } of items) consume(value);
+					for ({ pair: &[first] } of items) consume(first);
+					for ([&{ key }] in table) consume(key);
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (const __lazy0 of items)');
+			expect(code).toContain('consume(__lazy0.value)');
+			expect(code).toMatch(/for \(const \{\s*pair:\s*__lazy1\s*\} of items\)/);
+			expect(code).toContain('consume(__lazy1[0])');
+			expect(code).toMatch(/for \(const \[__lazy2\] in table\)/);
+			expect(code).toContain('consume(__lazy2.key)');
+			expect(virtual_parse_diagnostics(code), code).toEqual([]);
+		});
+
+		it('rewrites lazy descendants nested in declaration targets', () => {
+			const { code } = compile(
+				`export function read(items) {
+					for (const { pair: &[first] } of items) consume(first);
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toMatch(/for \(const \{\s*pair:\s*__lazy0\s*\} of items\)/);
+			expect(code).toContain('consume(__lazy0[0])');
+		});
+
+		it('threads classic-for bindings through later initializers, test, update, and body', () => {
+			const { code } = compile(
+				`export function count(source, limit) {
+					for (let &{ value } = source, doubled = value * 2; value < limit; value++) {
+						consume(value, doubled);
+					}
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('let __lazy0 = source, doubled = __lazy0.value * 2');
+			expect(code).toContain('__lazy0.value < limit');
+			expect(code).toContain('__lazy0.value++');
+			expect(code).toContain('consume(__lazy0.value, doubled)');
+		});
+
+		it('keeps outer lazy bindings active through classic-for initializers', () => {
+			const { code } = compile(
+				`export function self(&{ value }) {
+					for (let &{ value } = value; false;) consume(value);
+				}
+				export function later(&{ value }, source) {
+					for (let before = value, &{ value } = source; false;) consume(before, value);
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (let __lazy1 = __lazy0.value; false; )');
+			expect(code).toContain('for (let before = __lazy2.value, __lazy3 = source; false; )');
+			expect(code).toContain('consume(before, __lazy3.value)');
+		});
+
+		it('advances same-name lazy var loops in source order', () => {
+			const { code } = compile(
+				`export function read(&{ item }) {
+					consume(item);
+					for (var &{ item } of item.children) consume(item);
+					consume(item);
+					for (var &{ item } of item.children) consume(item);
+					for (var &{ item } = item.next; false;) consume(item);
+					return item;
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('function read(__lazy0)');
+			expect(code).toMatch(
+				/consume\(__lazy0\.item\);\s*for \(var __lazy1 of __lazy0\.item\.children\)/,
+			);
+			expect(code).toMatch(
+				/consume\(__lazy1\.item\);\s*consume\(__lazy1\.item\);\s*for \(var __lazy2 of __lazy1\.item\.children\)/,
+			);
+			expect(code).toMatch(
+				/consume\(__lazy2\.item\);\s*for \(var __lazy3 = __lazy2\.item\.next; false; \)\s*consume\(__lazy3\.item\)/,
+			);
+			expect(code).toMatch(/return __lazy3\.item/);
+		});
+
+		it('advances lazy var loop bindings through nested control flow', () => {
+			const { code } = compile(
+				`export function read(&{ value }, ready, items) {
+					consume(value);
+					if (ready) {
+						consume(value);
+						for (var &{ value } of items) consume(value);
+						consume(value);
+					}
+					return value;
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toMatch(
+				/consume\(__lazy0\.value\);\s*if \(ready\) \{\s*consume\(__lazy0\.value\)/,
+			);
+			expect(code).toMatch(
+				/for \(var __lazy1 of items\)\s*consume\(__lazy1\.value\);\s*consume\(__lazy1\.value\)/,
+			);
+			expect(code).toMatch(/}\s*return __lazy1\.value/);
+		});
+
+		it('advances lazy var loop bindings through later compound-statement slots', () => {
+			const { code } = compile(
+				`export function repeat(items) {
+					do {
+						for (var &{ value } of items) consume(value);
+					} while (value);
+				}
+				export function branch(ready, items) {
+					if (ready) {
+						for (var &{ value } of items) consume(value);
+					} else consume(value);
+				}
+				export function recover(items) {
+					try {
+						for (var &{ value } of items) consume(value);
+					} catch {
+						consume(value);
+						for (var &{ recovered } of items) consume(recovered);
+					} finally {
+						consume(value, recovered);
+					}
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toMatch(/}\s*while \(__lazy0\.value\)/);
+			expect(code).toMatch(/}\s*else consume\(__lazy1\.value\)/);
+			expect(code).toMatch(/}\s*catch \{\s*consume\(__lazy2\.value\)/);
+			expect(code).toMatch(/for \(var __lazy3 of items\) consume\(__lazy3\.recovered\)/);
+			expect(code).toMatch(/}\s*finally \{\s*consume\(__lazy2\.value, __lazy3\.recovered\)/);
+			expect(virtual_parse_diagnostics(code), code).toEqual([]);
+		});
+
+		it('keeps classic-for var sources visible after nested control flow', () => {
+			const { code } = compile(
+				`export function count(ready, source, limit) {
+					if (ready) {
+						for (var &{ value } = source; value < limit; value++) consume(value);
+					}
+					return value;
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (var __lazy0 = source; __lazy0.value < limit; __lazy0.value++)');
+			expect(code).toContain('consume(__lazy0.value)');
+			expect(code).toContain('return __lazy0.value');
+		});
+
+		it('evaluates for-of RHS names in the outer environment before loop shadowing', () => {
+			const { code } = compile(
+				`export function read(&{ item }, items) {
+					for (const &{ item } of item.children) consume(item);
+					return item;
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('function read(__lazy0, items)');
+			expect(code).toContain('for (const __lazy1 of __lazy0.item.children)');
+			expect(code).toContain('consume(__lazy1.item)');
+			expect(code).toContain('return __lazy0.item');
+		});
+
+		it('rewrites outer lazy names in loop target computed keys and defaults', () => {
+			const { code } = compile(
+				`export function read(&{ key, fallback }, items, source) {
+					for (const &{ [key]: value } of items) consume(value);
+					for (const { pair: &[nested] = fallback, [key]: current = fallback } of items) {
+						consume(nested, current);
+					}
+					for (let { pair: &[classic] = fallback, [key]: current = fallback } = source; false;) {
+						consume(classic, current);
+					}
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (const __lazy1 of items) consume(__lazy1[__lazy0.key])');
+			expect(code).toContain('pair: __lazy2 = __lazy0.fallback');
+			expect(code).toContain('[__lazy0.key]: current = __lazy0.fallback');
+			expect(code).toContain('pair: __lazy3 = __lazy0.fallback');
+			expect(count_substring(code, '[__lazy0.key]: current = __lazy0.fallback')).toBe(2);
+			expect(virtual_parse_diagnostics(code), code).toEqual([]);
+		});
+
+		it('shadows outer lazy names with non-lazy siblings in bare loop targets', () => {
+			const { code } = compile(
+				`export function read(&{ existing }, items) {
+					for ([existing, &{ value }] of items) consume(existing, value);
+					return existing;
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (const [existing, __lazy1] of items)');
+			expect(code).toContain('consume(existing, __lazy1.value)');
+			expect(code).toContain('return __lazy0.existing');
+		});
+
+		it('preserves for-await and var last-source lifetime lowering', () => {
+			const { code } = compile(
+				`export async function read(items) {
+					for await (var &{ value } of items) consume(value);
+					return value;
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for await (var __lazy0 of items)');
+			expect(code).toContain('consume(__lazy0.value)');
+			expect(code).toContain('return __lazy0.value');
+		});
+
+		it('keeps module-level var loop bindings visible after the loop', () => {
+			const { code } = compile(
+				`for (var &{ value } of items) consume(value);
+				consume(value);`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (var __lazy0 of items)');
+			expect(code).toContain('consume(__lazy0.value)');
+			expect(count_substring(code, 'consume(__lazy0.value)')).toBe(2);
+		});
+
+		it('retains the last for-of var source and the initialized classic-for source', () => {
+			const { code } = compile(
+				`function read(items) {
+					for (var &{ value } of items) {}
+					return value;
+				}
+				function classic(source) {
+					for (var &{ value } = source; false;) {}
+					return value;
+				}`,
+				'App.tsrx',
+			);
+			// Plain functions do not introduce target runtime imports, so execute
+			// the emitted JavaScript to pin the generated source lifetime itself.
+			const compiled = new Function(`${code}\nreturn { read, classic };`)();
+
+			expect(compiled.read([{ value: 1 }, { value: 2 }])).toBe(2);
+			expect(() => compiled.read([])).toThrow();
+			expect(compiled.classic({ value: 3 })).toBe(3);
+		});
+
+		it('does not propagate lazy var loop bindings across nested function boundaries', () => {
+			const { code } = compile(
+				`export function outer(items) {
+					function inner() {
+						for (var &{ value } of items) consume(value);
+						return value;
+					}
+					return [inner, value];
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('for (var __lazy0 of items)');
+			expect(code).toContain('return __lazy0.value');
+			expect(code).toContain('return [inner, value]');
+			expect(code).not.toContain('return [inner, __lazy0.value]');
+		});
+
+		it('keeps static-block var loop bindings inside the static block', () => {
+			const { code } = compile(
+				`class Example {
+					static {
+						for (var &{ value } of items) consume(value);
+						consume(value);
+					}
+				}
+				consume(value);`,
+				'App.tsrx',
+			);
+
+			expect(count_substring(code, 'consume(__lazy0.value)')).toBe(2);
+			expect(code).toMatch(/}\s*consume\(value\);?$/);
+			expect(code).not.toMatch(/}\s*consume\(__lazy0\.value\);?$/);
+		});
+	});
+}
+
+/**
  * Lazy `&{...}` / `&[...]` declarations inside a nested `@{ ... }` code block or a
  * `@if` / `@for` / `@switch` directive body must be rewritten exactly as they are
  * in a flat component body. These scopes lower to generated function boundaries
@@ -1474,6 +1892,52 @@ export function runSharedSwitchHelperHoistingTests({
 					}
 				}
 			}`;
+		const helper_capture_source = `export function App({ status }: { status: string }) @{
+				const early = 'early';
+				const property_label = 'unused';
+				const member_label = 'unused';
+				const attribute_label = 'unused';
+				const jsx_member_label = 'unused';
+				const local_shadow = 'outer';
+				const unused0 = 0;
+				const unused1 = 1;
+				const unused2 = 2;
+				const unused3 = 3;
+				const unused4 = 4;
+				const unused5 = 5;
+				const unused6 = 6;
+				const unused7 = 7;
+				const late = 'late';
+				@switch (status) {
+					@case "active": {
+						const local_shadow = 'inner';
+						const record = { property_label: 1 };
+						const Local = { jsx_member_label: () => <span /> };
+						const label = useMemo(
+							() => late + early + local_shadow + record.member_label,
+							[],
+						);
+						<Local.jsx_member_label attribute_label={label} />
+					}
+					@default: {
+						<span>{'idle'}</span>
+					}
+				}
+			}`;
+
+		/**
+		 * @param {string} code
+		 * @param {boolean} local_helper
+		 */
+		function expect_ordered_helper_capture(code, local_helper) {
+			const helper_name = local_helper ? 'StatementBodyHook1' : 'App__StatementBodyHook1';
+			const helper_signature = local_helper
+				? new RegExp(`function ${helper_name}\\(\\s*\\{ early, late \\}:`)
+				: new RegExp(`function ${helper_name}\\(\\{ early, late \\}\\)`);
+
+			expect(code).toMatch(helper_signature);
+			expect(code).toContain(`<${helper_name} early={early} late={late} />`);
+		}
 
 		it('lifts hook-bearing case bodies in the client transform', () => {
 			const { code } = compile(switch_source, 'App.tsrx');
@@ -1523,6 +1987,18 @@ export function runSharedSwitchHelperHoistingTests({
 			// No top-level helper declarations in either lifted shape.
 			expect(code).not.toMatch(/^function App__StatementBodyHook\d+\(\)/m);
 			expect(code).not.toMatch(/^const App__StatementBodyHook\d+ = defineVaporComponent\(/m);
+		});
+
+		it('captures only outer references in available-binding order for client helpers', () => {
+			const { code } = compile(helper_capture_source, 'App.tsrx');
+
+			expect_ordered_helper_capture(code, false);
+		});
+
+		it('captures only outer references in available-binding order for typeOnly helpers', () => {
+			const { code } = compile_to_volar_mappings(helper_capture_source, 'App.tsrx');
+
+			expect_ordered_helper_capture(code, true);
 		});
 	});
 }
@@ -1985,8 +2461,76 @@ export function runSharedCompileTests({
 
 	runSharedComponentLoopControlFlowTests({ compile, name });
 	runSharedNestedLazyDestructuringTests({ compile, name });
+	runSharedLazyLoopTests({ compile, name });
 	runSharedLazyScopeNestingTests({ compile, name });
 	runSharedLazyJsxNameTests({ compile, name });
+
+	describe(`[${name}] lazy assignment recovery`, () => {
+		it('keeps a supported standalone lazy assignment on the declaration path', () => {
+			const result = compile(
+				`function recover() {
+					&{ value } = source;
+					consume(value);
+				}`,
+				'App.tsrx',
+				{ collect: true },
+			);
+
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain('const __lazy0 = source');
+			expect(result.code).toContain('consume(__lazy0.value)');
+			expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+		});
+
+		it('lowers transparent standalone lazy assignments in strict output', () => {
+			for (const source of [
+				'function recover() { (&{ value } = source); consume(value); }',
+				'function recover() { (&{ value } = source) as unknown; consume(value); }',
+			]) {
+				const result = compile(source, 'App.tsrx');
+
+				expect(result.errors, source).toEqual([]);
+				expect(result.code, source).toContain('const __lazy0 = source');
+				expect(result.code, source).toContain('consume(__lazy0.value)');
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+			}
+		});
+
+		it('keeps every diagnosed assignment shape on a parseable best-effort path', () => {
+			for (const source of UNSUPPORTED_LAZY_ASSIGNMENT_SOURCES) {
+				const result = compile(source, 'App.tsrx', { collect: true });
+
+				expect(diagnostic_codes(result), source).toContain(
+					DIAGNOSTIC_CODES.UNSUPPORTED_LAZY_ASSIGNMENT_POSITION,
+				);
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+				expect(result.code, source).not.toContain('__lazy');
+				expect(result.code, source).not.toMatch(/if\s*\([^)]*\)\s+(?:const|let|var)\s/);
+			}
+		});
+
+		it('keeps lazy ID preallocation idempotent for supported assignments', () => {
+			const ast = parseModule(
+				'function recover() { &{ value } = source; consume(value); }',
+				'App.tsrx',
+			);
+			const context = createLazyContext();
+			const statement = /** @type {import('estree').FunctionDeclaration} */ (ast.body[0]).body
+				.body[0];
+			const assignment = /** @type {import('estree').AssignmentExpression} */ (
+				/** @type {import('estree').ExpressionStatement} */ (statement).expression
+			);
+			const pattern = /** @type {import('../../types/index').LazyPattern} */ (assignment.left);
+
+			preallocateLazyIds(ast, context);
+			const first_id = pattern.metadata?.lazy_id;
+			preallocateLazyIds(ast, context);
+
+			expect(first_id).toBe('__lazy0');
+			expect(pattern.metadata?.lazy_id).toBe(first_id);
+			expect(context.lazy_next_id).toBe(1);
+		});
+	});
 
 	describe(`[${name}] deferred imports`, () => {
 		it('preserves deferred imports in compiled output', () => {

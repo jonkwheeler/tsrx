@@ -167,14 +167,9 @@ export function is_code_block_function_body(node, parent) {
  * @returns {boolean}
  */
 export function is_statement_position(parent, child) {
+	if (is_statement_list_item(parent, child)) return true;
+
 	switch (parent.type) {
-		case 'Program':
-		case 'BlockStatement':
-			return parent.body.includes(/** @type {AST.Statement} */ (child));
-		case 'SwitchCase':
-			return parent.consequent.includes(/** @type {AST.Statement} */ (child));
-		case 'JSXCodeBlock':
-			return parent.body.includes(/** @type {AST.Statement} */ (child));
 		case 'IfStatement':
 			return parent.consequent === child || parent.alternate === child;
 		case 'ForStatement':
@@ -188,6 +183,94 @@ export function is_statement_position(parent, child) {
 		default:
 			return false;
 	}
+}
+
+/**
+ * Returns whether `child` is a direct item in a statement list. Unlike
+ * {@link is_statement_position}, this deliberately excludes single-statement
+ * control-flow bodies: transforms may replace a list item with declarations,
+ * but a declaration is not valid in those braceless statement slots.
+ *
+ * @param {AST.Node} parent
+ * @param {AST.Node} child
+ * @returns {boolean}
+ */
+export function is_statement_list_item(parent, child) {
+	switch (parent.type) {
+		case 'Program':
+		case 'BlockStatement':
+		case 'JSXCodeBlock':
+			return parent.body.includes(/** @type {AST.Statement} */ (child));
+		case 'SwitchCase':
+			return parent.consequent.includes(/** @type {AST.Statement} */ (child));
+		default:
+			return false;
+	}
+}
+
+/**
+ * Whether `parent` preserves `child` as the same expression value. Looking
+ * through these wrappers keeps strict and editor-oriented ASTs on the same
+ * semantic path.
+ *
+ * @param {AST.Node} parent
+ * @param {AST.Node} child
+ * @returns {boolean}
+ */
+export function is_transparent_expression_wrapper(parent, child) {
+	return (
+		(parent.type === 'ParenthesizedExpression' ||
+			parent.type === 'TSAsExpression' ||
+			parent.type === 'TSSatisfiesExpression' ||
+			parent.type === 'TSNonNullExpression' ||
+			parent.type === 'TSInstantiationExpression' ||
+			parent.type === 'TSTypeAssertion' ||
+			parent.type === 'ChainExpression') &&
+		/** @type {{ expression?: AST.Node }} */ (parent).expression === child
+	);
+}
+
+/**
+ * Whether a lazy destructuring assignment can be lowered from an expression
+ * statement into a declaration without changing the syntactic category of its
+ * parent slot. Transparent expression wrappers are allowed, but the assignment
+ * must otherwise be the whole statement and that statement must be a direct
+ * item in a statement list.
+ *
+ * This is the shared semantic boundary for both target-neutral diagnostics and
+ * lazy-ID allocation. Keeping those callers on one predicate ensures collect
+ * mode never allocates an ID for a shape that analysis has diagnosed.
+ *
+ * @param {AST.AssignmentExpression} node
+ * @param {AST.Node[]} path
+ * @returns {boolean}
+ */
+export function is_supported_lazy_assignment_position(node, path) {
+	if (
+		node.operator !== '=' ||
+		(node.left.type !== 'ObjectPattern' && node.left.type !== 'ArrayPattern') ||
+		!node.left.lazy
+	) {
+		return false;
+	}
+
+	/** @type {AST.Node} */
+	let child = node;
+
+	for (let i = path.length - 1; i >= 0; i -= 1) {
+		const parent = path[i];
+		if (is_transparent_expression_wrapper(parent, child)) {
+			child = parent;
+			continue;
+		}
+
+		if (parent.type !== 'ExpressionStatement' || parent.expression !== child) return false;
+
+		const container = path[i - 1];
+		return !!container && is_statement_list_item(container, parent);
+	}
+
+	return false;
 }
 
 /**

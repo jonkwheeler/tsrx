@@ -2,13 +2,9 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { synchronizeIntellijPluginVersions } from '../../../scripts/sync-intellij-plugin-version.js';
 import { validateInstalledLanguageServer } from '../scripts/verify-language-server-release.mjs';
-import {
-	detectMarketplaceListing,
-	hasMarketplaceListing,
-} from '../scripts/verify-marketplace-state.mjs';
 
 const test_dir = dirname(fileURLToPath(import.meta.url));
 const repository_dir = resolve(test_dir, '../../..');
@@ -153,40 +149,25 @@ describe('@tsrx/intellij-plugin release contract', () => {
 		expect(gradle).not.toContain('advertisedProductTypes');
 	});
 
-	it('publishes in one Changesets-gated job', () => {
-		const workflow = readFileSync(
-			resolve(repository_dir, '.github/workflows/intellij-plugin-publish.yml'),
-			'utf8',
-		);
+	it('publishes in one Changesets-gated job after npm publication', () => {
+		const workflow = readFileSync(resolve(repository_dir, '.github/workflows/publish.yml'), 'utf8');
+		const intellij_job = workflow.slice(workflow.indexOf('  publish-intellij-plugin:'));
 
-		expect(workflow.match(/^    runs-on:/gm)).toHaveLength(1);
+		expect(intellij_job.match(/^    runs-on:/gm)).toHaveLength(1);
 		expect(workflow).toContain("contains(github.event.head_commit.message, 'Version Packages')");
 		expect(workflow).toContain('packages/intellij-plugin/package.json');
-		expect(workflow).toContain('environment: jetbrains-marketplace');
-		expect(workflow).toContain('signPlugin');
-		expect(workflow).toContain('publishPlugin');
-		expect(workflow).toContain("steps.marketplace.outputs.published == 'true'");
-		expect(workflow).toContain('Upload signed plugin archive');
-		expect(workflow).not.toContain('workflow_dispatch:');
-		expect(workflow).not.toContain('uses: ./.github/workflows/intellij-plugin.yml');
-		expect(workflow).not.toMatch(/^\s*uses: (?!\.\/).*@v\d+/m);
-	});
-
-	it('detects whether the fresh ID has a Marketplace listing', async () => {
-		const empty = "<?xml version='1.0'?><plugin-repository/>";
-		const published =
-			'<plugin-repository><idea-plugin><id>tsrx.intellij-plugin</id></idea-plugin></plugin-repository>';
-
-		expect(hasMarketplaceListing(empty)).toBe(false);
-		expect(hasMarketplaceListing(published)).toBe(true);
-		expect(
-			await detectMarketplaceListing(vi.fn().mockResolvedValue({ status: 404, ok: false })),
-		).toBe(false);
-		expect(
-			await detectMarketplaceListing(
-				vi.fn().mockResolvedValue({ status: 200, ok: true, text: async () => published }),
-			),
-		).toBe(true);
+		expect(workflow).toContain('intellij-version-changed: ${{ steps.intellij.outputs.changed }}');
+		expect(intellij_job).toContain('needs: publish');
+		expect(intellij_job).toContain("needs.publish.result == 'success'");
+		expect(intellij_job).toContain("needs.publish.outputs.intellij-version-changed == 'true'");
+		expect(intellij_job).toContain('environment: jetbrains-marketplace');
+		expect(intellij_job).toContain('verify-language-server-release.mjs');
+		expect(intellij_job).toContain('signPlugin');
+		expect(intellij_job).toContain('publishPlugin');
+		expect(intellij_job).toContain('Upload signed plugin archive');
+		expect(intellij_job).not.toContain('verify-marketplace-state.mjs');
+		expect(intellij_job).not.toContain('steps.marketplace.outputs');
+		expect(intellij_job).not.toMatch(/^\s*uses: (?!\.\/).*@v\d+/m);
 	});
 
 	it('accepts only the exact published language-server package and launcher', () => {

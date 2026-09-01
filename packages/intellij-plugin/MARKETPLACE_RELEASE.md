@@ -32,8 +32,9 @@ Remaining release steps:
    `jetbrains-marketplace` GitHub environment.
 3. Smoke-test installation from Marketplace in WebStorm.
 
-Every later version is reviewed separately. The release workflow publishes a
-version automatically only after the XML ID appears in Marketplace's public API.
+Every later version is reviewed separately. The release workflow always attempts
+the Marketplace update so a rejected or unavailable upload fails visibly instead
+of being mistaken for a successful release.
 
 ## Submission record
 

@@ -49,18 +49,16 @@ The plugin XML ID is `tsrx.intellij-plugin`. The deleted third-party listing use
 a different ID and is intentionally not reused.
 
 Changesets owns the plugin version. When the **Version Packages** commit changes
-`packages/intellij-plugin/package.json`, the single job in
-`.github/workflows/intellij-plugin-publish.yml` repeats the release checks, signs
-the archive, and looks up the XML ID on Marketplace:
-
-- Before the first listing exists, it uploads the signed ZIP as a workflow
-  artifact for the required manual Marketplace submission.
-- After the listing exists, it publishes the signed update automatically.
+`packages/intellij-plugin/package.json`, the conditional IntelliJ job in
+`.github/workflows/publish.yml` waits for the repository's npm publication job,
+then repeats the release checks, signs the archive, and publishes the update to
+Marketplace. The initial `0.0.82` submission was uploaded manually; the workflow
+is only responsible for later versions. It always retains the signed ZIP when
+signing succeeds, including when Marketplace rejects the upload.
 
 Configure `CERTIFICATE_CHAIN`, `PRIVATE_KEY`, `PRIVATE_KEY_PASSWORD`, and
-`PUBLISH_TOKEN` in the protected `jetbrains-marketplace` GitHub environment. The
-first three values are required for every release; `PUBLISH_TOKEN` is only used
-after the initial listing exists.
+`PUBLISH_TOKEN` in the protected `jetbrains-marketplace` GitHub environment. All
+four values are required for automated updates.
 
 See [MARKETPLACE_RELEASE.md](./MARKETPLACE_RELEASE.md) for the first-submission
 checklist.

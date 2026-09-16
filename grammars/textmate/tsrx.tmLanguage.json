@@ -3753,6 +3753,14 @@
           "include": "#support-function-call-identifiers"
         },
         {
+          "match": "(?<=\\.)\\s*(\\#?[_$[:alpha:]][_$[:alnum:]]*)",
+          "captures": {
+            "1": {
+              "name": "meta.method-call.js entity.name.function.js"
+            }
+          }
+        },
+        {
           "name": "entity.name.function.js",
           "match": "(\\#?[_$[:alpha:]][_$[:alnum:]]*)"
         }

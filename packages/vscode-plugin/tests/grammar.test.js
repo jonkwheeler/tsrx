@@ -258,6 +258,21 @@ describe('TSRX TextMate grammar: JSX expression boundaries', () => {
 		expect(scopes.includes('meta.method-call.js')).toBe(isMethod);
 	});
 
+	it.each([
+		['<div {...getProps()} />', false],
+		['<div {... getProps()} />', false],
+		['<p>{[...getProps()]}</p>', false],
+		['<p>{render(...getProps())}</p>', false],
+		['<div {...model.getProps()} />', true],
+		['<div {...model?.getProps()} />', true],
+	])('distinguishes spread operands in %s', (expression, isMethod) => {
+		const tokens = tokenize(`const view = ${expression};`);
+		const scopes = find(tokens, 'getProps').scopes;
+
+		expect(scopes).toContain('entity.name.function.js');
+		expect(scopes.includes('meta.method-call.js')).toBe(isMethod);
+	});
+
 	it('does not reclassify relational, shift, generic, or type syntax as JSX', () => {
 		const tokens = tokenize(
 			[

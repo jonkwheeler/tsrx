@@ -3644,7 +3644,7 @@
 						</dict>
 					</dict>
 					<key>match</key>
-					<string>(?&lt;=\.)\s*(\#?[_$[:alpha:]][_$[:alnum:]]*)</string>
+					<string>(?&lt;=\.)(?&lt;!\.\.)\s*(\#?[_$[:alpha:]][_$[:alnum:]]*)</string>
 				</dict>
 				<dict>
 					<key>match</key>

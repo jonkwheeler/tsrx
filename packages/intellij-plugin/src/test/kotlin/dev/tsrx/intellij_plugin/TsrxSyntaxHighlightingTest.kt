@@ -18,9 +18,21 @@ class TsrxSyntaxHighlightingTest : BasePlatformTestCase() {
 			function format(item: string) { return item; }
 			const view = <p>{format('x')}</p>;
 		""".trimIndent()
+		assertStandaloneFunctionRole(source, "format")
+	}
+
+	fun testSpreadFunctionCallKeepsItsRole() {
+		val source = """
+			function getProps() { return { title: 'x' }; }
+			const view = <p {...getProps()} />;
+		""".trimIndent()
+		assertStandaloneFunctionRole(source, "getProps")
+	}
+
+	private fun assertStandaloneFunctionRole(source: String, callee: String) {
 		for (extension in listOf("tsx", "tsrx")) {
 			myFixture.configureByText("standalone.$extension", source)
-			val offset = source.lastIndexOf("format")
+			val offset = source.lastIndexOf(callee)
 			val highlights = if (extension == "tsx") myFixture.doHighlighting() else emptyList()
 			val iterator = (myFixture.editor as EditorEx).highlighter.createIterator(offset)
 			val semanticKeys = highlights

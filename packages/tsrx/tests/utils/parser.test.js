@@ -4143,6 +4143,131 @@ foo();`;
 		}
 	});
 
+	it.each([
+		['LF', '\n'],
+		['CRLF', '\r\n'],
+	])('keeps every node location aligned around multiline spread attributes (%s)', (_, eol) => {
+		// A spread whose `...` is read from raw template text rewinds `pos` before
+		// tokenizing the argument. The lexer line state must rewind with it,
+		// otherwise the line breaks inside the spread are counted twice and every
+		// node from the argument onward reports an inflated line.
+		const source = [
+			'function Demo(props, extra) @{',
+			'\tconst id = props.id;',
+			'\t<div {...',
+			'\t\tprops',
+			'\t} {...extra} {...merge(',
+			'\t\tprops,',
+			'\t\textra,',
+			'\t)} id={id}>',
+			'\t\t<span {...',
+			'\t\t\textra',
+			'\t\t} />',
+			'\t</div>',
+			'}',
+		].join(eol);
+		const ast = parseModule(source, 'App.tsrx');
+		const total_lines = source.split(eol).length;
+
+		for (const node of allNodes(ast)) {
+			if (!node.loc || typeof node.start !== 'number') continue;
+			expect(node.loc.start, `${node.type} start`).toEqual(
+				acorn.getLineInfo(source, found(node.start)),
+			);
+			expect(node.loc.end, `${node.type} end`).toEqual(acorn.getLineInfo(source, found(node.end)));
+			expect(node.loc.end.line).toBeLessThanOrEqual(total_lines);
+		}
+
+		const element = as_type(as_type(ast.body[0], 'FunctionDeclaration').body, 'JSXCodeBlock');
+		const opening = as_type(codeBlock(element).render, 'JSXElement').openingElement;
+		const [first, second, third, id] = opening.attributes;
+		assert_type(first, 'JSXSpreadAttribute');
+		assert_type(second, 'JSXSpreadAttribute');
+		assert_type(third, 'JSXSpreadAttribute');
+		assert_type(id, 'JSXAttribute');
+		expect(source.slice(found(first.argument.start), found(first.argument.end))).toBe('props');
+		expect(first.argument.loc?.start).toEqual({ line: 4, column: 2 });
+		expect(first.argument.loc?.end).toEqual({ line: 4, column: 7 });
+		expect(first.loc?.start).toEqual({ line: 3, column: 6 });
+		expect(first.loc?.end).toEqual({ line: 5, column: 2 });
+		expect(second.argument.loc?.start).toEqual({ line: 5, column: 7 });
+		expect(third.argument.loc?.start).toEqual({ line: 5, column: 18 });
+		expect(third.argument.loc?.end).toEqual({ line: 8, column: 2 });
+		expect(id.loc?.start).toEqual({ line: 8, column: 4 });
+		expect(id.loc?.end).toEqual({ line: 8, column: 11 });
+	});
+
+	it('keeps single-line spread attribute locations unchanged', () => {
+		const source = 'function Demo(props) @{\n\t<div {...props} id={props.id} />\n}';
+		const ast = parseModule(source, 'App.tsrx');
+		const spread = find_first(ast, (node) => node.type === 'JSXSpreadAttribute');
+		assert_type(spread, 'JSXSpreadAttribute');
+		expect(spread.argument.start).toBe(source.indexOf('props}'));
+		expect(spread.argument.loc?.start).toEqual({ line: 2, column: 10 });
+		expect(spread.argument.loc?.end).toEqual({ line: 2, column: 15 });
+		expect(spread.loc?.end).toEqual({ line: 2, column: 16 });
+	});
+
+	it.each([
+		['a block comment', 'function Demo(props) @{\n\t<div {/* c */ ...props} id={props.id} />\n}'],
+		[
+			'a multiline block comment',
+			'function Demo(props) @{\n\t<div {/* c\n\t*/ ...props} id={props.id} />\n}',
+		],
+		[
+			'a line comment',
+			'function Demo(props) @{\n\t<div {// c\n\t\t...props\n\t} id={props.id} />\n}',
+		],
+		['a non-ASCII space', 'function Demo(props) @{\n\t<div {\u00a0...props} id={props.id} />\n}'],
+		[
+			'a block comment in plain TSX',
+			'function Demo(props) {\n\treturn <div {/* c */ ...props} id={props.id} />;\n}',
+		],
+	])('parses a spread attribute with %s before the ellipsis', (_, source) => {
+		// Only ASCII whitespace is peeked past before deciding how to tokenize the
+		// brace; comments and Unicode whitespace are left to acorn's `skipSpace`,
+		// so the token after `{` must never be read as raw template text.
+		const ast = parseModule(source, 'App.tsrx');
+		const spread = find_first(ast, (node) => node.type === 'JSXSpreadAttribute');
+		assert_type(spread, 'JSXSpreadAttribute');
+		const argument_start = source.indexOf('...') + '...'.length;
+		expect(spread.argument.start).toBe(argument_start);
+		expect(spread.argument.end).toBe(argument_start + 'props'.length);
+		expect(spread.argument.loc).toEqual({
+			start: acorn.getLineInfo(source, argument_start),
+			end: acorn.getLineInfo(source, argument_start + 'props'.length),
+		});
+		expect(spread.end).toBe(source.indexOf('}', argument_start) + 1);
+		const id = find_first(
+			ast,
+			(node) =>
+				node.type === 'JSXAttribute' &&
+				/** @type {ESTreeJSX.JSXAttribute} */ (node).name.name === 'id',
+		);
+		assert_type(id, 'JSXAttribute');
+		expect(id.loc?.start).toEqual(acorn.getLineInfo(source, found(id.start)));
+		for (const node of allNodes(ast)) {
+			if (!node.loc || typeof node.start !== 'number') continue;
+			expect(node.loc.start, `${node.type} start`).toEqual(
+				acorn.getLineInfo(source, found(node.start)),
+			);
+			expect(node.loc.end, `${node.type} end`).toEqual(acorn.getLineInfo(source, found(node.end)));
+		}
+	});
+
+	it.each([
+		['a block comment', 'function Demo(id) @{\n\t<div {/* c */ id} />\n}'],
+		['a non-ASCII space', 'function Demo(id) @{\n\t<div {\u00a0id} />\n}'],
+	])('parses a shorthand attribute with %s before the name', (_, source) => {
+		const ast = parseModule(source, 'App.tsrx');
+		const attribute = find_first(ast, (node) => node.type === 'JSXAttribute');
+		assert_type(attribute, 'JSXAttribute');
+		expect(attribute.shorthand).toBe(true);
+		expect(attribute.name.name).toBe('id');
+		expect(attribute.end).toBe(source.indexOf('id}') + 'id}'.length);
+		expect(attribute.loc?.end).toEqual(acorn.getLineInfo(source, found(attribute.end)));
+	});
+
 	it('parses a code-only `@{ }` block (no render) as a function body', () => {
 		const ast = parseModule(
 			`function App() @{

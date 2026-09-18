@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.1.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @tsrx/language-server@0.4.5
+  - @tsrx/typescript-plugin@0.4.5
+
+## 2.1.5
+
+### Patch Changes
+
+- Updated dependencies
+  [[`0e3f36f`](https://github.com/tsrx-org/tsrx/commit/0e3f36fb824e3fa7a74f3464b24a36679052872d)]:
+  - @tsrx/typescript-plugin@0.4.4
+  - @tsrx/language-server@0.4.4
+
+## 2.1.4
+
+### Patch Changes
+
+- [#101](https://github.com/tsrx-org/tsrx/pull/101)
+  [`1c9d76a`](https://github.com/tsrx-org/tsrx/commit/1c9d76a60b4506f2992cd029e68808c592571ead)
+  Thanks [@jonkwheeler](https://github.com/jonkwheeler)! - Recognize multiline JSX
+  expression boundaries and align theme-relative highlighting roles for member
+  access inside embedded JSX expressions. Preserve ordinary function-call
+  highlighting when mapping embedded JSX members to WebStorm theme roles.
+
+## 2.1.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @tsrx/language-server@0.4.3
+  - @tsrx/typescript-plugin@0.4.3
+
 ## 2.1.2
 
 ### Patch Changes

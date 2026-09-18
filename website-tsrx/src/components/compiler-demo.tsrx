@@ -3,28 +3,17 @@ import { bindNode, bindValue, effect, track } from 'ripple';
 
 import { DEFAULT_DEMO_SOURCE } from '../lib/demo.ts';
 import { DEMO_SNIPPETS } from '../lib/demo-snippets.ts';
+import { DEMO_TARGET_OPTIONS } from '../lib/demo-targets.ts';
 
 const MAX_SOURCE_LENGTH = 12000;
 const DEBOUNCE_MS = 280;
 const HASH_DEBOUNCE_MS = 400;
 const CUSTOM_SNIPPET_VALUE = '__custom';
 const EMPTY_DEMO_SOURCE = '';
-const TARGET_OPTIONS = [
-	{ value: 'octane', label: 'Octane' },
-	{ value: 'react', label: 'React' },
-	{ value: 'preact', label: 'Preact' },
-	{ value: 'ripple', label: 'Ripple' },
-	{ value: 'solid', label: 'Solid' },
-	{ value: 'vue', label: 'Vue' },
-];
-const TARGET_LABELS: Record<string, string> = {
-	octane: 'Octane output',
-	react: 'React output',
-	preact: 'Preact output',
-	vue: 'Vue output',
-	ripple: 'Ripple output',
-	solid: 'Solid output',
-};
+const TARGET_OPTIONS = DEMO_TARGET_OPTIONS;
+const TARGET_LABELS: Record<string, string> = Object.fromEntries(
+	TARGET_OPTIONS.map((target) => [target.value, target.outputLabel]),
+);
 
 const VALID_TARGETS = new Set(TARGET_OPTIONS.map((o) => o.value));
 const SNIPPET_BY_VALUE = new Map(DEMO_SNIPPETS.map((snippet) => [snippet.value, snippet]));
@@ -206,6 +195,9 @@ export function CompilerDemo() @{
 
 			const compile_source = async (source: string) => {
 				latest_source = source;
+				const current_request_id = ++request_id;
+				active_controller?.abort();
+				active_controller = null;
 
 				if (source.trim().length === 0) {
 					error_message.value = '';
@@ -221,12 +213,11 @@ export function CompilerDemo() @{
 					return;
 				}
 
-				const current_request_id = ++request_id;
 				status.value = `Compiling ${TARGET_LABELS[selected_target.value] ?? 'selected target'}...`;
 				error_message.value = '';
 
-				active_controller?.abort();
-				active_controller = new AbortController();
+				const controller = new AbortController();
+				active_controller = controller;
 
 				try {
 					const response = await fetch('/api/compile', {
@@ -235,7 +226,7 @@ export function CompilerDemo() @{
 							'Content-Type': 'application/json',
 						},
 						body: JSON.stringify({ source, target: selected_target.value }),
-						signal: active_controller.signal,
+						signal: controller.signal,
 					});
 
 					const payload = await response.json();
@@ -261,7 +252,7 @@ export function CompilerDemo() @{
 						second: '2-digit',
 					});
 				} catch (error) {
-					if (disposed || active_controller?.signal.aborted) {
+					if (disposed || current_request_id !== request_id || controller.signal.aborted) {
 						return;
 					}
 

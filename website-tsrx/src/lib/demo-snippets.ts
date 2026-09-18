@@ -9,7 +9,7 @@ export const DEMO_SNIPPETS: DemoSnippet[] = [
 	{
 		value: 'feature-card',
 		label: 'Feature card',
-		targets: ['octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
+		targets: ['hono', 'hono-dom', 'octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
 		source: `export function FeatureCard({
   title,
   items,
@@ -79,7 +79,7 @@ export const DEMO_SNIPPETS: DemoSnippet[] = [
 	{
 		value: 'conditional-rendering',
 		label: 'Conditional rendering',
-		targets: ['octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
+		targets: ['hono', 'hono-dom', 'octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
 		source: `function StatusBadge({ status }: { status: 'active' | 'idle' | 'offline' }) @{
   @if (status === 'active') {
     <span class="badge active">Online</span>
@@ -93,7 +93,7 @@ export const DEMO_SNIPPETS: DemoSnippet[] = [
 	{
 		value: 'list-rendering',
 		label: 'List rendering',
-		targets: ['octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
+		targets: ['hono', 'hono-dom', 'octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
 		source: `function TodoList({ items }: { items: { text: string }[] }) @{
   <ul>
     @for (const item of items; index i) {
@@ -105,7 +105,7 @@ export const DEMO_SNIPPETS: DemoSnippet[] = [
 	{
 		value: 'switch-statements',
 		label: 'Switch statements',
-		targets: ['octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
+		targets: ['hono', 'hono-dom', 'octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
 		source: `function StatusMessage({ status }: { status: string }) @{
   @switch (status) {
     @case 'loading': {
@@ -123,7 +123,7 @@ export const DEMO_SNIPPETS: DemoSnippet[] = [
 	{
 		value: 'error-boundary',
 		label: 'Error boundary',
-		targets: ['octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
+		targets: ['hono', 'hono-dom', 'octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
 		source: `function SafeProfile({ userId }: { userId: string }) @{
   @try {
     <UserProfile id={userId} />
@@ -137,7 +137,7 @@ export const DEMO_SNIPPETS: DemoSnippet[] = [
 	{
 		value: 'async-boundary',
 		label: 'Async boundary',
-		targets: ['octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
+		targets: ['hono', 'octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
 		source: `import { AsyncProfile } from './profile.tsrx';
 
 export function App() @{
@@ -151,7 +151,7 @@ export function App() @{
 	{
 		value: 'async-boundary-error',
 		label: 'Async + Error boundary',
-		targets: ['octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
+		targets: ['hono', 'octane', 'react', 'preact', 'ripple', 'solid', 'vue'],
 		source: `import { AsyncProfile } from './profile.tsrx';
 
 export function App() @{
@@ -191,7 +191,7 @@ export function App() @{
 		value: 'themes-apply',
 		label: 'Themes with apply',
 		// Octane and Ripple pin an older @tsrx/core without `$class`/`apply`.
-		targets: ['react', 'preact', 'solid', 'vue'],
+		targets: ['hono', 'hono-dom', 'react', 'preact', 'solid', 'vue'],
 		source: `export const theme = <style>
   div {
     color: green;
@@ -232,7 +232,7 @@ export function Panel() @{
 		value: 'themes-class',
 		label: 'Theme opt-in with $class',
 		// Octane and Ripple pin an older @tsrx/core without `$class`/`apply`.
-		targets: ['react', 'preact', 'solid', 'vue'],
+		targets: ['hono', 'hono-dom', 'react', 'preact', 'solid', 'vue'],
 		source: `function Card({ parentClass }: { parentClass: string }) @{
   <>
     <style>
@@ -264,6 +264,145 @@ export function App() @{
     <div class={theme.card}>Red: theme.card</div>
     <p>Untouched</p>
   </>
+}`,
+	},
+	{
+		value: 'hono-server-starter',
+		label: 'Hono server starter',
+		targets: ['hono'],
+		source: `import { Hono } from 'hono';
+
+function Page({ name }: { name: string }) @{
+  <main>
+    <h1>Hello, {name}!</h1>
+    <p>This page is rendered by Hono on the server.</p>
+  </main>
+}
+
+const app = new Hono();
+app.get('/', (c) => c.html(<Page name={c.req.query('name') ?? 'TSRX'} />));
+export default app;`,
+	},
+	{
+		value: 'hono-dom-starter',
+		label: 'Hono DOM state + refs',
+		targets: ['hono-dom'],
+		source: `import { useRef, useState } from 'hono/jsx';
+
+export function Counter() @{
+  const [count, setCount] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
+
+  <section>
+    <button onClick={() => setCount((value) => value + 1)}>Count: {count}</button>
+    <input ref={input} placeholder="Focus me" />
+    <button onClick={() => input.current?.focus()}>Focus input</button>
+  </section>
+}`,
+	},
+	{
+		value: 'hono-keyed-list',
+		label: 'Hono keyed list + empty state',
+		targets: ['hono', 'hono-dom'],
+		source: `type Todo = { id: string; title: string; done: boolean };
+
+export function TodoList({ items }: { items: Todo[] }) @{
+  <ul>
+    @for (const item of items; index i; key item.id) {
+      const status = item.done ? 'Done' : 'To do';
+      <li>{i + 1}. {item.title} — {status}</li>
+    } @empty {
+      <li>No todos yet.</li>
+    }
+  </ul>
+}`,
+	},
+	{
+		value: 'hono-dynamic-tags',
+		label: 'Hono dynamic tags',
+		targets: ['hono', 'hono-dom'],
+		source: `export function Panel({
+  tag = 'section',
+  title,
+}: {
+  tag?: 'section' | 'article';
+  title: string;
+}) @{
+  <{tag} class="panel">
+    <h2>{title}</h2>
+    <p>The element follows the tag prop.</p>
+  </{tag}>
+}`,
+	},
+	{
+		value: 'hono-server-streaming',
+		label: 'Hono server async + streaming',
+		targets: ['hono'],
+		source: `import { Hono } from 'hono';
+import { renderToReadableStream } from 'hono/jsx/streaming';
+
+async function Profile() @{
+  const profile = await Promise.resolve({ name: 'Ada' });
+  <p>Hello, {profile.name}!</p>
+}
+
+function Page() @{
+  @try {
+    <Profile />
+  } @pending {
+    <p>Loading profile...</p>
+  } @catch (error) {
+    <p role="alert">{(error as Error).message}</p>
+  }
+}
+
+const app = new Hono();
+app.get('/', (c) => c.body(renderToReadableStream(<Page />), {
+  headers: { 'Content-Type': 'text/html; charset=UTF-8' },
+}));
+export default app;`,
+	},
+	{
+		value: 'hono-dom-suspense',
+		label: 'Hono DOM use + async boundary',
+		targets: ['hono-dom'],
+		source: `import { use } from 'hono/jsx';
+
+// Keep the promise stable across renders. DOM components stay synchronous.
+const profilePromise = Promise.resolve({ name: 'Ada' });
+
+function Profile() @{
+  const profile = use(profilePromise);
+  <p>Hello, {profile.name}!</p>
+}
+
+export function App() @{
+  @try {
+    <Profile />
+  } @pending {
+    <p>Loading profile...</p>
+  } @catch (error) {
+    <p role="alert">{(error as Error).message}</p>
+  }
+}`,
+	},
+	{
+		value: 'hono-dom-context',
+		label: 'Hono DOM context',
+		targets: ['hono-dom'],
+		source: `import { createContext, useContext } from 'hono/jsx/dom';
+
+const Theme = createContext('light');
+
+function ThemeLabel() @{
+  const theme = useContext(Theme);
+  <p class={theme}>Current theme: {theme}</p>
+}
+
+export function App() @{
+  <Theme.Provider value="dark">
+    <ThemeLabel />
+  </Theme.Provider>
 }`,
 	},
 	{

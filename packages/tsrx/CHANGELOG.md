@@ -1,5 +1,31 @@
 # @tsrx/core
 
+## 0.2.3
+
+### Patch Changes
+
+- [#130](https://github.com/tsrx-org/tsrx/pull/130)
+  [`ba0be2d`](https://github.com/tsrx-org/tsrx/commit/ba0be2dd06c7b707912a067c20e276c4428a905b)
+  Thanks [@leonidaz](https://github.com/leonidaz)! - Export `isSvgTagName` and
+  `isMathmlTagName` predicates for case-sensitive tag-name membership checks.
+  Target compilers can reuse the core tag-name sets for lowering decisions,
+  including SVG names shared with HTML, without changing ref-type namespace
+  inference.
+
+## 0.2.2
+
+### Patch Changes
+
+- [#120](https://github.com/tsrx-org/tsrx/pull/120)
+  [`2d053f4`](https://github.com/tsrx-org/tsrx/commit/2d053f421f09c5c4936d8866bbeb44b924411dbb)
+  Thanks [@leonidaz](https://github.com/leonidaz)! - Fix a regression where a
+  spread attribute preceded by a comment or non-ASCII whitespace inside the braces
+  (`<div {/* c */ ...props} />`) failed to parse with `Unexpected token`. The peek
+  that decides how to tokenize the attribute brace only skipped ASCII whitespace,
+  so the ellipsis was read as raw template text. The token after an attribute `{`
+  is now always tokenized as JavaScript, which also lets shorthand attributes like
+  `{/* c */ id}` parse.
+
 ## 0.2.1
 
 ### Patch Changes

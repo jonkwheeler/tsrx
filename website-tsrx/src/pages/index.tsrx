@@ -111,7 +111,7 @@ export const IndexPage = () => @{
 						the compiled output.
 					</p>
 					<p class="section-body what-is-copy">
-						TSRX is framework-agnostic and interoperable. Today it compiles to Octane, React,
+						TSRX is framework-agnostic and interoperable. Today it compiles to Hono, Octane, React,
 						Preact, Ripple, Solid, and Vue, with room for more targets over time. You can import
 						<code class="inline-code">.tsrx</code>
 						modules from JS, TS, and TSX files and it just works.

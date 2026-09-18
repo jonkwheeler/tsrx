@@ -668,6 +668,27 @@
     "expressionWithoutIdentifiers": {
       "patterns": [
         {
+          "include": "#jsx-tag-code-in-expression"
+        },
+        {
+          "include": "#jsx-tag-style-in-expression"
+        },
+        {
+          "include": "#jsx-tag-script-in-expression"
+        },
+        {
+          "include": "#jsx-tag-fragment"
+        },
+        {
+          "include": "#jsx-tag-dynamic-in-expression"
+        },
+        {
+          "include": "#jsx-tag-without-attributes-in-expression"
+        },
+        {
+          "include": "#jsx-tag-in-expression"
+        },
+        {
           "include": "#tsrx-template-child-directive"
         },
         {
@@ -3730,6 +3751,14 @@
       "patterns": [
         {
           "include": "#support-function-call-identifiers"
+        },
+        {
+          "match": "(?<=\\.)(?<!\\.\\.)\\s*(\\#?[_$[:alpha:]][_$[:alnum:]]*)",
+          "captures": {
+            "1": {
+              "name": "meta.method-call.js entity.name.function.js"
+            }
+          }
         },
         {
           "name": "entity.name.function.js",

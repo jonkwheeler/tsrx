@@ -592,6 +592,80 @@ describe('ref runtime helpers', () => {
 		]);
 	});
 
+	it('keeps the public mergeRefs arity', () => {
+		expect(mergeRefs.length).toBe(0);
+	});
+
+	it.each([0, 1])('throws on a primitive ref in two-ref slot %i', (slot) => {
+		/** @type {MergeableRef<object>[]} */
+		const refs = [{ current: null }, { current: null }];
+		refs[slot] = /** @type {any} */ (5);
+		expect(() => mergeRefs(...refs)({})).toThrow(TypeError);
+	});
+
+	it.each([0, 1])('classifies two-ref slot %i with the same traps as the general path', (slot) => {
+		/** @param {boolean} general */
+		function observe(general) {
+			/** @type {unknown[]} */
+			const events = [];
+			const target = { nodeType: 1, nodeName: 0, value: null };
+			const ref = new Proxy(target, {
+				has(target, key) {
+					events.push(['has', key]);
+					return Reflect.has(target, key);
+				},
+				get(target, key) {
+					events.push(['get', key]);
+					return Reflect.get(target, key);
+				},
+				getOwnPropertyDescriptor(target, key) {
+					events.push(['own', key]);
+					return Reflect.getOwnPropertyDescriptor(target, key);
+				},
+				set(target, key, value) {
+					events.push(['set', key, value]);
+					return Reflect.set(target, key, value);
+				},
+			});
+			/** @type {MergeableRef<object>[]} */
+			const refs = [null, null];
+			refs[slot] = ref;
+			if (general) refs.push(null);
+			const cleanup = mergeRefs(...refs)({});
+			expect(target.value).toEqual({});
+			cleanup();
+			expect(target.value).toBeNull();
+			expect(events.filter((event) => /** @type {unknown[]} */ (event)[1] === 'nodeType')).toEqual([
+				['has', 'nodeType'],
+				['get', 'nodeType'],
+			]);
+			return events;
+		}
+
+		expect(observe(false)).toEqual(observe(true));
+	});
+
+	it('keeps cleanup state separate for each two-ref mount', () => {
+		/** @type {{ current?: object | null, value: object | null }} */
+		const ref = { value: null };
+		const first_node = {};
+		const second_node = {};
+		/** @type {unknown[]} */
+		const cleaned = [];
+		const merged = mergeRefs(ref, (node) => () => cleaned.push(node));
+		const first_cleanup = merged(first_node);
+		ref.current = null;
+		const second_cleanup = merged(second_node);
+
+		first_cleanup();
+		expect(ref.value).toBeNull();
+		expect(ref.current).toBe(second_node);
+		expect(cleaned).toEqual([first_node]);
+		second_cleanup();
+		expect(ref.current).toBeNull();
+		expect(cleaned).toEqual([first_node, second_node]);
+	});
+
 	it('keeps nullish filtering, single-ref identity, and merged cleanup order', () => {
 		/** @type {Array<unknown>} */
 		const events = [];

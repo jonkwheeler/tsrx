@@ -23,11 +23,11 @@ const REINVOKE_REF = Symbol();
  * @returns {(node: T | null) => (() => void)}
  */
 export function mergeRefs(...refs) {
-	return (node) => {
-		if (refs.length === 2) {
+	if (refs.length === 2) {
+		return (node) => {
 			const first = refs[0];
 			const second = refs[1];
-			// The dominant emitted shape is `mergeRefs(a, b)`. Apply both refs
+			// For `mergeRefs(a, b)`, apply both refs
 			// directly and record each cleanup step in a scalar slot — a writable
 			// key, `REINVOKE_REF` for a bare callback, or a returned cleanup —
 			// instead of materializing a cleanups array per mount.
@@ -44,7 +44,7 @@ export function mergeRefs(...refs) {
 						first_step = REINVOKE_REF;
 					}
 				} else {
-					const key = ref_write_key(first);
+					const key = ref_object_prop(first);
 					// Named writes keep the monomorphic property ICs a keyed store
 					// would lose.
 					if (key === 'current') {
@@ -66,7 +66,7 @@ export function mergeRefs(...refs) {
 						second_step = REINVOKE_REF;
 					}
 				} else {
-					const key = ref_write_key(second);
+					const key = ref_object_prop(second);
 					if (key === 'current') {
 						/** @type {{ current: T | null }} */ (second).current = node;
 						second_step = key;
@@ -97,7 +97,9 @@ export function mergeRefs(...refs) {
 					/** @type {() => void} */ (second_step)();
 				}
 			};
-		}
+		};
+	}
+	return (node) => {
 		/**
 		 * Flat `[kind, payload]` pairs (kinds defined at `collect_ref_cleanups`):
 		 * one array instead of a closure per ref.
@@ -534,27 +536,6 @@ function ref_object_prop(value) {
 		has_own_property.call(value, 'value') ||
 		has_prototype_accessor(value, 'value')
 	) {
-		return 'value';
-	}
-	return null;
-}
-
-/**
- * The writable ref key an object ref value uses, matching the general merge
- * path's `current`-before-`value` preference. `null` for values that carry no
- * ref key. It must call `is_ref_object` once per key in order — no hoisted
- * `is_dom_node` or fused shape check — so the observable check sequence
- * (trap/getter emission count and order) matches the general merge path's
- * else-if chain exactly.
- *
- * @param {object} ref_value
- * @returns {'current' | 'value' | null}
- */
-function ref_write_key(ref_value) {
-	if (is_ref_object(ref_value, 'current')) {
-		return 'current';
-	}
-	if (is_ref_object(ref_value, 'value')) {
 		return 'value';
 	}
 	return null;

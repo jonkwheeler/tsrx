@@ -144,4 +144,24 @@ describe.each(['native', 'bypass', 'legacy'])('tsrx-tsc with the %s loader', (lo
 		expect(result.output).toBe(`Version ${cli_require('typescript').version}\n`);
 		expect(result.status).toBe(0);
 	});
+
+	it('exits nonzero on a fatal .tsrx compile failure and keeps sibling diagnostics', () => {
+		// `{1 +}` throws inside the compiler; under tsrx-tsc the file stubs to
+		// `export {}` and the failure reaches stderr via logTSRXErrors — the stub
+		// type-checks clean, so the exit code is the only thing that can fail CI.
+		fs.writeFileSync(
+			path.join(workspace, 'broken.tsrx'),
+			'export default function Broken() @{\n\t<div>{1 +}</div>\n}\n',
+		);
+		fs.appendFileSync(
+			path.join(workspace, 'main.ts'),
+			"import Broken from './broken.tsrx';\nBroken();\nMainLayout({ title: 123 });\n",
+		);
+		const result = run_cli(loader);
+		expect(result.status).not.toBe(0);
+		expect(result.output).toContain('[tsrx-tsc]');
+		expect(result.output).toContain('broken.tsrx');
+		// The stub exists so sibling files keep their semantic diagnostics.
+		expect(result.output).toContain('main.ts(5,14): error TS2322');
+	});
 });

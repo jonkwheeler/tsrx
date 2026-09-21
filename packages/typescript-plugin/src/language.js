@@ -35,6 +35,13 @@ const root_dirname = path.dirname(fileURLToPath(import.meta.url));
 const { log, logWarning, logError } = createLogging('[TSRX Language]');
 /** @type {Set<string>} */
 const loggedCompilationFailures = new Set();
+/**
+ * Whether `logTSRXErrors` has printed an error-severity entry this run. The
+ * stub a failed file compiles to is valid TypeScript, so tsrx-tsc would exit 0
+ * on the printed failure alone — tsc.js reads this to keep the CLI honest.
+ * @type {boolean}
+ */
+let loggedErrorSeverity = false;
 export const TSRX_EXTENSIONS = ['.tsrx'];
 /**
  * `[package name, package directory parts, supported extensions, package hints, entry candidates?]`.
@@ -706,6 +713,7 @@ function logTSRXErrors(file_name, errors) {
 			continue;
 		}
 		loggedCompilationFailures.add(key);
+		if (severity === 'error') loggedErrorSeverity = true;
 		console.error(`[tsrx-tsc] ${file_name}${position}: ${label}: ${message}`);
 	}
 }
@@ -1418,6 +1426,16 @@ export function invalidateCompilerResolutionCaches() {
 	pathToPackageManifestCache.clear();
 	reset_consumer_compiler_resolution_caches();
 	loggedCompilationFailures.clear();
+	loggedErrorSeverity = false;
+}
+
+/**
+ * Whether an error-severity diagnostic reached stderr this run — `tsrx-tsc`'s
+ * exit-code signal, since a stubbed file yields no TypeScript diagnostic of
+ * its own.
+ */
+export function loggedErrorDiagnostic() {
+	return loggedErrorSeverity;
 }
 
 /**

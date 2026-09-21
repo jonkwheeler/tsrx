@@ -1,4 +1,6 @@
 import { RenderRoute, ServerRoute } from '@ripple-ts/vite-plugin';
+import { compile as compile_hono } from '@tsrx/hono';
+import { compile as compile_hono_dom } from '@tsrx/hono/dom';
 import { compile as compile_preact } from '@tsrx/preact';
 import * as tsrx_prettier_plugin from '@tsrx/prettier-plugin';
 import { compile as compile_react } from '@tsrx/react';
@@ -7,9 +9,9 @@ import { compile as compile_solid } from '@tsrx/solid';
 import { compile as compile_vue } from '@tsrx/vue';
 import { compile as compile_octane } from 'octane/compiler';
 import { format } from 'prettier';
+import { DEMO_TARGET_VALUES as VALID_TARGETS } from './lib/demo-targets.ts';
 
 const MAX_SOURCE_LENGTH = 12000;
-const VALID_TARGETS = ['octane', 'react', 'preact', 'ripple', 'solid', 'vue'] as const;
 
 /**
  * Octane inlines every stylesheet as an `_$injectStyle(hash, css)` call instead
@@ -118,6 +120,19 @@ function extract_octane_css(code: string) {
  * @param {string} source
  */
 async function compile_target(target: CompileTarget, source: string) {
+	if (target === 'hono' || target === 'hono-dom') {
+		const compile = target === 'hono-dom' ? compile_hono_dom : compile_hono;
+		const result = compile(source, 'LiveDemo.tsrx');
+
+		return {
+			target,
+			output: {
+				code: await format_js(result.code),
+				css: await format_css(result.css),
+			},
+		};
+	}
+
 	if (target === 'octane') {
 		const octane_result = compile_octane(source, 'LiveDemo.tsrx');
 
@@ -279,7 +294,7 @@ export const routes = [
 
 			if (!is_valid_target(target)) {
 				return Response.json(
-					{ error: 'Target must be one of: octane, react, preact, ripple, solid, vue.' },
+					{ error: `Target must be one of: ${VALID_TARGETS.join(', ')}.` },
 					{ status: 400 },
 				);
 			}

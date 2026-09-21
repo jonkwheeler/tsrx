@@ -3,7 +3,7 @@
   "description": "MCP server for TSRX documentation and project context",
   "license": "MIT",
   "author": "Dominic Gannaway",
-  "version": "0.1.1",
+  "version": "0.1.7",
   "type": "module",
   "repository": {
     "type": "git",
@@ -44,6 +44,7 @@
     "zod": "catalog:default"
   },
   "devDependencies": {
+    "@tsrx/hono": "workspace:*",
     "@types/node": "catalog:default",
     "typescript": "catalog:default",
     "vitest": "catalog:default"

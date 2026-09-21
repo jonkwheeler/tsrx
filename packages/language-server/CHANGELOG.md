@@ -1,5 +1,56 @@
 # @tsrx/language-server
 
+## 0.4.7
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @tsrx/typescript-plugin@0.4.7
+
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies
+  [[`bfb0373`](https://github.com/tsrx-org/tsrx/commit/bfb037311255466297af01fb17bfaa262de8dd00)]:
+  - @tsrx/typescript-plugin@0.4.6
+  - @tsrx/core@0.2.4
+
+## 0.4.5
+
+### Patch Changes
+
+- Updated dependencies
+  [[`ba0be2d`](https://github.com/tsrx-org/tsrx/commit/ba0be2dd06c7b707912a067c20e276c4428a905b)]:
+  - @tsrx/core@0.2.3
+  - @tsrx/typescript-plugin@0.4.5
+
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies
+  [[`0e3f36f`](https://github.com/tsrx-org/tsrx/commit/0e3f36fb824e3fa7a74f3464b24a36679052872d)]:
+  - @tsrx/typescript-plugin@0.4.4
+
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies
+  [[`2d053f4`](https://github.com/tsrx-org/tsrx/commit/2d053f421f09c5c4936d8866bbeb44b924411dbb)]:
+  - @tsrx/core@0.2.2
+  - @tsrx/typescript-plugin@0.4.3
+
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies
+  [[`33d6093`](https://github.com/tsrx-org/tsrx/commit/33d60939c720d7d0bb8ab03790486a4c033dde96)]:
+  - @tsrx/core@0.2.1
+  - @tsrx/typescript-plugin@0.4.2
+
 ## 0.4.1
 
 ### Patch Changes

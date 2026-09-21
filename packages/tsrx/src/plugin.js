@@ -3783,17 +3783,20 @@ export function TSRXPlugin(config) {
 							return this.finishNodeAt(node, 'JSXAttribute', end, endLoc);
 						}
 					}
+
+					// Inside a native element `next()` would otherwise read whatever follows
+					// the brace as raw template text, scanning (and counting line breaks) up
+					// to the closing brace. An attribute brace is only ever followed by
+					// JavaScript (a spread or a shorthand name), so suppress that one token
+					// and let acorn's `skipSpace` handle any comments or Unicode whitespace
+					// before it instead of replicating them in the peek above.
+					this.#suppressTemplateRawTextToken = true;
 				}
 
 				if (this.eat(tt.braceL)) {
-					if (this.type === tt.ellipsis || this.input.slice(this.start, this.start + 3) === '...') {
+					if (this.type === tt.ellipsis) {
 						this.#suppressTemplateRawTextToken = true;
-						if (this.type === tt.ellipsis) {
-							this.expect(tt.ellipsis);
-						} else {
-							this.pos = this.start + 3;
-							this.nextToken();
-						}
+						this.expect(tt.ellipsis);
 						this.#templateScriptParsingDepth++;
 						try {
 							/** @type {ESTreeJSX.JSXSpreadAttribute} */ (node).argument = this.parseMaybeAssign();

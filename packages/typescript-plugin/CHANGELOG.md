@@ -1,5 +1,70 @@
 # @tsrx/typescript-plugin
 
+## 0.4.7
+
+No changes in this release.
+
+## 0.4.6
+
+### Patch Changes
+
+- [#133](https://github.com/tsrx-org/tsrx/pull/133)
+  [`bfb0373`](https://github.com/tsrx-org/tsrx/commit/bfb037311255466297af01fb17bfaa262de8dd00)
+  Thanks [@leonidaz](https://github.com/leonidaz)! - Fix `tsrx-tsc` under Deno
+  using `node:module` load hooks so Volar's TypeScript CLI patch is applied. This
+  enables `.tsrx` imports and type checking without a custom loader workaround or
+  deprecated `require.extensions` hooks.
+- Updated dependencies []:
+  - @tsrx/preact@0.2.4
+  - @tsrx/react@0.3.4
+  - @tsrx/solid@0.2.4
+  - @tsrx/vue@0.2.4
+
+## 0.4.5
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @tsrx/preact@0.2.3
+  - @tsrx/react@0.3.3
+  - @tsrx/solid@0.2.3
+  - @tsrx/vue@0.2.3
+
+## 0.4.4
+
+### Patch Changes
+
+- [#92](https://github.com/tsrx-org/tsrx/pull/92)
+  [`0e3f36f`](https://github.com/tsrx-org/tsrx/commit/0e3f36fb824e3fa7a74f3464b24a36679052872d)
+  Thanks [@kotarotaniguchi0523](https://github.com/kotarotaniguchi0523)! - Add
+  Hono server and DOM compiler targets with Vite and Bun integrations. The
+  compilers and build integrations support the shared compile-time platform flags;
+  DOM editor selection remains explicit, and DOM async-component validation stays
+  conservative and same-module.
+
+  Respect later object-property overrides during DOM async-component validation,
+  and add server/DOM targets and supported examples to the website playground.
+
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @tsrx/preact@0.2.2
+  - @tsrx/react@0.3.2
+  - @tsrx/solid@0.2.2
+  - @tsrx/vue@0.2.2
+
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @tsrx/preact@0.2.1
+  - @tsrx/react@0.3.1
+  - @tsrx/solid@0.2.1
+  - @tsrx/vue@0.2.1
+
 ## 0.4.1
 
 ### Patch Changes

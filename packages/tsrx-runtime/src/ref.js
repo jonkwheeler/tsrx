@@ -8,6 +8,7 @@ import {
 } from '@tsrx/runtime/language-helpers';
 
 const REF_VALUE = Symbol();
+const REINVOKE_REF = Symbol();
 
 /**
  * Merge multiple refs (function refs and ref objects) into a single
@@ -22,9 +23,86 @@ const REF_VALUE = Symbol();
  * @returns {(node: T | null) => (() => void)}
  */
 export function mergeRefs(...refs) {
+	if (refs.length === 2) {
+		return (node) => {
+			const first = refs[0];
+			const second = refs[1];
+			// For `mergeRefs(a, b)`, apply both refs
+			// directly and record each cleanup step in a scalar slot — a writable
+			// key, `REINVOKE_REF` for a bare callback, or a returned cleanup —
+			// instead of materializing a cleanups array per mount.
+			/** @type {unknown} */
+			let first_step;
+			/** @type {unknown} */
+			let second_step;
+			if (first != null) {
+				if (typeof first === 'function') {
+					const result = first(node);
+					if (typeof result === 'function') {
+						first_step = result;
+					} else {
+						first_step = REINVOKE_REF;
+					}
+				} else {
+					const key = ref_object_prop(first);
+					// Named writes keep the monomorphic property ICs a keyed store
+					// would lose.
+					if (key === 'current') {
+						/** @type {{ current: T | null }} */ (first).current = node;
+						first_step = key;
+					} else if (key === 'value') {
+						/** @type {{ value: T | null }} */ (first).value = node;
+						first_step = key;
+					}
+				}
+			}
+			// This block must stay identical to the `first` block above.
+			if (second != null) {
+				if (typeof second === 'function') {
+					const result = second(node);
+					if (typeof result === 'function') {
+						second_step = result;
+					} else {
+						second_step = REINVOKE_REF;
+					}
+				} else {
+					const key = ref_object_prop(second);
+					if (key === 'current') {
+						/** @type {{ current: T | null }} */ (second).current = node;
+						second_step = key;
+					} else if (key === 'value') {
+						/** @type {{ value: T | null }} */ (second).value = node;
+						second_step = key;
+					}
+				}
+			}
+			return () => {
+				if (first_step === 'current') {
+					/** @type {{ current: unknown }} */ (first).current = null;
+				} else if (first_step === 'value') {
+					/** @type {{ value: unknown }} */ (first).value = null;
+				} else if (first_step === REINVOKE_REF) {
+					/** @type {(node: null) => void} */ (first)(null);
+				} else if (first_step !== undefined) {
+					/** @type {() => void} */ (first_step)();
+				}
+				// This ladder must stay identical to the `first_step` ladder above.
+				if (second_step === 'current') {
+					/** @type {{ current: unknown }} */ (second).current = null;
+				} else if (second_step === 'value') {
+					/** @type {{ value: unknown }} */ (second).value = null;
+				} else if (second_step === REINVOKE_REF) {
+					/** @type {(node: null) => void} */ (second)(null);
+				} else if (second_step !== undefined) {
+					/** @type {() => void} */ (second_step)();
+				}
+			};
+		};
+	}
 	return (node) => {
 		/**
-		 * Flat `[kind, payload]` pairs: one array instead of a closure per ref.
+		 * Flat `[kind, payload]` pairs (kinds defined at `collect_ref_cleanups`):
+		 * one array instead of a closure per ref.
 		 * @type {unknown[]}
 		 */
 		const cleanups = [];
@@ -37,15 +115,20 @@ export function mergeRefs(...refs) {
 				} else {
 					cleanups.push(1, ref);
 				}
-			} else if (is_ref_object(ref, 'current')) {
-				ref.current = node;
-				cleanups.push(2, ref);
-			} else if (is_ref_object(ref, 'value')) {
-				ref.value = node;
-				cleanups.push(3, ref);
+			} else {
+				const ref_prop = ref_object_prop(ref);
+				if (ref_prop === 'current') {
+					/** @type {{ current: unknown }} */ (ref).current = node;
+					cleanups.push(2, ref);
+				} else if (ref_prop === 'value') {
+					/** @type {{ value: unknown }} */ (ref).value = node;
+					cleanups.push(3, ref);
+				}
 			}
 		}
 		return () => {
+			// Replayed inline at all three sites on purpose: a shared helper
+			// call measurably regressed this hot path — do not extract.
 			for (let i = 0; i < cleanups.length; i += 2) {
 				const kind = cleanups[i];
 				const payload = /** @type {any} */ (cleanups[i + 1]);
@@ -55,7 +138,7 @@ export function mergeRefs(...refs) {
 					payload(null);
 				} else if (kind === 2) {
 					payload.current = null;
-				} else {
+				} else if (kind === 3) {
 					payload.value = null;
 				}
 			}
@@ -94,22 +177,7 @@ function is_ref_prop(value) {
  */
 export function apply_ref_value(ref_value, node, set_ref_value) {
 	if (is_array(ref_value)) {
-		/** @type {Array<() => void>} */
-		const cleanups = [];
-		for (const item of ref_value) {
-			const cleanup = apply_ref_value(item, node);
-			if (typeof cleanup === 'function') {
-				cleanups.push(cleanup);
-			} else if (is_ref_callback(item) && node !== null) {
-				cleanups.push(() => item(null));
-			}
-		}
-		if (cleanups.length > 0) {
-			return () => {
-				for (const cleanup of cleanups) cleanup();
-			};
-		}
-		return;
+		return apply_ref_array(ref_value, node);
 	}
 
 	if (is_ref_callback(ref_value)) {
@@ -117,23 +185,59 @@ export function apply_ref_value(ref_value, node, set_ref_value) {
 	}
 
 	if (ref_value && typeof ref_value === 'object') {
-		if (is_ref_object(ref_value, 'current')) {
-			ref_value.current = node;
+		const ref_prop = ref_object_prop(ref_value);
+		if (ref_prop === 'current') {
+			/** @type {{ current: unknown }} */ (ref_value).current = node;
 			return () => {
-				ref_value.current = null;
+				/** @type {{ current: unknown }} */ (ref_value).current = null;
 			};
 		}
 
-		if (is_ref_object(ref_value, 'value')) {
-			ref_value.value = node;
+		if (ref_prop === 'value') {
+			/** @type {{ value: unknown }} */ (ref_value).value = node;
 			return () => {
-				ref_value.value = null;
+				/** @type {{ value: unknown }} */ (ref_value).value = null;
 			};
 		}
 	}
 
 	if (set_ref_value !== undefined) {
 		set_ref_value(node);
+	}
+}
+
+/**
+ * Flat `[kind, payload]` pairs, same scheme as `collect_ref_cleanups`.
+ *
+ * @template [T=Element]
+ * @param {RefValue<T>[]} ref_values
+ * @param {T | null} node
+ * @returns {void | (() => void)}
+ */
+function apply_ref_array(ref_values, node) {
+	/** @type {unknown[]} */
+	const cleanups = [];
+	for (const item of ref_values) {
+		collect_ref_cleanups(item, node, cleanups);
+	}
+	if (cleanups.length > 0) {
+		return () => {
+			// Replayed inline at all three sites on purpose: a shared helper
+			// call measurably regressed this hot path — do not extract.
+			for (let i = 0; i < cleanups.length; i += 2) {
+				const kind = cleanups[i];
+				const payload = /** @type {any} */ (cleanups[i + 1]);
+				if (kind === 0) {
+					payload();
+				} else if (kind === 1) {
+					payload(null);
+				} else if (kind === 2) {
+					payload.current = null;
+				} else if (kind === 3) {
+					payload.value = null;
+				}
+			}
+		};
 	}
 }
 
@@ -234,6 +338,8 @@ function merge_ref_list(refs) {
 		}
 
 		return () => {
+			// Replayed inline at all three sites on purpose: a shared helper
+			// call measurably regressed this hot path — do not extract.
 			for (let i = 0; i < cleanups.length; i += 2) {
 				const kind = cleanups[i];
 				const payload = /** @type {any} */ (cleanups[i + 1]);
@@ -243,7 +349,7 @@ function merge_ref_list(refs) {
 					payload(null);
 				} else if (kind === 2) {
 					payload.current = null;
-				} else {
+				} else if (kind === 3) {
 					payload.value = null;
 				}
 			}
@@ -284,13 +390,14 @@ function collect_ref_cleanups(ref_value, node, cleanups) {
 	}
 
 	if (ref_value && typeof ref_value === 'object') {
-		if (is_ref_object(ref_value, 'current')) {
-			ref_value.current = node;
+		const ref_prop = ref_object_prop(ref_value);
+		if (ref_prop === 'current') {
+			/** @type {{ current: unknown }} */ (ref_value).current = node;
 			cleanups.push(2, ref_value);
 			return;
 		}
-		if (is_ref_object(ref_value, 'value')) {
-			ref_value.value = node;
+		if (ref_prop === 'value') {
+			/** @type {{ value: unknown }} */ (ref_value).value = node;
 			cleanups.push(3, ref_value);
 		}
 	}
@@ -411,22 +518,27 @@ export function normalize_spread_props_for_ref_attr(props, ...outer_refs) {
 }
 
 /**
- * @template {'current' | 'value'} K
+ * Classify a non-function ref value in one pass so `is_dom_node` runs once per
+ * value. `current` wins over `value`.
+ *
  * @param {object} value
- * @param {K} key
- * @returns {value is Record<K, unknown>}
+ * @returns {'current' | 'value' | null}
  */
-function is_ref_object(value, key) {
+function ref_object_prop(value) {
 	if (is_dom_node(value)) {
-		return false;
+		return null;
 	}
-	if (key === 'value' && '__v_isRef' in value) {
-		return true;
+	if (has_own_property.call(value, 'current')) {
+		return 'current';
 	}
-	if (has_own_property.call(value, key)) {
-		return true;
+	if (
+		'__v_isRef' in value ||
+		has_own_property.call(value, 'value') ||
+		has_prototype_accessor(value, 'value')
+	) {
+		return 'value';
 	}
-	return key === 'value' && has_prototype_accessor(value, 'value');
+	return null;
 }
 
 /**

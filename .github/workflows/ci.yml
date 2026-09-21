@@ -6,6 +6,7 @@ on:
     tags: ["!**"]
     paths:
       - "packages/**"
+      - "website-tsrx/**"
       - "grammars/**"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -19,6 +20,7 @@ on:
     branches: [main, develop]
     paths:
       - "packages/**"
+      - "website-tsrx/**"
       - "grammars/**"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -71,6 +73,9 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Test Hono with Bun
+        run: pnpm --filter @tsrx/bun-plugin-hono test:native
 
   lint:
     runs-on: ubuntu-latest

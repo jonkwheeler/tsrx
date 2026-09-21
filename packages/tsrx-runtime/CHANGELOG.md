@@ -1,5 +1,29 @@
 # @tsrx/runtime
 
+## 0.2.2
+
+### Patch Changes
+
+- [#112](https://github.com/tsrx-org/tsrx/pull/112)
+  [`ca84d73`](https://github.com/tsrx-org/tsrx/commit/ca84d7333621ad809593add9f8202c9a16cc6ce3)
+  Thanks [@jonkwheeler](https://github.com/jonkwheeler)! - Reduce mount and
+  cleanup overhead for `mergeRefs(a, b)`, including composed spread refs. Track
+  the two cleanup steps directly instead of allocating a cleanup array on each
+  mount, while preserving single-pass object-ref classification, callback and
+  cleanup order, and thrown-error behavior.
+
+## 0.2.1
+
+### Patch Changes
+
+- [#116](https://github.com/tsrx-org/tsrx/pull/116)
+  [`449338e`](https://github.com/tsrx-org/tsrx/commit/449338e4f17ff0e0d0814a1e8dcb8745c5771589)
+  Thanks [@jonkwheeler](https://github.com/jonkwheeler)! - Classify object refs in
+  one pass inside `mergeRefs`, `apply_ref_value`, and `collect_ref_cleanups`. The
+  DOM-node check previously ran once per `current`/`value` key probe, so
+  value-style and non-ref objects paid for it twice per application. Array-valued
+  refs now collect flat cleanup pairs instead of allocating a closure per item.
+
 ## 0.2.0
 
 ### Minor Changes

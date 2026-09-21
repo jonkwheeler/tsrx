@@ -501,13 +501,22 @@ export class TSRXVirtualCode {
 
 			this.originalCode = newCode;
 
-			// Feed the raw source back as the generated code, with verification
-			// enabled. This lets TS parse it and surface errors at the broken
-			// construct itself — important when a TSRX compile error has no `pos`
-			// (or an unreliable one), since the dedicated diagnostic plugin would
-			// otherwise pin the error to offset 0 (top of file, off-screen) and the
-			// user would have no signal pointing at the actual problem.
-			this.generatedCode = newCode;
+			if (process.env.TSRX_TSC === 'true') {
+				// Under tsrx-tsc the compile error already reached stderr through
+				// logTSRXErrors, and raw TSRX parsed as TSX would poison the whole
+				// program's semantic pass — sibling .ts/.tsrx files lose their
+				// semantic diagnostics entirely. Emit a minimal valid module so
+				// the rest of the program still type-checks.
+				this.generatedCode = 'export {};';
+			} else {
+				// Feed the raw source back as the generated code, with verification
+				// enabled. This lets TS parse it and surface errors at the broken
+				// construct itself — important when a TSRX compile error has no `pos`
+				// (or an unreliable one), since the dedicated diagnostic plugin would
+				// otherwise pin the error to offset 0 (top of file, off-screen) and the
+				// user would have no signal pointing at the actual problem.
+				this.generatedCode = newCode;
+			}
 
 			// Create 1:1 mappings for the entire content.
 			//
@@ -661,21 +670,37 @@ function clamp_offset(offset, length) {
 }
 
 /**
+ * Mirrors collected compiler diagnostics to stderr under `tsrx-tsc`. The line
+ * follows tsc's `file(line,col): error TS2339: message` convention — position
+ * when the diagnostic carries `loc`, then severity and the diagnostic `code` —
+ * so output is greppable by code and actionable by position.
  * @param {string} file_name
  * @param {ReadonlyArray<unknown>} errors
  */
 function logTSRXErrors(file_name, errors) {
 	for (const error of errors) {
-		const message =
-			error && typeof error === 'object' && 'message' in error
-				? String(/** @type {{ message: unknown }} */ (error).message)
-				: String(error);
-		const key = `${file_name}\0${message}`;
+		const details =
+			error && typeof error === 'object'
+				? /** @type {{ message?: unknown, code?: unknown, severity?: unknown, loc?: { start?: { line?: unknown, column?: unknown } } }} */ (
+						error
+					)
+				: undefined;
+		const message = details && 'message' in details ? String(details.message) : String(error);
+		const severity = details?.severity === 'warning' ? 'warning' : 'error';
+		const code =
+			typeof details?.code === 'string' && details.code.length > 0 ? details.code : undefined;
+		const label = code === undefined ? severity : `${severity} ${code}`;
+		const start = details?.loc?.start;
+		const position =
+			typeof start?.line === 'number' && typeof start?.column === 'number'
+				? `(${start.line},${start.column + 1})`
+				: '';
+		const key = `${file_name}\0${position}\0${label}\0${message}`;
 		if (loggedCompilationFailures.has(key)) {
 			continue;
 		}
 		loggedCompilationFailures.add(key);
-		console.error(`[tsrx-tsc] ${file_name}: ${message}`);
+		console.error(`[tsrx-tsc] ${file_name}${position}: ${label}: ${message}`);
 	}
 }
 

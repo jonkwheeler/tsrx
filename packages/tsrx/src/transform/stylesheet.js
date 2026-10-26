@@ -10,6 +10,7 @@ const regex_css_browser_prefix = /^-((webkit)|(moz)|(o)|(ms))-/;
 const regex_css_ident_start = /^(-?([a-zA-Z_\\]|[^\x00-\x7f])|--)/;
 const regex_css_number = /^[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?$/i;
 const regex_css_value_word_end = /[\s,'"(]/;
+const regex_css_hex_escape = /[0-9a-fA-F]{1,6}/y;
 
 /** `none` and the CSS-wide keywords, which never name keyframes. */
 const reserved_keyframes_names = new Set([
@@ -40,6 +41,7 @@ const animation_keyword_longhands = new Map([
 	['reverse', 'direction'],
 	['alternate', 'direction'],
 	['alternate-reverse', 'direction'],
+	['none', 'fill-mode'],
 	['forwards', 'fill-mode'],
 	['backwards', 'fill-mode'],
 	['both', 'fill-mode'],
@@ -48,6 +50,9 @@ const animation_keyword_longhands = new Map([
 ]);
 
 const easing_functions = new Set(['cubic-bezier', 'steps', 'linear']);
+
+/** Functions whose value after the first comma stands in for the function. */
+const fallback_functions = new Set(['var', 'env']);
 
 /**
  * A top-level token of a CSS value. `value` is a word's text, a string's
@@ -64,6 +69,23 @@ const easing_functions = new Set(['cubic-bezier', 'steps', 'linear']);
 const is_keyframes_node = (node) => remove_css_prefix(node.name) === 'keyframes';
 
 /**
+ * The index after the escape at `index`: up to six hex digits and one
+ * whitespace character after them, or the one character after the backslash
+ * (CSS Syntax 4.3.7).
+ * @param {string} code
+ * @param {number} index index of the backslash
+ * @returns {number}
+ */
+function skip_css_escape(code, index) {
+	regex_css_hex_escape.lastIndex = index + 1;
+	const hex = regex_css_hex_escape.exec(code);
+	if (!hex) return index + 2;
+	const after = index + 1 + hex[0].length;
+	if (code.startsWith('\r\n', after)) return after + 2;
+	return /[ \t\n\r\f]/.test(code[after] ?? '') ? after + 1 : after;
+}
+
+/**
  * @param {string} code
  * @param {number} start index of the opening quote
  * @param {number} end
@@ -72,7 +94,7 @@ const is_keyframes_node = (node) => remove_css_prefix(node.name) === 'keyframes'
 function skip_css_string(code, start, end) {
 	let index = start + 1;
 	while (index < end && code[index] !== code[start]) {
-		index += code[index] === '\\' ? 2 : 1;
+		index = code[index] === '\\' ? skip_css_escape(code, index) : index + 1;
 	}
 	return Math.min(index + 1, end);
 }
@@ -117,7 +139,7 @@ function tokenize_css_value(code, start, end) {
 				!regex_css_value_word_end.test(code[index]) &&
 				!code.startsWith('/*', index)
 			) {
-				index += code[index] === '\\' ? 2 : 1;
+				index = code[index] === '\\' ? skip_css_escape(code, index) : index + 1;
 			}
 			index = Math.min(index, end);
 			const value = code.slice(word_start, index);
@@ -134,7 +156,7 @@ function tokenize_css_value(code, start, end) {
 					index = skip_css_string(code, index, end);
 					continue;
 				}
-				index += char === '\\' ? 2 : 1;
+				index = char === '\\' ? skip_css_escape(code, index) : index + 1;
 				if (char === '(') depth += 1;
 				else if (char === ')' && --depth === 0) break;
 			}
@@ -147,24 +169,41 @@ function tokenize_css_value(code, start, end) {
 }
 
 /**
- * The tokens of an `animation` or `animation-name` value that name keyframes.
- * @param {CssValueToken[]} tokens
- * @param {boolean} shorthand
+ * The tokens of a `var()` or `env()` fallback: the value after the first
+ * top-level comma, which replaces the function when the variable is unset.
+ * @param {string} code
+ * @param {CssValueToken} token
  * @returns {CssValueToken[]}
  */
-function keyframes_name_tokens(tokens, shorthand) {
-	/** @type {CssValueToken[]} */
-	const names = [];
-	/** @type {Set<string>} */
-	const set_longhands = new Set();
+function fallback_tokens(code, token) {
+	const open = code.indexOf('(', token.start);
+	const close = code[token.end - 1] === ')' ? token.end - 1 : token.end;
+	const args = tokenize_css_value(code, open + 1, close);
+	const comma = args.findIndex((arg) => arg.type === 'comma');
+	return comma === -1 ? [] : args.slice(comma + 1);
+}
 
+/**
+ * The tokens of an `animation` or `animation-name` value that name keyframes.
+ * @param {string} code
+ * @param {CssValueToken[]} tokens
+ * @param {boolean} shorthand
+ * @param {CssValueToken[]} [names]
+ * @param {Set<string>} [set_longhands] longhands of the current animation that have a value
+ * @returns {CssValueToken[]}
+ */
+function keyframes_name_tokens(code, tokens, shorthand, names = [], set_longhands = new Set()) {
 	for (const token of tokens) {
 		if (token.type === 'comma') {
 			set_longhands.clear();
 		} else if (token.type === 'string') {
 			names.push(token);
 		} else if (token.type === 'function') {
-			if (easing_functions.has(token.value)) set_longhands.add('easing');
+			if (fallback_functions.has(token.value)) {
+				keyframes_name_tokens(code, fallback_tokens(code, token), shorthand, names, set_longhands);
+			} else if (easing_functions.has(token.value)) {
+				set_longhands.add('easing');
+			}
 		} else if (regex_css_number.test(token.value)) {
 			set_longhands.add('iteration-count');
 		} else if (regex_css_ident_start.test(token.value)) {
@@ -412,7 +451,11 @@ const visitors = {
 				node.end,
 			);
 
-			for (const token of keyframes_name_tokens(tokens, property === 'animation')) {
+			for (const token of keyframes_name_tokens(
+				state.code.original,
+				tokens,
+				property === 'animation',
+			)) {
 				const index = keyframes_name_start(token);
 				state.keyframes[token.value] ??= { indexes: [], local: undefined };
 				if (state.keyframes[token.value].local) {
@@ -686,7 +729,7 @@ export function render_stylesheets(stylesheets, minify = false) {
 			hash: stylesheet.hash,
 			minify,
 			selector: `.${stylesheet.hash}`,
-			keyframes: {},
+			keyframes: Object.create(null),
 			specificity: {
 				bumped: false,
 			},

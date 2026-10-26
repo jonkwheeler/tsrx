@@ -747,6 +747,89 @@ export function runSharedScopedStyleTests({
 			expect(css).toContain(`animation: steps(4, end) ${hash}-linear 2s, linear 1s ${hash}-fade;`);
 			expect(css).toContain(`animation-name: ${hash}-linear;`);
 		});
+
+		it('reads none as the fill mode before a keyword that names local keyframes', () => {
+			const { css, hash } = compile_keyframes(
+				`@keyframes backwards ${frames} .a { animation: 1s none backwards; }`,
+			);
+			expect(css).toContain(`@keyframes ${hash}-backwards {`);
+			expect(css).toContain(`animation: 1s none ${hash}-backwards;`);
+		});
+
+		it('renames names in var() and env() fallbacks', () => {
+			const { css, hash } = compile_keyframes(
+				`@keyframes fade ${frames} @keyframes linear ${frames}
+				.a { animation: var(--enter, fade 300ms ease-out); }
+				.b { animation-name: var(--name, var(--other, fade)); }
+				.c { animation: env(--x, linear 1s, fade 2s); }
+				.d { animation: 1s var(--easing, ease) linear; }`,
+			);
+			expect(css).toContain(`animation: var(--enter, ${hash}-fade 300ms ease-out);`);
+			expect(css).toContain(`animation-name: var(--name, var(--other, ${hash}-fade));`);
+			expect(css).toContain(`animation: env(--x, linear 1s, ${hash}-fade 2s);`);
+			expect(css).toContain(`animation: 1s var(--easing, ease) ${hash}-linear;`);
+		});
+
+		it('ends a hex escape after the whitespace it consumes', () => {
+			const { css, hash } = compile_keyframes(
+				String.raw`@keyframes \33 d-spin ${frames}
+				.a { animation: \33 d-flip 1s; }
+				.b { animation: \33 d-spin 1s; }`,
+			);
+			expect(css).toContain(String.raw`@keyframes ${hash}-\33 d-spin {`);
+			expect(css).toContain(String.raw`animation: \33 d-flip 1s;`);
+			expect(css).toContain(String.raw`animation: ${hash}-\33 d-spin 1s;`);
+		});
+
+		it('renames references written before their keyframes', () => {
+			const { css, hash } = compile_keyframes(
+				`.a { animation: fade 1s, "slide" 2s; }
+				.b { animation-name: slide; }
+				@keyframes fade ${frames}
+				@keyframes "slide" ${frames}
+				.c { animation: fade 3s; }`,
+			);
+			expect(css).toContain(`animation: ${hash}-fade 1s, "${hash}-slide" 2s;`);
+			expect(css).toContain(`animation-name: ${hash}-slide;`);
+			expect(css).toContain(`@keyframes ${hash}-fade {`);
+			expect(css).toContain(`@keyframes "${hash}-slide" {`);
+			expect(css).toContain(`animation: ${hash}-fade 3s;`);
+		});
+
+		it('keeps -global- names, :global blocks, and other keyframes unscoped', () => {
+			const { css } = compile_keyframes(
+				`@keyframes -global-spin ${frames}
+				@keyframes "-global-pulse" ${frames}
+				:global { @keyframes fade ${frames} }
+				.a { animation: spin 1s, pulse 2s, fade 3s, elsewhere 4s; }`,
+			);
+			expect(css).toContain(`@keyframes spin {`);
+			expect(css).toContain(`@keyframes "pulse" {`);
+			expect(css).toContain(`@keyframes fade {`);
+			expect(css).toContain('animation: spin 1s, pulse 2s, fade 3s, elsewhere 4s;');
+		});
+
+		it('renames vendor-prefixed keyframes and animation properties', () => {
+			const { css, hash } = compile_keyframes(
+				`@-webkit-keyframes fade ${frames}
+				.a { -webkit-animation: fade 1s; -webkit-animation-name: fade; }`,
+			);
+			expect(css).toContain(`@-webkit-keyframes ${hash}-fade {`);
+			expect(css).toContain(`-webkit-animation: ${hash}-fade 1s;`);
+			expect(css).toContain(`-webkit-animation-name: ${hash}-fade;`);
+		});
+
+		it('handles names that are also Object.prototype keys', () => {
+			const { css, hash } = compile_keyframes(
+				`@keyframes "constructor" ${frames} @keyframes __proto__ ${frames}
+				.a { animation: constructor 1s, "toString" 2s, __proto__ 3s, hasOwnProperty 4s; }`,
+			);
+			expect(css).toContain(`@keyframes "${hash}-constructor" {`);
+			expect(css).toContain(`@keyframes ${hash}-__proto__ {`);
+			expect(css).toContain(
+				`animation: ${hash}-constructor 1s, "toString" 2s, ${hash}-__proto__ 3s, hasOwnProperty 4s;`,
+			);
+		});
 	});
 
 	describe(`[${name}] style themes and apply`, () => {

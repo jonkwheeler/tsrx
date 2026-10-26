@@ -190,11 +190,7 @@ function create_tsrx_vue_plugin(options) {
 		},
 
 		configureServer(server) {
-			restartOnPlatformChange(
-				server,
-				() => platform,
-				() => resolveBuildPlatform(platform_resolution),
-			);
+			restartOnPlatformChange(server, platform_resolution, () => platform);
 			server.middlewares.use(createWorkerEntryMiddleware(isTsrxSource));
 		},
 

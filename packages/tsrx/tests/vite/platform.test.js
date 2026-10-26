@@ -1,5 +1,8 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseSync } from 'vite';
 import { DIAGNOSTIC_CODES } from '../../src/diagnostics.js';
 import { findUnconfiguredPlatformFlag, restartOnPlatformChange } from '../../src/vite/platform.js';
@@ -12,6 +15,7 @@ describe('findUnconfiguredPlatformFlag', () => {
 			'/app/helper.tsx',
 			'/app/helper.mjs',
 			'/app/worker.ts?worker_file&type=module',
+			'/app/helper.ts?v=1234',
 		]) {
 			expect(findUnconfiguredPlatformFlag(code, id, parseSync)).toEqual({
 				message: expect.stringContaining('Platform flag usage requires a configured TSRX platform'),
@@ -41,18 +45,48 @@ describe('findUnconfiguredPlatformFlag', () => {
 		expect(findUnconfiguredPlatformFlag(tsx, '/app/View.tsx', parseSync)?.pos).toBe(23);
 	});
 
-	it('leaves .tsrx modules, assets and other queries alone', () => {
+	it('leaves .tsrx modules, styles and raw source strings alone', () => {
 		const code = 'export const web = import.meta.env.platform.web;';
-		for (const id of ['/app/App.tsrx', '/app/helper.ts?raw', '/app/style.css']) {
+		for (const id of ['/app/App.tsrx', '/app/style.css', '/app/style.css?inline']) {
 			expect(findUnconfiguredPlatformFlag(code, id, parseSync)).toBeNull();
 		}
+		expect(
+			findUnconfiguredPlatformFlag(
+				`export default ${JSON.stringify(code)};`,
+				'/app/helper.ts?raw',
+				parseSync,
+			),
+		).toBeNull();
 	});
 });
 
 describe('restartOnPlatformChange', () => {
-	/** @param {() => 'web' | 'ios' | undefined} resolve */
-	function watch(resolve) {
-		const watcher = new EventEmitter();
+	/** @type {string} */
+	let directory;
+
+	beforeEach(() => {
+		directory = realpathSync(mkdtempSync(join(tmpdir(), 'tsrx-vite-platform-')));
+		mkdirSync(join(directory, 'app'));
+		writeFileSync(
+			join(directory, 'app', 'tsconfig.json'),
+			'{ "extends": "../tsconfig.base.json" }',
+		);
+		writeFileSync(join(directory, 'tsconfig.base.json'), '{ "tsrx": { "platform": "web" } }');
+	});
+
+	afterEach(() => {
+		rmSync(directory, { recursive: true, force: true });
+	});
+
+	function watch() {
+		const watcher = Object.assign(new EventEmitter(), {
+			/** @type {string[]} */
+			watched: [],
+			/** @param {string[]} paths */
+			add(paths) {
+				watcher.watched.push(...paths);
+			},
+		});
 		let restarts = 0;
 		restartOnPlatformChange(
 			{
@@ -61,34 +95,41 @@ describe('restartOnPlatformChange', () => {
 					restarts++;
 				},
 			},
+			{ root: join(directory, 'app') },
 			() => 'web',
-			resolve,
 		);
 		return { watcher, restarts: () => restarts };
 	}
 
+	it('watches the tsconfig and an extends target outside the root', () => {
+		const { watcher } = watch();
+
+		expect(watcher.watched).toEqual([
+			join(directory, 'app', 'tsconfig.json'),
+			join(directory, 'tsconfig.base.json'),
+		]);
+	});
+
 	it('restarts when a json change selects another platform', () => {
-		let platform = /** @type {'web' | 'ios'} */ ('web');
-		const { watcher, restarts } = watch(() => platform);
+		const { watcher, restarts } = watch();
+		const base = join(directory, 'tsconfig.base.json');
 
-		watcher.emit('change', '/app/tsconfig.json');
+		watcher.emit('change', base);
 		expect(restarts()).toBe(0);
 
-		platform = 'ios';
-		watcher.emit('change', '/app/src/App.tsrx');
+		writeFileSync(base, '{ "tsrx": { "platform": "ios" } }');
+		watcher.emit('change', join(directory, 'app', 'App.tsrx'));
 		expect(restarts()).toBe(0);
-		watcher.emit('change', '/app/tsconfig.base.json');
+		watcher.emit('change', base);
 		expect(restarts()).toBe(1);
-		watcher.emit('unlink', '/app/tsconfig.app.json');
-		expect(restarts()).toBe(2);
 	});
 
 	it('restarts when the configuration no longer resolves', () => {
-		const { watcher, restarts } = watch(() => {
-			throw new TypeError('Invalid TSRX platform');
-		});
+		const { watcher, restarts } = watch();
+		const base = join(directory, 'tsconfig.base.json');
 
-		watcher.emit('add', '/app/tsconfig.json');
+		writeFileSync(base, '{ "tsrx": { "platform": "mac" } }');
+		watcher.emit('change', base);
 		expect(restarts()).toBe(1);
 	});
 });

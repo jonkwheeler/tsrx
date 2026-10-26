@@ -1,5 +1,6 @@
 /** @import * as AST from 'estree' */
 /** @import { Platform } from '../../types/index' */
+/** @import { BuildPlatformResolutionOptions } from '../../types/config' */
 
 /**
  * Vite support for compile-time platform flags outside `.tsrx` compilation.
@@ -15,37 +16,46 @@
  *   module.
  */
 
+import { getBuildPlatformConfigFiles, resolveBuildPlatform } from '../config.js';
 import { TSRX_ERRORS } from '../diagnostics.js';
 import { find_platform_flag } from '../transform/platform.js';
-import { stripWorkerEntryQuery } from './worker.js';
 
 const ORDINARY_MODULE_PATTERN = /\.[cm]?[jt]sx?$/;
 const PLATFORM_NAMESPACE_PATTERN = /\bimport\s*\.\s*meta\s*\.\s*env\s*\.\s*platform\b/;
 
 /**
- * Re-resolve the platform whenever a `.json` file changes (tsconfig files and
- * their `extends` targets) and restart the server when the selection differs
- * from the one it started with. A configuration that no longer resolves also
- * restarts it, so Vite reports the error.
+ * Watch the tsconfig files the platform comes from, including an `extends`
+ * target or project reference outside the Vite root, and re-resolve the
+ * platform whenever a `.json` file changes. The server restarts when the
+ * selection differs from the one it started with, or when the configuration
+ * no longer resolves, so Vite reports the error.
  *
  * @param {{
- *   watcher: { on(event: 'change' | 'add' | 'unlink', listener: (file: string) => void): unknown },
+ *   watcher: {
+ *     add(paths: string[]): unknown,
+ *     on(event: 'change' | 'add' | 'unlink', listener: (file: string) => void): unknown,
+ *   },
  *   restart(): Promise<void>,
  * }} server
+ * @param {BuildPlatformResolutionOptions} options the options the plugin resolved its platform with
  * @param {() => Platform | undefined} current the platform the plugin uses now
- * @param {() => Platform | undefined} resolve resolves the platform from tsconfig again
  */
-export function restartOnPlatformChange(server, current, resolve) {
+export function restartOnPlatformChange(server, options, current) {
+	// An edit that keeps the platform can still add an `extends` target.
+	const watch_config_files = () => server.watcher.add(getBuildPlatformConfigFiles(options));
+	watch_config_files();
+
 	/** @param {string} file */
 	function on_change(file) {
 		if (!file.endsWith('.json')) return;
 		let changed;
 		try {
-			changed = resolve() !== current();
+			changed = resolveBuildPlatform(options) !== current();
 		} catch {
 			changed = true;
 		}
 		if (changed) void server.restart();
+		else watch_config_files();
 	}
 
 	server.watcher.on('change', on_change);
@@ -64,7 +74,9 @@ export function restartOnPlatformChange(server, current, resolve) {
  * @returns {{ message: string, code: string, pos: number } | null}
  */
 export function findUnconfiguredPlatformFlag(code, id, parse) {
-	const file = stripWorkerEntryQuery(id);
+	// A query (`?worker_file`, `?raw`, or another plugin's) leaves the module
+	// kind to the path. A flag that only appears in a string stays unmatched.
+	const file = id.split('?')[0];
 	if (!ORDINARY_MODULE_PATTERN.test(file) || !PLATFORM_NAMESPACE_PATTERN.test(code)) return null;
 
 	const { program, errors } = parse(file, code);

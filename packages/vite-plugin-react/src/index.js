@@ -136,11 +136,7 @@ export function tsrxReact(options = {}) {
 		},
 
 		configureServer(server) {
-			restartOnPlatformChange(
-				server,
-				() => platform,
-				() => resolveBuildPlatform(platform_resolution),
-			);
+			restartOnPlatformChange(server, platform_resolution, () => platform);
 			server.middlewares.use(
 				createWorkerEntryMiddleware((path) => TSRX_EXTENSION_PATTERN.test(path)),
 			);

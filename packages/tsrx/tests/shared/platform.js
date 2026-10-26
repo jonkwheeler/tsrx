@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { build, createServer } from 'vite';
 
 const RESTART_TIMEOUT_MS = 10_000;
@@ -23,9 +24,11 @@ const SELECTION = `export const selected = (() => {
  */
 
 /**
- * Serve a project whose tsconfig selects `web`, switch it to `ios`, and report
- * what an ordinary module and a `.tsrx` module select before and after the
- * dev server handled the change.
+ * Serve a project whose platform comes from a base tsconfig outside the Vite
+ * root (`app/tsconfig.json` extends `../tsconfig.base.json`), switch the base
+ * from `web` to `ios` on disk, and report what an ordinary module and a
+ * `.tsrx` module select before and after the dev server handled the change.
+ * The change reaches the server through its real file watcher.
  *
  * As with the other fixtures, the files are written on the fly and removed
  * afterwards, and `root` has to sit inside the package under test so imports
@@ -36,18 +39,20 @@ const SELECTION = `export const selected = (() => {
  */
 export async function servePlatformChangeFixture({ root, plugins }) {
 	const cache_dir = mkdtempSync(join(tmpdir(), 'tsrx-platform-'));
-	const tsconfig = join(root, 'tsconfig.json');
+	const app = join(root, 'app');
+	const base = join(root, 'tsconfig.base.json');
 	/** @type {import('vite').ViteDevServer | undefined} */
 	let server;
 
-	mkdirSync(root, { recursive: true });
-	writeFileSync(tsconfig, JSON.stringify({ tsrx: { platform: 'web' } }));
-	writeFileSync(join(root, 'selection.ts'), SELECTION);
-	writeFileSync(join(root, 'selection.tsrx'), SELECTION);
+	mkdirSync(app, { recursive: true });
+	writeFileSync(base, JSON.stringify({ tsrx: { platform: 'web' } }));
+	writeFileSync(join(app, 'tsconfig.json'), JSON.stringify({ extends: '../tsconfig.base.json' }));
+	writeFileSync(join(app, 'selection.ts'), SELECTION);
+	writeFileSync(join(app, 'selection.tsrx'), SELECTION);
 
 	try {
 		server = await createServer({
-			root,
+			root: app,
 			configFile: false,
 			cacheDir: cache_dir,
 			logLevel: 'silent',
@@ -62,22 +67,18 @@ export async function servePlatformChangeFixture({ root, plugins }) {
 			const restart = dev_server.restart.bind(dev_server);
 			dev_server.restart = (force_optimize) => {
 				const restarting = restart(force_optimize);
-				restarting.then(resolve);
+				restarting.then(() => resolve(true));
 				return restarting;
 			};
 		});
-		writeFileSync(tsconfig, JSON.stringify({ tsrx: { platform: 'ios' } }));
-		// Report the change rather than wait on the file watcher.
-		server.watcher.emit('change', tsconfig);
-		await Promise.race([
-			restarted,
-			new Promise((_, reject) =>
-				setTimeout(
-					() => reject(new Error('The dev server did not restart')),
-					RESTART_TIMEOUT_MS,
-				).unref(),
-			),
-		]);
+		// The watcher may still be setting up the base file, so write it again
+		// until the restart arrives.
+		const deadline = Date.now() + RESTART_TIMEOUT_MS;
+		for (let attempt = 0; ; attempt++) {
+			writeFileSync(base, JSON.stringify({ tsrx: { platform: 'ios' } }) + ' '.repeat(attempt));
+			if (await Promise.race([restarted, sleep(500).then(() => false)])) break;
+			if (Date.now() > deadline) throw new Error('The dev server did not restart');
+		}
 
 		return { before, after: await load_selection(server) };
 	} finally {

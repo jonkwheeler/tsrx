@@ -5725,7 +5725,7 @@
 				</dict>
 			</dict>
 			<key>end</key>
-			<string>(&lt;/)(script)(&gt;)</string>
+			<string>(&lt;/)(script)\s*(&gt;)|(&lt;/)(script)\s*$</string>
 			<key>endCaptures</key>
 			<dict>
 				<key>1</key>
@@ -5742,6 +5742,16 @@
 				<dict>
 					<key>name</key>
 					<string>punctuation.definition.tag.end.js</string>
+				</dict>
+				<key>4</key>
+				<dict>
+					<key>name</key>
+					<string>punctuation.definition.tag.begin.js</string>
+				</dict>
+				<key>5</key>
+				<dict>
+					<key>name</key>
+					<string>entity.name.tag.js</string>
 				</dict>
 			</dict>
 			<key>name</key>
@@ -5762,7 +5772,7 @@
 					<key>contentName</key>
 					<string>source.ts</string>
 					<key>end</key>
-					<string>(?=&lt;/script&gt;)</string>
+					<string>(?=&lt;/script\s*(?:&gt;|$))</string>
 					<key>patterns</key>
 					<array>
 						<dict>

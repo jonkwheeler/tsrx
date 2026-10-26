@@ -756,7 +756,8 @@ module.exports = grammar({
 			),
 
 		// Raw-text `<script>` element: the body is verbatim JS/TS (scanned by the
-		// external scanner up to the literal `</script>`), never template markup.
+		// external scanner up to `</script>`, which may have whitespace before its
+		// `>`, as in the compiler), never template markup.
 		// The self-closing form (`<script src={...} />`) has no body; it is matched
 		// here too because the `<script` literal takes lexical priority over the
 		// generic element path.

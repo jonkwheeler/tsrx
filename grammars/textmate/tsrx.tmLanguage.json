@@ -6616,7 +6616,7 @@
           "name": "entity.name.tag.js"
         }
       },
-      "end": "(</)(script)(>)",
+      "end": "(</)(script)\\s*(>)|(</)(script)\\s*$",
       "endCaptures": {
         "1": {
           "name": "punctuation.definition.tag.begin.js"
@@ -6626,6 +6626,12 @@
         },
         "3": {
           "name": "punctuation.definition.tag.end.js"
+        },
+        "4": {
+          "name": "punctuation.definition.tag.begin.js"
+        },
+        "5": {
+          "name": "entity.name.tag.js"
         }
       },
       "patterns": [
@@ -6636,7 +6642,7 @@
               "name": "punctuation.definition.tag.end.js"
             }
           },
-          "end": "(?=</script>)",
+          "end": "(?=</script\\s*(?:>|$))",
           "contentName": "source.ts",
           "patterns": [
             {

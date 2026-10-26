@@ -316,6 +316,57 @@ describe('TSRX TextMate grammar: without the CSS and TypeScript grammars', () =>
 	});
 });
 
+describe('TSRX TextMate grammar: <script> closing tags', () => {
+	it('closes a <script> block at a closing tag with whitespace before its >, as the compiler does', () => {
+		const tokens = tokenize(
+			[
+				'export function App() @{',
+				'  <div>',
+				'    <script>go();</script >',
+				'    <p>{text}</p>',
+				'  </div>',
+				'}',
+			].join('\n'),
+		);
+
+		expect(find(tokens, 'go').scopes).toContain('source.ts');
+		expect(find(tokens, 'script', 1).scopes).toEqual(
+			expect.arrayContaining(['script.tag.js', 'entity.name.tag.js']),
+		);
+		expect(find(tokens, '>', 2).scopes).toEqual(
+			expect.arrayContaining(['script.tag.js', 'punctuation.definition.tag.end.js']),
+		);
+		expect(find(tokens, 'p').scopes).toContain('entity.name.tag.js');
+		expect(find(tokens, 'p').scopes).not.toContain('script.tag.js');
+		expect(find(tokens, 'text').scopes).toContain('variable.other.readwrite.js');
+		expect(find(tokens, 'text').scopes).not.toContain('script.tag.js');
+	});
+
+	it('closes a <script> block whose closing tag has a line break before its >', () => {
+		const tokens = tokenize(
+			[
+				'export function App() @{',
+				'  <div>',
+				'    <script>',
+				'      go();',
+				'    </script',
+				'    >',
+				'    <p>{text}</p>',
+				'  </div>',
+				'}',
+			].join('\n'),
+		);
+
+		expect(find(tokens, 'script', 1).scopes).toEqual(
+			expect.arrayContaining(['script.tag.js', 'entity.name.tag.js']),
+		);
+		expect(find(tokens, 'p').scopes).toContain('entity.name.tag.js');
+		expect(find(tokens, 'p').scopes).not.toContain('script.tag.js');
+		expect(find(tokens, 'text').scopes).toContain('variable.other.readwrite.js');
+		expect(find(tokens, 'text').scopes).not.toContain('script.tag.js');
+	});
+});
+
 describe('TSRX TextMate grammar: JSX expression boundaries', () => {
 	it('highlights the issue #100 JSX structure and embedded expressions independently', () => {
 		const tokens = tokenize(

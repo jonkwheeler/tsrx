@@ -77,6 +77,102 @@ var value;
       name: (identifier))))
 
 ==================
+Using Declarations
+==================
+
+using file = open(path);
+async function load() {
+  await using conn = connect(), lock: Lock = acquire();
+  for (using item of items) {}
+  for await (await using item of items) {}
+}
+
+---
+
+(program
+  (using_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (call_expression
+          function: (identifier)
+          arguments: (arguments
+            (identifier))))))
+  (function_declaration
+    name: (identifier)
+    parameters: (formal_parameters)
+    body: (statement_block
+      (using_declaration
+        (variable_declarator
+          name: (identifier)
+          (initializer
+            (call_expression
+              function: (identifier)
+              arguments: (arguments))))
+        (variable_declarator
+          name: (identifier)
+          (type
+            (identifier))
+          (initializer
+            (call_expression
+              function: (identifier)
+              arguments: (arguments)))))
+      (for_of_statement
+        (identifier)
+        right: (identifier)
+        body: (expression_statement
+          (object)))
+      (for_of_statement
+        (identifier)
+        right: (identifier)
+        body: (expression_statement
+          (object))))))
+
+==================
+Using As An Identifier
+==================
+
+using(handle);
+using.dispose();
+using = next;
+using[0];
+const value = using;
+for (using of items) {}
+
+---
+
+(program
+  (expression_statement
+    (call_expression
+      function: (identifier)
+      arguments: (arguments
+        (identifier))))
+  (expression_statement
+    (call_expression
+      function: (member_expression
+        object: (identifier)
+        property: (identifier))
+      arguments: (arguments)))
+  (expression_statement
+    (assignment_expression
+      left: (identifier)
+      right: (identifier)))
+  (expression_statement
+    (subscript_expression
+      object: (identifier)
+      index: (number)))
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (identifier))))
+  (for_of_statement
+    (identifier)
+    right: (identifier)
+    body: (expression_statement
+      (object))))
+
+==================
 Function Declarations
 ==================
 

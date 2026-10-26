@@ -3391,7 +3391,7 @@
 						</dict>
 					</dict>
 					<key>match</key>
-					<string>\(\s*(?:(let|const|var)\s+)?([_$[:alpha:]][_$[:alnum:]]*)\s+(of)\s+([^;]+?)\s*;\s*(?:(index)\s+([_$[:alpha:]][_$[:alnum:]]*)(?:\s*;\s*(key)\s+([^)]+?))?|(key)\s+([^)]+?))\s*\)</string>
+					<string>\(\s*(?:(let|const|var|using|await\s+using)\s+)?([_$[:alpha:]][_$[:alnum:]]*)\s+(of)\s+([^;]+?)\s*;\s*(?:(index)\s+([_$[:alpha:]][_$[:alnum:]]*)(?:\s*;\s*(key)\s+([^)]+?))?|(key)\s+([^)]+?))\s*\)</string>
 					<key>name</key>
 					<string>meta.for-of-tsrx</string>
 				</dict>
@@ -9565,6 +9565,12 @@
 				<dict>
 					<key>match</key>
 					<string>(?&lt;![_$[:alnum:]])(const|let|var)(?![_$[:alnum:]])</string>
+					<key>name</key>
+					<string>storage.type.js</string>
+				</dict>
+				<dict>
+					<key>match</key>
+					<string>(?&lt;![_$[:alnum:]])(?:await\s+)?using(?=\s+(?!in\b|of\b(?!\s*(?:of\b|=)))[_$[:alpha:]])</string>
 					<key>name</key>
 					<string>storage.type.js</string>
 				</dict>

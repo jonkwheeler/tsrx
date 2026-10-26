@@ -591,6 +591,10 @@
           "match": "(?<![_$[:alnum:]])(const|let|var)(?![_$[:alnum:]])"
         },
         {
+          "name": "storage.type.js",
+          "match": "(?<![_$[:alnum:]])(?:await\\s+)?using(?=\\s+(?!in\\b|of\\b(?!\\s*(?:of\\b|=)))[_$[:alpha:]])"
+        },
+        {
           "name": "keyword.operator.expression.js",
           "match": "(?<![_$[:alnum:]])(of|in|key|index)(?![_$[:alnum:]])"
         },
@@ -3140,7 +3144,7 @@
         },
         {
           "name": "meta.for-of-tsrx",
-          "match": "\\(\\s*(?:(let|const|var)\\s+)?([_$[:alpha:]][_$[:alnum:]]*)\\s+(of)\\s+([^;]+?)\\s*;\\s*(?:(index)\\s+([_$[:alpha:]][_$[:alnum:]]*)(?:\\s*;\\s*(key)\\s+([^)]+?))?|(key)\\s+([^)]+?))\\s*\\)",
+          "match": "\\(\\s*(?:(let|const|var|using|await\\s+using)\\s+)?([_$[:alpha:]][_$[:alnum:]]*)\\s+(of)\\s+([^;]+?)\\s*;\\s*(?:(index)\\s+([_$[:alpha:]][_$[:alnum:]]*)(?:\\s*;\\s*(key)\\s+([^)]+?))?|(key)\\s+([^)]+?))\\s*\\)",
           "captures": {
             "1": {
               "name": "storage.type.js"

@@ -52,6 +52,7 @@ module.exports = grammar({
 		$._expression_statement_primary_expression,
 		$._semicolon,
 		$._reserved_identifier,
+		$._using_identifier,
 		$._jsx_attribute,
 		$._jsx_child,
 		$._jsx_attribute_value,
@@ -257,6 +258,7 @@ module.exports = grammar({
 				$.super,
 				$.identifier,
 				$._reserved_identifier,
+				$._using_identifier,
 				$.number,
 				$.string,
 				$.template_string,
@@ -293,6 +295,19 @@ module.exports = grammar({
 
 		lexical_declaration: ($) =>
 			seq(choice('let', 'const'), commaSep1($.variable_declarator), $._semicolon),
+
+		// `using` and `await using` declarations (TypeScript 5.2), named as in
+		// tree-sitter-javascript. They bind identifiers only, never patterns, so
+		// `using [i]` stays an index into a variable named `using`.
+		using_declaration: ($) =>
+			seq(
+				choice('using', seq('await', 'using')),
+				commaSep1(alias($._using_declarator, $.variable_declarator)),
+				$._semicolon,
+			),
+
+		_using_declarator: ($) =>
+			seq(field('name', $.identifier), optional($._type_annotation), optional($.initializer)),
 
 		statement_block: ($) => seq('{', repeat($.statement), '}'),
 
@@ -355,7 +370,9 @@ module.exports = grammar({
 				'(',
 				choice(
 					seq(choice('let', 'const', 'var'), choice($._destructuring_pattern, $.identifier)),
+					seq(choice('using', seq('await', 'using')), $.identifier),
 					$.identifier,
+					$._using_identifier,
 				),
 				'of',
 				field('right', $.expression),
@@ -426,6 +443,7 @@ module.exports = grammar({
 				$.class_declaration,
 				$.lexical_declaration,
 				$.variable_declaration,
+				$.using_declaration,
 				$.interface_declaration,
 				$.type_alias_declaration,
 			),
@@ -461,6 +479,7 @@ module.exports = grammar({
 				prec(2, $.script_element),
 				$.variable_declaration,
 				$.lexical_declaration,
+				$.using_declaration,
 				$.function_declaration,
 				$.class_declaration,
 				$.expression_statement,
@@ -492,6 +511,7 @@ module.exports = grammar({
 				$.module_declaration,
 				$.variable_declaration,
 				$.lexical_declaration,
+				$.using_declaration,
 				$.function_declaration,
 				$.class_declaration,
 				$._jsx_statement_container_expression_statement,
@@ -530,6 +550,7 @@ module.exports = grammar({
 					$.super,
 					$.identifier,
 					$._reserved_identifier,
+					$._using_identifier,
 					$.number,
 					$.string,
 					$.template_string,
@@ -660,7 +681,9 @@ module.exports = grammar({
 					'(',
 					choice(
 						seq(choice('let', 'const', 'var'), choice($._destructuring_pattern, $.identifier)),
+						seq(choice('using', seq('await', 'using')), $.identifier),
 						$.identifier,
+						$._using_identifier,
 					),
 					choice('of', 'in'),
 					field('right', $.expression),
@@ -982,6 +1005,7 @@ module.exports = grammar({
 				$.super,
 				$.identifier,
 				$._reserved_identifier,
+				$._using_identifier,
 				$.number,
 				$.string,
 				$.template_string,
@@ -1032,6 +1056,7 @@ module.exports = grammar({
 						'left',
 						choice(
 							$.identifier,
+							$._using_identifier,
 							$.member_expression,
 							$.subscript_expression,
 							$.non_null_expression,
@@ -1051,6 +1076,7 @@ module.exports = grammar({
 						'left',
 						choice(
 							$.identifier,
+							$._using_identifier,
 							$.member_expression,
 							$.subscript_expression,
 							$.non_null_expression,
@@ -1403,6 +1429,11 @@ module.exports = grammar({
 		private_property_identifier: ($) => /#[a-zA-Z_$][a-zA-Z0-9_$]*/,
 
 		_reserved_identifier: ($) => choice('arguments', 'await', 'fragment', 'track', 'untrack'),
+
+		// `using` is a keyword where a `using` declaration can start and an
+		// identifier everywhere else, so `using(x)`, `using.dispose()` and
+		// `using = x` still parse as before.
+		_using_identifier: ($) => alias('using', $.identifier),
 
 		comment: ($) => token(choice(seq('//', /.*/), seq('/*', /[^*]*\*+([^/*][^*]*\*+)*/, '/'))),
 

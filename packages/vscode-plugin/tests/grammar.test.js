@@ -367,6 +367,33 @@ describe('TSRX TextMate grammar: <script> closing tags', () => {
 	});
 });
 
+describe('TSRX TextMate grammar: using declarations', () => {
+	it('highlights using and await using in an @for head as declaration keywords', () => {
+		const tokens = tokenize(
+			[
+				'function List() @{',
+				'  <ul>',
+				'    @for (using item of items) {',
+				'      <li>{item}</li>',
+				'    }',
+				'    @for (await using conn of conns; index i) {',
+				'      <li>{i}</li>',
+				'    }',
+				'    @for (using of items) {',
+				'      <li />',
+				'    }',
+				'  </ul>',
+				'}',
+			].join('\n'),
+		);
+
+		expect(find(tokens, 'using').scopes).toContain('storage.type.js');
+		expect(find(tokens, 'await using').scopes).toContain('storage.type.js');
+		// `using` followed by `of` is the loop variable, not a declaration keyword.
+		expect(find(tokens, 'using', 1).scopes).toContain('variable.other.readwrite.js');
+	});
+});
+
 describe('TSRX TextMate grammar: JSX expression boundaries', () => {
 	it('highlights the issue #100 JSX structure and embedded expressions independently', () => {
 		const tokens = tokenize(

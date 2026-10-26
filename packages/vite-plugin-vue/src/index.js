@@ -9,6 +9,7 @@ import { compile } from '@tsrx/vue';
 import { mergePlatformDefinitions, validatePlatform } from '@tsrx/core';
 import { resolveBuildPlatform } from '@tsrx/core/config';
 import { createDepScanLoadPlugin } from '@tsrx/core/vite/dep-scan';
+import { restartOnPlatformChange } from '@tsrx/core/vite/platform';
 import { createWorkerEntryMiddleware, stripWorkerEntryQuery } from '@tsrx/core/vite/worker';
 import vueJsxVaporModule from 'vue-jsx-vapor/vite';
 import { createVaporInteropPlugin } from './interop.js';
@@ -94,16 +95,20 @@ function create_tsrx_vue_plugin(options) {
 	const includePattern = options.include ?? DEFAULT_TSRX_PATTERN;
 	const compile_options = { runtimeImports: options.runtimeImports, platform };
 
+	/** @type {import('@tsrx/core/config').BuildPlatformResolutionOptions} */
+	let platform_resolution = {};
+
 	/** @param {import('vite').UserConfig} config */
 	function resolve_platform(config) {
-		platform = resolveBuildPlatform({
+		platform_resolution = {
 			root: config.root ?? process.cwd(),
 			tsconfig:
 				options.tsconfig ??
 				/** @type {{ tsconfig?: string }} */ (/** @type {unknown} */ (config)).tsconfig,
 			platform: explicit_platform,
 			integration: '@tsrx/vite-plugin-vue',
-		});
+		};
+		platform = resolveBuildPlatform(platform_resolution);
 		compile_options.platform = platform;
 	}
 
@@ -184,6 +189,11 @@ function create_tsrx_vue_plugin(options) {
 		},
 
 		configureServer(server) {
+			restartOnPlatformChange(
+				server,
+				() => platform,
+				() => resolveBuildPlatform(platform_resolution),
+			);
 			server.middlewares.use(createWorkerEntryMiddleware(isTsrxSource));
 		},
 

@@ -39,6 +39,7 @@ import { compile } from '@tsrx/preact';
 import { mergePlatformDefinitions, validatePlatform } from '@tsrx/core';
 import { resolveBuildPlatform } from '@tsrx/core/config';
 import { createDepScanTransformPlugin } from '@tsrx/core/vite/dep-scan';
+import { restartOnPlatformChange } from '@tsrx/core/vite/platform';
 import { createWorkerEntryMiddleware, stripWorkerEntryQuery } from '@tsrx/core/vite/worker';
 
 const TSRX_EXTENSION_PATTERN = /\.tsrx$/;
@@ -72,16 +73,20 @@ export function tsrxPreact(options = {}) {
 		platform,
 	};
 
+	/** @type {import('@tsrx/core/config').BuildPlatformResolutionOptions} */
+	let platform_resolution = {};
+
 	/** @param {import('vite').UserConfig} config */
 	function resolve_platform(config) {
-		platform = resolveBuildPlatform({
+		platform_resolution = {
 			root: config.root ?? process.cwd(),
 			tsconfig:
 				options.tsconfig ??
 				/** @type {{ tsconfig?: string }} */ (/** @type {unknown} */ (config)).tsconfig,
 			platform: explicit_platform,
 			integration: '@tsrx/vite-plugin-preact',
-		});
+		};
+		platform = resolveBuildPlatform(platform_resolution);
 		compile_options.platform = platform;
 	}
 
@@ -144,6 +149,11 @@ export function tsrxPreact(options = {}) {
 		},
 
 		configureServer(server) {
+			restartOnPlatformChange(
+				server,
+				() => platform,
+				() => resolveBuildPlatform(platform_resolution),
+			);
 			server.middlewares.use(
 				createWorkerEntryMiddleware((path) => TSRX_EXTENSION_PATTERN.test(path)),
 			);

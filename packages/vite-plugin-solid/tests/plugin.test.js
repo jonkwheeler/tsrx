@@ -28,12 +28,13 @@ function call_load(plugin, id) {
 /**
  * @param {import('vite').Plugin} plugin
  * @param {string} source
+ * @param {typeof fake_plugin_resolve} [resolve]
  */
-function call_resolve_id(plugin, source) {
+function call_resolve_id(plugin, source, resolve = fake_plugin_resolve) {
 	const hook =
 		typeof plugin.resolveId === 'function' ? plugin.resolveId : plugin.resolveId?.handler;
 	if (!hook) throw new Error('plugin has no resolveId hook');
-	const context = /** @type {ThisParameterType<typeof hook>} */ ({ resolve: fake_plugin_resolve });
+	const context = /** @type {ThisParameterType<typeof hook>} */ ({ resolve });
 	return hook.call(context, source, undefined, { isEntry: false });
 }
 
@@ -75,6 +76,16 @@ describe('@tsrx/vite-plugin-solid routing', () => {
 			expect(await call_resolve_id(plugin, '/abs/path/App.ts')).toBeNull();
 			expect(await call_resolve_id(plugin, '/abs/path/App.tsx')).toBeNull();
 			expect(await call_resolve_id(plugin, 'solid-js')).toBeNull();
+		});
+
+		it('rewrites a specifier without an extension that resolves to a `.tsrx` file', async () => {
+			/** @param {string} source */
+			const resolve = async (source) => ({
+				...(await fake_plugin_resolve(source)),
+				id: '/abs/node_modules/fixture-lib/App.tsrx',
+			});
+			const result = await call_resolve_id(plugin, 'fixture-lib', resolve);
+			expect(resolved_id(result)).toBe('/abs/node_modules/fixture-lib/App.tsrx.tsx');
 		});
 	});
 

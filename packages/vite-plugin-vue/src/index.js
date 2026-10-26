@@ -220,6 +220,13 @@ function create_tsrx_vue_plugin(options) {
 				return absoluteSource + VIRTUAL_TSX_SUFFIX + workerQuery;
 			}
 
+			// A package export or an extensionless import can still resolve to
+			// a `.tsrx` file.
+			if (source.startsWith('\0') || source.includes('?')) return null;
+			const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+			if (resolved && isTsrxSource(resolved.id)) {
+				return { ...resolved, id: resolved.id + VIRTUAL_TSX_SUFFIX };
+			}
 			return null;
 		},
 

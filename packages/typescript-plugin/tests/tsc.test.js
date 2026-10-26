@@ -672,3 +672,35 @@ it('reports errors that start at a yield, a rest parameter or a nested export as
 		`${at(3, lines[3].indexOf('export'))}: error TS1316: Global module exports may only appear at top level.`,
 	);
 });
+
+it('reports unreachable code on a statement that ends with an element in .tsrx files', () => {
+	const config_path = path.join(workspace, 'tsconfig.json');
+	const config = JSON.parse(fs.readFileSync(config_path, 'utf8'));
+	config.compilerOptions.allowUnreachableCode = false;
+	fs.writeFileSync(config_path, JSON.stringify(config));
+	const lines = [
+		'let x: unknown; declare function foo(): void;',
+		'export function a() { return; x = <div></div>; }',
+		'export function b() { return; x = <br />; }',
+		'export function c() { return; true ? <div /> : <span />; }',
+		'export function d() { return; foo(); }',
+		'export function e() {',
+		'\treturn;',
+		'\tx = <span>x</span>',
+		'}',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	for (const [index, text] of /** @type {const} */ ([
+		[1, 'x ='],
+		[2, 'x ='],
+		[3, 'true'],
+		[4, 'foo'],
+		[7, 'x ='],
+	])) {
+		expect(result.output).toContain(
+			`layout.tsrx(${index + 4},${lines[index].indexOf(text) + 1}): error TS7027: Unreachable code detected.`,
+		);
+	}
+});

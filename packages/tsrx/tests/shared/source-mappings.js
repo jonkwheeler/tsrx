@@ -2585,6 +2585,23 @@ function App() @{
 		});
 
 		it.each([
+			['an authored ;', 'x = <div></div>;'],
+			['an authored ; after a self-closing tag', 'x = <br />;'],
+			['a ; the printer adds', 'x = <span>x</span>'],
+			['a call', 'foo();'],
+		])('maps the ; that ends a statement with %s', (_kind, statement) => {
+			// TypeScript reports unreachable code (TS7027) on the whole statement, up
+			// to its `;`.
+			const source = `let x: unknown;\ndeclare function foo(): void;\nexport function f() {\n\treturn;\n\t${statement}\n}`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			expect(result.errors).toEqual([]);
+			const start = source.indexOf(statement);
+			const authored = statement.endsWith(';');
+			const end = start + statement.length - (authored ? 1 : 0);
+			expect(generated_at(result, end, authored ? 1 : 0)).toEqual([';']);
+		});
+
+		it.each([
 			'export function bad(...args: number) {}',
 			'export class K { m(...args: number) {} }',
 			'export declare function f(...args: number): void;',

@@ -727,6 +727,33 @@ export function convert_source_map_to_mappings(
 		}
 	}
 
+	/**
+	 * TypeScript reports some errors on a whole statement, up to its `;` (TS7027
+	 * on unreachable code), and Volar drops a diagnostic whose end no mapping
+	 * covers. Map the `;` the printer writes after a statement: an authored one
+	 * to itself, and one the printer adds to the end of the statement.
+	 * @param {AST.Node} node
+	 * @returns {void}
+	 */
+	function push_statement_end_mapping(node) {
+		if (!has_location(node)) return;
+		const authored = source[node.end - 1] === ';';
+		const { line, column } = node.loc.end;
+		for (const generated of src_to_gen_map.get(`${line}:${column}`) ?? []) {
+			const end = loc_to_offset(generated.line, generated.column, gen_line_offsets);
+			const semicolon = authored ? end - 1 : end;
+			if (generated_code[semicolon] !== ';') continue;
+			mappings.push({
+				sourceOffsets: [authored ? node.end - 1 : node.end],
+				lengths: [authored ? 1 : 0],
+				generatedOffsets: [semicolon],
+				generatedLengths: [1],
+				data: { ...mapping_data_verify_only, customData: {} },
+			});
+			return;
+		}
+	}
+
 	/** @type {Set<string>} */
 	const mapped_comments = new Set();
 
@@ -870,7 +897,7 @@ export function convert_source_map_to_mappings(
 	// We have to visit everything in generated order to maintain correct indices
 
 	walk(ast, null, {
-		_(node, { visit }) {
+		_(node, { visit, path }) {
 			add_line_comments_mapping(node);
 			add_preserved_comment_mappings(node);
 
@@ -1406,6 +1433,10 @@ export function convert_source_map_to_mappings(
 						visit(declarator);
 					}
 				}
+				// The head of a `for` loop has no `;` of its own.
+				if (!/^For(?:In|Of)?Statement$/.test(path.at(-1)?.type ?? '')) {
+					push_statement_end_mapping(node);
+				}
 				return;
 			} else if (node.type === 'VariableDeclarator') {
 				// Visit in source order: id, typeAnnotation, init
@@ -1841,6 +1872,7 @@ export function convert_source_map_to_mappings(
 				if (node.expression) {
 					visit(node.expression);
 				}
+				push_statement_end_mapping(node);
 				return;
 			} else if (node.type === 'BlockStatement' || node.type === 'Program') {
 				// Visit body statements in order

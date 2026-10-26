@@ -506,6 +506,47 @@ it('reports errors on private class fields in .tsrx files', () => {
 	);
 });
 
+it('reports a missing return on a composite return type in .tsrx files', () => {
+	const lines = [
+		'export class Returns<T> { list(): number[] {} shape(): { a: number } {} keys(): keyof T {} later(): Promise<number> {} either(): number | string {} pair(): [number, string] {} plain(): number {} }',
+		'export function listed(): string[] {}',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	const ts2355 =
+		"error TS2355: A function whose declared type is neither 'undefined', 'void', nor 'any' must return a value.";
+	for (const [index, type] of /** @type {const} */ ([
+		[0, 'number[]'],
+		[0, '{ a: number }'],
+		[0, 'keyof T'],
+		[0, 'Promise<number>'],
+		[0, 'number | string'],
+		[0, '[number, string]'],
+		[0, 'number {}'],
+		[1, 'string[]'],
+	])) {
+		expect(result.output).toContain(
+			`layout.tsrx(${index + 4},${lines[index].indexOf(type) + 1}): ${ts2355}`,
+		);
+	}
+});
+
+it('reports a non-null superclass that is not a constructor in .tsrx files', () => {
+	const lines = [
+		'declare const maybe: {} | undefined; declare const registry: { get(name: string): {} | undefined };',
+		"export class A extends maybe! {} export class B extends registry.get('Base')! {}",
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	for (const base of ['maybe!', "registry.get('Base')!"]) {
+		expect(result.output).toContain(
+			`layout.tsrx(5,${lines[1].indexOf(base) + 1}): error TS2507: Type '{}' is not a constructor function type.`,
+		);
+	}
+});
+
 it('reports computed property name errors whatever is inside the brackets in .tsrx files', () => {
 	const lines = [
 		'declare const o: {}; declare function f(): string; declare const key: "m";',

@@ -1375,6 +1375,24 @@ export function convert_source_map_to_mappings(
 
 				if (node.returnType) {
 					visit(node.returnType);
+					// TypeScript reports a missing return (TS2355) on the whole return
+					// type. A keyword type is already mapped as a token.
+					const type = node.returnType.typeAnnotation;
+					if (
+						has_location(type) &&
+						!type.type.endsWith('Keyword') &&
+						type.type !== 'TSThisType' &&
+						has_source_map_boundaries(type, src_to_gen_map)
+					) {
+						mappings.push(
+							get_mapping_from_node(
+								type,
+								src_to_gen_map,
+								gen_line_offsets,
+								mapping_data_verify_only,
+							),
+						);
+					}
 				}
 
 				if (node.body) {
@@ -1892,9 +1910,11 @@ export function convert_source_map_to_mappings(
 					// not a constructor, TS2509, TS2510) on the whole superclass
 					// expression, and Volar drops a diagnostic whose end it cannot map.
 					// Identifiers, member expressions, calls and parenthesized
-					// expressions map their whole span, but an array literal doesn't.
+					// expressions map their whole span, but an array literal and a
+					// non-null assertion (`maybe!`) don't.
 					if (
-						node.superClass.type === 'ArrayExpression' &&
+						(node.superClass.type === 'ArrayExpression' ||
+							node.superClass.type === 'TSNonNullExpression') &&
 						has_location(node.superClass) &&
 						has_source_map_boundaries(node.superClass, src_to_gen_map)
 					) {
@@ -2610,14 +2630,8 @@ export function convert_source_map_to_mappings(
 			) {
 				// Primitive type keywords - leaf nodes, no children. TypeScript
 				// reports on the whole keyword (e.g. TS2355 on a `number` return
-				// type), so map it like an identifier.
-				//
-				// Workaround: esrap (2.3.10 and main) records no location at the
-				// boundaries of composite types (`number[]`, `{ a: number }`,
-				// `keyof T`), so only keyword return types map. Once esrap maps
-				// every node's start and end (sveltejs/esrap#198), replace this
-				// with a verify-only mapping over the whole return type:
-				// https://github.com/tsrx-org/tsrx/issues/216
+				// type), so map it like an identifier. A composite return type gets
+				// a whole-span mapping in the function branch instead.
 				if (has_location(node)) {
 					const keyword = source.slice(node.start, node.end);
 					tokens.push({ source: keyword, generated: keyword, loc: node.loc, metadata: {} });

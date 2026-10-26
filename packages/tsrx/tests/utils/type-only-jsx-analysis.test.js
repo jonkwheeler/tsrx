@@ -593,6 +593,35 @@ describe('type-only JSX analysis', () => {
 			expect(value.props.message).toBe('resumed');
 		});
 
+		it('awaits a closure that holds an await using declaration (#501)', async () => {
+			const compiled = compile_source(
+				'export async function App({ resource }: { resource: AsyncDisposable | null }) @{\n' +
+					'\t<div>\n' +
+					'\t\t@if (resource) {\n' +
+					'\t\t\tawait using handle = resource;\n' +
+					'\t\t\t<span>{String(handle)}</span>\n' +
+					'\t\t}\n' +
+					'\t</div>\n' +
+					'}\n',
+				false,
+			);
+			expect(compiled.errors).toEqual([]);
+			expect(compiled.code).toContain('await (async () => {');
+
+			/** @type {string[]} */
+			const disposed = [];
+			const resource = {
+				[Symbol.asyncDispose]: async () => disposed.push('resource'),
+				toString: () => 'handle',
+			};
+			const element = await run_module(compiled).App({ resource });
+			expect(disposed).toEqual(['resource']);
+			expect(element).toMatchObject({
+				type: 'div',
+				props: { children: [{ type: 'span', props: { children: ['handle'] } }] },
+			});
+		});
+
 		it('delegates to a closure made both async and a generator without awaiting it', () => {
 			const source = generator_module(
 				'return props.show ? <text ref={props.nodeRef} {...props.rest} data-label={yield await props.rows[0]} /> : null;',

@@ -2590,7 +2590,8 @@ function lower_remaining_jsx_code_blocks(node, transform_context, seen = new Set
  * such closure the missing kind and suspends where it is called, so the value
  * still settles in the enclosing function, in source order:
  *
- * - an IIFE holding an `await` becomes `await (async () => { … })()`;
+ * - an IIFE holding an `await` (or an `await using` declaration) becomes
+ *   `await (async () => { … })()`;
  * - an IIFE holding a `yield` becomes a generator the call delegates to,
  *   `yield* (function* () { … })()`, which is also `async` when it awaits.
  *   An arrow shares `this` and `arguments` with the enclosing function and a
@@ -2661,7 +2662,9 @@ function suspend_generated_closures(program, transform_context) {
 
 		/** @type {AST.Node | null} */
 		let first_await =
-			node.type === 'AwaitExpression' || (node.type === 'ForOfStatement' && node.await)
+			node.type === 'AwaitExpression' ||
+			(node.type === 'ForOfStatement' && node.await) ||
+			(node.type === 'VariableDeclaration' && node.kind === 'await using')
 				? node
 				: null;
 		/** @type {AST.Node | null} */

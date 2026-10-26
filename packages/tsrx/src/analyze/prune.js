@@ -191,6 +191,58 @@ const whitelist_attribute_selector = new Map([
 	['video', ['autoplay', 'controls', 'loop', 'muted', 'playsinline']],
 ]);
 
+// Attributes whose values HTML attribute selectors match ASCII case-insensitively
+// unless the selector has the `s` flag
+// https://html.spec.whatwg.org/multipage/semantics-other.html#case-sensitivity-of-selectors
+const case_insensitive_attributes = new Set([
+	'accept',
+	'accept-charset',
+	'align',
+	'alink',
+	'axis',
+	'bgcolor',
+	'charset',
+	'checked',
+	'clear',
+	'codetype',
+	'color',
+	'compact',
+	'declare',
+	'defer',
+	'dir',
+	'direction',
+	'disabled',
+	'enctype',
+	'face',
+	'frame',
+	'hreflang',
+	'http-equiv',
+	'lang',
+	'language',
+	'link',
+	'media',
+	'method',
+	'multiple',
+	'nohref',
+	'noresize',
+	'noshade',
+	'nowrap',
+	'readonly',
+	'rel',
+	'rev',
+	'rules',
+	'scope',
+	'scrolling',
+	'selected',
+	'shape',
+	'target',
+	'text',
+	'type',
+	'valign',
+	'valuetype',
+	'vlink',
+]);
+
 /**
  * @param {AST.CSS.ComplexSelector} node
  */
@@ -1005,6 +1057,10 @@ function relative_selector_might_apply_to_node(relative_selector, rule, element,
 					element_name?.type === 'Identifier' || element_name?.type === 'JSXIdentifier'
 						? whitelist_attribute_selector.get(element_name.name.toLowerCase())
 						: undefined;
+				const flags = selector.flags?.toLowerCase() ?? '';
+				const case_insensitive =
+					flags.includes('i') ||
+					(!flags.includes('s') && case_insensitive_attributes.has(name.toLowerCase()));
 				if (
 					!whitelisted?.includes(name.toLowerCase()) &&
 					!attribute_matches(
@@ -1012,7 +1068,7 @@ function relative_selector_might_apply_to_node(relative_selector, rule, element,
 						name,
 						selector.value && unescape_css(selector.value),
 						selector.matcher,
-						selector.flags?.includes('i') ?? false,
+						case_insensitive,
 					)
 				) {
 					return false;

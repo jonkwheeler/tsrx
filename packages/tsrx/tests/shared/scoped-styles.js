@@ -251,6 +251,29 @@ export function runSharedScopedStyleTests({
 			expect(css).not.toContain('(unused)');
 		});
 
+		it('matches the values of HTML case-insensitive attributes in any case', () => {
+			const { css, cssHash } = compile(
+				`export function App() @{
+					<>
+						<style>
+							input[type="TEXT"] { color: red; }
+							[dir="RTL"] { margin: 0; }
+							[data-kind="TEXT"] { padding: 0; }
+							input[type="TEXT" s] { border: 0; }
+						</style>
+						<input type="text" dir="rtl" data-kind="text" />
+					</>
+				}`,
+				'App.tsrx',
+			);
+
+			const hash = hashes_of(cssHash)[0];
+			expect(css).toContain(`input[type="TEXT"].${hash} {`);
+			expect(css).toContain(`[dir="RTL"].${hash} {`);
+			expect(css).toContain('/* (unused) [data-kind="TEXT"] { padding: 0; }*/');
+			expect(css).toContain('/* (unused) input[type="TEXT" s] { border: 0; }*/');
+		});
+
 		it('splits class attributes on ASCII whitespace only, so a no-break space stays inside its class', () => {
 			const nbsp = '\u00a0';
 			const { code, css, cssHash } = compile(

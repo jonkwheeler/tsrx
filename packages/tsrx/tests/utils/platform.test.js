@@ -148,6 +148,16 @@ const active = import.meta.env.platform.web;`;
 		expect(result.code).toBe('export const Note = () => <pre>/* {true} */ @if</pre>;');
 	});
 
+	it('reads angle-bracket type assertions in TypeScript modules without JSX', () => {
+		const source = `const count = <number>(value as unknown);
+const active = import.meta.env.platform.web;`;
+
+		for (const filename of ['count.ts', 'count.mts', 'count.cts']) {
+			const result = replacePlatformFlags(source, filename, 'web');
+			expect(result.code).toBe(source.replace('import.meta.env.platform.web', 'true'));
+		}
+	});
+
 	it('replaces flags in a module that uses syntax only the TSRX parser reads', () => {
 		const source = `import defer * as feature from './feature.js';
 const lazy = import('./lazy.js',);

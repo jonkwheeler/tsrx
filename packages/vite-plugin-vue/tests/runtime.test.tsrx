@@ -1616,6 +1616,60 @@ describe('tsrx-vue component wrapping', () => {
 	});
 });
 
+function ChildrenCard(props: { title: string; children?: JSX.Element }) @{
+	<section class="card">
+		<h2>{props.title}</h2>
+		{props.children}
+	</section>
+}
+
+function DestructuredChildrenCard({ children }: { children?: JSX.Element }) @{
+	<section class="card">{children}</section>
+}
+
+function BodyDestructuredChildrenCard(props: { children?: JSX.Element }) @{
+	const { children } = props;
+	<section class="card">{children}</section>
+}
+
+function NestedChildrenApp() @{
+	const count = ref(0);
+	<>
+		<button class="inc" onClick={() => count.value++}>
+			{'inc'}
+		</button>
+		<ChildrenCard title="t">
+			<p class="nested">{`child ${count.value}`}</p>
+		</ChildrenCard>
+		<DestructuredChildrenCard>
+			<b>{'destructured'}</b>
+		</DestructuredChildrenCard>
+		<BodyDestructuredChildrenCard>
+			<b>{'body destructured'}</b>
+		</BodyDestructuredChildrenCard>
+	</>
+}
+
+function ChildrenPropApp() @{
+	<ChildrenCard title="t" children={<p>{'from prop'}</p>} />
+}
+
+describe('tsrx-vue component children', () => {
+	it('renders nested children read through props.children', async () => {
+		await render(NestedChildrenApp);
+		expect(text('.nested')).toBe('child 0');
+		expect(texts('.card b')).toEqual(['destructured', 'body destructured']);
+
+		await click('.inc');
+		expect(text('.nested')).toBe('child 1');
+	});
+
+	it('still renders a children prop passed explicitly', async () => {
+		await render(ChildrenPropApp);
+		expect(text('.card p')).toBe('from prop');
+	});
+});
+
 runSwitchFallthroughRuntimeTests();
 runTsxExpressionTsrxRuntimeTests();
 runJsxTextWhitespaceRuntimeTests({ nbsp: 'kept' });

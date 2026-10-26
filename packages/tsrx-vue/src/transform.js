@@ -69,6 +69,7 @@ const vue_platform = {
 		initialState: () => ({
 			needs_define_vapor_component: false,
 			needs_vapor_for: false,
+			needs_use_slots: false,
 		}),
 		wrapHelperComponent(helper_fn, helper_id, ctx, source_node) {
 			ctx.needs_define_vapor_component = true;
@@ -539,6 +540,9 @@ function wrap_native_function_component(fn, source, ctx, path) {
 	}
 
 	ctx.needs_define_vapor_component = true;
+	if (!ctx.typeOnly) {
+		fn = read_children_from_default_slot(fn, ctx);
+	}
 
 	const call = setLocation(
 		create_define_vapor_component_call(
@@ -640,6 +644,217 @@ function contains_jsx(node) {
 		},
 	});
 	return found;
+}
+
+/**
+ * vue-jsx-vapor passes a component's nested children as its default slot, not
+ * as a `children` prop. Read `props.children`, or a `children` binding
+ * destructured from the props parameter or from `props` at the top of the
+ * body, as the prop when the caller passes one and as the default slot
+ * otherwise, so the same source renders its children on every target.
+ *
+ * @param {AST.Function} fn
+ * @param {TransformContext} ctx
+ * @returns {AST.Function}
+ */
+function read_children_from_default_slot(fn, ctx) {
+	const param = fn.params[0];
+	/** @type {ChildrenReadState} */
+	const state = {
+		props_name: param?.type === 'Identifier' ? param.name : null,
+		children_names: new Set(),
+		shadowed_names: new Set(),
+		slots_id: create_generated_identifier('__slots'),
+		// Shared by reference: the scope visitors copy the state for each scope.
+		rewrites: { count: 0 },
+	};
+	if (param?.type === 'ObjectPattern') {
+		add_children_binding_names(param, state.children_names);
+	}
+	// `const { children } = props;` at the top of the component body.
+	for (const statement of fn.body.type === 'BlockStatement' ? fn.body.body : []) {
+		if (statement.type !== 'VariableDeclaration') continue;
+		for (const declarator of statement.declarations) {
+			if (
+				declarator.id.type === 'ObjectPattern' &&
+				declarator.init?.type === 'Identifier' &&
+				declarator.init.name === state.props_name
+			) {
+				add_children_binding_names(declarator.id, state.children_names);
+			}
+		}
+	}
+	if (!state.props_name && state.children_names.size === 0) {
+		return fn;
+	}
+
+	const body = /** @type {AST.BlockStatement | AST.Expression} */ (
+		walk(/** @type {AST.Node} */ (fn.body), state, {
+			ChainExpression(node, { path, state, next }) {
+				if (
+					node.expression.type === 'MemberExpression' &&
+					is_props_children_read(node.expression, path.at(-1), state)
+				) {
+					return read_children_or_default_slot(node, state);
+				}
+				return next();
+			},
+			MemberExpression(node, { path, state, next }) {
+				if (is_props_children_read(node, path.at(-1), state)) {
+					return read_children_or_default_slot(node, state);
+				}
+				return next();
+			},
+			Property(node, { path, state, next }) {
+				const value = node.value;
+				if (
+					node.shorthand &&
+					path.at(-1)?.type === 'ObjectExpression' &&
+					value.type === 'Identifier' &&
+					is_children_binding(value, state)
+				) {
+					return { ...node, shorthand: false, value: read_children_or_default_slot(value, state) };
+				}
+				return next();
+			},
+			Identifier(node, { path, state, next }) {
+				const parent = path.at(-1);
+				if (
+					is_children_binding(node, state) &&
+					parent &&
+					is_runtime_reference(node, parent) &&
+					!is_assignment_target(node, parent) &&
+					!is_binding_position(node, parent, path.at(-2))
+				) {
+					return read_children_or_default_slot(node, state);
+				}
+				return next();
+			},
+			FunctionDeclaration: rewrite_function_shadowed_refs,
+			FunctionExpression: rewrite_function_shadowed_refs,
+			ArrowFunctionExpression: rewrite_function_shadowed_refs,
+			BlockStatement(node, context) {
+				// The component body declares the destructured `children` binding;
+				// it cannot redeclare the props parameter or its bindings.
+				if (context.path.length === 0) return context.next();
+				return rewrite_block_shadowed_refs(node, context);
+			},
+		})
+	);
+	if (state.rewrites.count === 0) {
+		return fn;
+	}
+
+	ctx.needs_use_slots = true;
+	const slots_declaration = b.declaration('const', [
+		b.declarator(state.slots_id, b.call('useSlots')),
+	]);
+	const statements =
+		body.type === 'BlockStatement' ? body.body : [b.return(/** @type {AST.Expression} */ (body))];
+	return /** @type {AST.Function} */ ({
+		...fn,
+		body: b.block(
+			[slots_declaration, ...statements],
+			body.type === 'BlockStatement' && has_location(body) ? body : undefined,
+		),
+		...(fn.type === 'ArrowFunctionExpression' ? { expression: false } : null),
+	});
+}
+
+/**
+ * @typedef {{
+ *   props_name: string | null,
+ *   children_names: Set<string>,
+ *   shadowed_names: Set<string>,
+ *   slots_id: AST.Identifier,
+ *   rewrites: { count: number },
+ * }} ChildrenReadState
+ */
+
+/**
+ * @param {AST.ObjectPattern} pattern
+ * @param {Set<string>} names
+ * @returns {void}
+ */
+function add_children_binding_names(pattern, names) {
+	for (const property of pattern.properties) {
+		if (
+			property.type === 'Property' &&
+			!property.computed &&
+			get_static_name(property.key) === 'children' &&
+			property.value.type === 'Identifier'
+		) {
+			names.add(property.value.name);
+		}
+	}
+}
+
+/**
+ * @param {AST.Identifier} node
+ * @param {AST.Node} parent
+ * @param {AST.Node | undefined} grandparent
+ * @returns {boolean}
+ */
+function is_binding_position(node, parent, grandparent) {
+	return (
+		(parent.type === 'VariableDeclarator' && parent.id === node) ||
+		(parent.type === 'Property' && grandparent?.type === 'ObjectPattern') ||
+		parent.type === 'ArrayPattern' ||
+		parent.type === 'RestElement' ||
+		(parent.type === 'AssignmentPattern' && parent.left === node)
+	);
+}
+
+/**
+ * @param {AST.MemberExpression} node
+ * @param {AST.Node | undefined} parent
+ * @param {ChildrenReadState} state
+ * @returns {boolean}
+ */
+function is_props_children_read(node, parent, state) {
+	return (
+		!!state.props_name &&
+		!state.shadowed_names.has(state.props_name) &&
+		node.object.type === 'Identifier' &&
+		node.object.name === state.props_name &&
+		(node.computed
+			? node.property.type === 'Literal' && node.property.value === 'children'
+			: node.property.type === 'Identifier' && node.property.name === 'children') &&
+		!is_assignment_target(node, parent)
+	);
+}
+
+/**
+ * @param {AST.Identifier} node
+ * @param {ChildrenReadState} state
+ * @returns {boolean}
+ */
+function is_children_binding(node, state) {
+	return state.children_names.has(node.name) && !state.shadowed_names.has(node.name);
+}
+
+/**
+ * @param {AST.Node} node
+ * @param {AST.Node | undefined} parent
+ * @returns {boolean}
+ */
+function is_assignment_target(node, parent) {
+	return (
+		(parent?.type === 'AssignmentExpression' && parent.left === node) ||
+		parent?.type === 'UpdateExpression'
+	);
+}
+
+/**
+ * `<read> ?? __slots.default?.()`
+ *
+ * @param {AST.Expression} read
+ * @param {ChildrenReadState} state
+ * @returns {AST.Expression}
+ */
+function read_children_or_default_slot(read, state) {
+	state.rewrites.count += 1;
+	return b.logical('??', read, b.maybe_call(b.member(clone_identifier(state.slots_id), 'default')));
 }
 
 /**
@@ -1065,8 +1280,9 @@ function collect_pattern_replacements(pattern, source, replacements) {
 }
 
 /**
+ * @template {{ shadowed_names: Set<string> }} S
  * @param {AST.Function} node
- * @param {import('zimmerframe').Context<AST.Node, { loop_param_names: Set<string>, shadowed_names: Set<string> }>} context
+ * @param {import('zimmerframe').Context<AST.Node, S>} context
  * @returns {AST.Node | void}
  */
 function rewrite_function_shadowed_refs(node, { state, next }) {
@@ -1082,8 +1298,9 @@ function rewrite_function_shadowed_refs(node, { state, next }) {
 }
 
 /**
+ * @template {{ shadowed_names: Set<string> }} S
  * @param {AST.BlockStatement} node
- * @param {import('zimmerframe').Context<AST.Node, { loop_param_names: Set<string>, shadowed_names: Set<string> }>} context
+ * @param {import('zimmerframe').Context<AST.Node, S>} context
  * @returns {AST.Node | void}
  */
 function rewrite_block_shadowed_refs(node, { state, next }) {
@@ -1398,6 +1615,10 @@ function inject_vue_imports(program, transform_context) {
 
 	if (transform_context.needs_vapor_for) {
 		ensure_named_import(program, 'vue-jsx-vapor', 'VaporFor');
+	}
+
+	if (transform_context.needs_use_slots) {
+		ensure_named_import(program, 'vue', 'useSlots');
 	}
 
 	if (transform_context.needs_suspense) {

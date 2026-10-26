@@ -158,6 +158,64 @@ describe('@tsrx/vue basic', () => {
 		);
 	});
 
+	it('reads props.children from the default slot when no children prop is passed', () => {
+		const { code } = compile(
+			`function Card(props: { title: string; children?: JSX.Element }) @{
+				<section>
+					<h2>{props.title}</h2>
+					{props.children}
+				</section>
+			}
+
+			const Box = ({ children: kids }) => <div>{kids}</div>;
+
+			function Panel(props: { children?: JSX.Element }) @{
+				const { children } = props;
+				<aside>{children}</aside>
+			}
+
+			function Plain(props: { title: string }) @{
+				<h2>{props.title}</h2>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain("import { useSlots } from 'vue';");
+		expect(code).toContain(
+			'const Card = defineVaporComponent(function Card(props: { title: string; children?: JSX.Element }) {\n\tconst __slots = useSlots();',
+		);
+		expect(code).toContain('{props.children ?? __slots.default?.()}');
+		expect(code).toContain('{kids ?? __slots.default?.()}');
+		expect(code).toContain('const { children } = props;');
+		expect(code).toContain('<aside>{children ?? __slots.default?.()}</aside>');
+		expect(code.match(/useSlots\(\)/g)).toHaveLength(3);
+	});
+
+	it('leaves children reads alone when props is shadowed', () => {
+		const { code } = compile(
+			`function Card(props) @{
+				const read = (props) => props.children;
+				<div onClick={read}>{'x'}</div>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain('const read = (props) => props.children;');
+		expect(code).not.toContain('useSlots');
+	});
+
+	it('keeps props.children as written in Volar TSX', () => {
+		const { code } = compile_to_volar_mappings(
+			`function Card(props: { children?: JSX.Element }) @{
+				<section>{props.children}</section>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain('{props.children}');
+		expect(code).not.toContain('useSlots');
+	});
+
 	it('rejects the removed `&{ ... }` lazy destructuring syntax', () => {
 		expect(() =>
 			compile(

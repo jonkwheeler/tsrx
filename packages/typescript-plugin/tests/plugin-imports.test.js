@@ -450,21 +450,20 @@ import def from './def';
 			expect(imports_of(await after_completion('src/Extend.tsrx', 'helperB'))).toBe(expected);
 		}, 60_000);
 
-		it('adds a new import line with the quick fix', async () => {
+		it('adds a new import line with the quick fix and the completion (#1026)', async () => {
+			const expected = "import { label } from './label';\nimport { helperB } from './lib';\n\n";
 			expect(
 				imports_of(await after_quick_fix('src/NewLine.tsrx', 'helperB', 2304, 'Add import')),
-			).toBe("import { label } from './label';\nimport { helperB } from './lib';\n\n");
+			).toBe(expected);
+			expect(imports_of(await after_completion('src/NewLine.tsrx', 'helperB'))).toBe(expected);
 		}, 60_000);
 
-		it('does not add a new import line with the completion (#1026)', async () => {
-			// Volar maps a completion's edits only through mappings that enable
-			// completions, and the start of the line after the imports has none.
-			expect(await after_completion('src/NewLine.tsrx', 'helperB')).toBeNull();
-		}, 60_000);
-
-		it('does not add an import to a file without imports (#828)', async () => {
-			expect(await after_quick_fix('src/NoImports.tsrx', 'helperB', 2304, 'Add import')).toBeNull();
-			expect(await after_completion('src/NoImports.tsrx', 'helperB')).toBeNull();
+		it('adds an import to a file without imports (#828)', async () => {
+			const expected = `import { helperB } from "./lib";\n\n${FILES['src/NoImports.tsrx']}`;
+			expect(await after_quick_fix('src/NoImports.tsrx', 'helperB', 2304, 'Add import')).toBe(
+				expected,
+			);
+			expect(await after_completion('src/NoImports.tsrx', 'helperB')).toBe(expected);
 		}, 60_000);
 	});
 

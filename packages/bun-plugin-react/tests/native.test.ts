@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { tsrxReact } from '../src/index.js';
 
 const APP = 'export function App(props) { return <p>{props.message}</p>; }';
@@ -13,6 +13,7 @@ async function with_fixture(
 	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
 	try {
 		for (const [name, contents] of Object.entries(files)) {
+			await mkdir(dirname(join(dir, name)), { recursive: true });
 			await writeFile(join(dir, name), contents);
 		}
 		await callback(dir);
@@ -107,6 +108,31 @@ console.log(JSON.stringify((await import(url)).flags));
 			const child = Bun.spawnSync({ cmd: [process.execPath, 'build.mjs'], cwd: dir });
 			expect(child.stderr.toString()).toBe('');
 			expect(child.stdout.toString().trim()).toBe('[false,true]');
+		},
+	);
+});
+
+// Bun's runtime reads only the working directory's own tsconfig, so a classic
+// tsconfig in a parent folder must not change the runtime that Bun.plugin() uses.
+test('ignores a classic tsconfig above the working directory for Bun.plugin()', async () => {
+	await with_fixture(
+		{
+			'tsconfig.json': CLASSIC,
+			'App.tsrx': APP,
+			'app/run.mjs': `import { tsrxReact } from ${JSON.stringify(join(import.meta.dir, '../src/index.js'))};
+Bun.plugin(tsrxReact());
+const { App } = await import('../App.tsrx');
+console.log(App({ message: 'hello' }).type);
+`,
+		},
+		async (dir) => {
+			const child = Bun.spawnSync({
+				cmd: [process.execPath, 'run.mjs'],
+				cwd: join(dir, 'app'),
+				env: { ...process.env, NODE_ENV: 'production' },
+			});
+			expect(child.stderr.toString()).toBe('');
+			expect(child.stdout.toString().trim()).toBe('p');
 		},
 	);
 });

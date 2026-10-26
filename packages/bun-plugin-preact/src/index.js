@@ -1,6 +1,7 @@
 /** @import { BunPlugin } from 'bun' */
 /** @import { Platform, RuntimeImportMode } from '@tsrx/preact' */
 
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { compile } from '@tsrx/preact';
@@ -166,11 +167,18 @@ export function tsrxPreact(options = {}) {
 			const inline_platform = build.config ? undefined : platform;
 			/** @type {Map<string, unknown>} */
 			const tsconfig_cache = new Map();
+			// Bun.build() applies the tsconfig nearest each file. Bun.plugin()
+			// registration applies the working directory's own tsconfig, if any, to
+			// every file, without searching parent folders.
+			const runtime_classic_jsx =
+				!build.config &&
+				existsSync(path.join(process.cwd(), 'tsconfig.json')) &&
+				resolveTsconfigJsx(process.cwd(), tsconfig_cache) === 'react';
 			/** @param {string} file_path */
 			const uses_classic_jsx = (file_path) =>
-				// Bun.build() applies the tsconfig nearest each file. Bun.plugin()
-				// registration applies the working directory's tsconfig to every file.
-				resolveTsconfigJsx(build.config ? file_path : process.cwd(), tsconfig_cache) === 'react';
+				build.config
+					? resolveTsconfigJsx(file_path, tsconfig_cache) === 'react'
+					: runtime_classic_jsx;
 
 			// Every instance sees every virtual CSS request. Leave the ones another
 			// instance compiled to that instance.

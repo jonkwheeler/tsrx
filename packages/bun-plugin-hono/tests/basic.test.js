@@ -223,6 +223,28 @@ describe('@tsrx/bun-plugin-hono', () => {
 		}
 	});
 
+	it('ignores tsconfigs above the working directory for Bun.plugin() registration', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-runtime-parent-'));
+		const cwd = vi.spyOn(process, 'cwd').mockReturnValue(path.join(dir, 'app'));
+		try {
+			await writeFile(
+				path.join(dir, 'tsconfig.json'),
+				JSON.stringify({ compilerOptions: { jsx: 'react' } }),
+			);
+			await mkdir(path.join(dir, 'app'));
+			const file_path = path.join(dir, 'app/App.tsrx');
+			await writeFile(file_path, `export function App() @{ <p>{'x'}</p> }`);
+			// Bun's runtime transpiler reads only the working directory's own tsconfig.
+			const hooks = setup_plugin(undefined, null);
+			const result = await load_tsrx(hooks, file_path);
+
+			expect(result?.contents).toMatch(/^\/\*\* @jsxImportSource hono\/jsx \*\/\n/);
+		} finally {
+			cwd.mockRestore();
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it('keeps a leading shebang above the JSX pragma', async () => {
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-shebang-'));
 		try {

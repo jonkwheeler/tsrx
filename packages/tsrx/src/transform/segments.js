@@ -684,9 +684,6 @@ export function convert_source_map_to_mappings(
 
 	/**
 	 * Needed for a mapping that includes the computed brackets for diagnostics.
-	 * The brackets come from the parser's tokens, so spaces, comments and line
-	 * breaks inside them don't matter. The search starts at the key, not the
-	 * member, whose span includes decorators that can hold a `[` of their own.
 	 * @param {AST.MethodDefinition | AST.PropertyDefinition | AST.Property} node
 	 * @param {CodeMapping[]} mappings
 	 * @returns {void}
@@ -705,6 +702,33 @@ export function convert_source_map_to_mappings(
 		mappings.push(
 			get_mapping_from_node(span, src_to_gen_map, gen_line_offsets, mapping_data_verify_only),
 		);
+	}
+
+	/**
+	 * A verify-only mapping over a node's whole span, for a diagnostic
+	 * TypeScript reports on all of it.
+	 * @param {AST.Node | null | undefined} node
+	 * @returns {void}
+	 */
+	function push_verify_only_span_mapping(node) {
+		if (!has_location(node) || !has_source_map_boundaries(node, src_to_gen_map)) return;
+		mappings.push(
+			get_mapping_from_node(node, src_to_gen_map, gen_line_offsets, mapping_data_verify_only),
+		);
+	}
+
+	/**
+	 * Map the first `text` token at or after `from` that lies inside `node`.
+	 * @param {string} text
+	 * @param {number} from
+	 * @param {AST.NodeWithLocation} node
+	 * @returns {void}
+	 */
+	function push_source_keyword_token(text, from, node) {
+		const keyword = find_source_token(source_tokens, text, from, 'after');
+		if (keyword?.loc && keyword.start < node.end) {
+			tokens.push({ source: text, generated: text, loc: keyword.loc, metadata: {} });
+		}
 	}
 
 	/** @type {Set<string>} */
@@ -1378,20 +1402,8 @@ export function convert_source_map_to_mappings(
 					// TypeScript reports a missing return (TS2355) on the whole return
 					// type. A keyword type is already mapped as a token.
 					const type = node.returnType.typeAnnotation;
-					if (
-						has_location(type) &&
-						!type.type.endsWith('Keyword') &&
-						type.type !== 'TSThisType' &&
-						has_source_map_boundaries(type, src_to_gen_map)
-					) {
-						mappings.push(
-							get_mapping_from_node(
-								type,
-								src_to_gen_map,
-								gen_line_offsets,
-								mapping_data_verify_only,
-							),
-						);
+					if (!type.type.endsWith('Keyword') && type.type !== 'TSThisType') {
+						push_verify_only_span_mapping(type);
 					}
 				}
 
@@ -1880,14 +1892,8 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') {
-				// The class can start at a decorator, `abstract` or `declare`, so take
-				// the `class` keyword from the parser's tokens.
 				if (has_location(node)) {
-					const from = node.decorators?.at(-1)?.end ?? node.start;
-					const keyword = find_source_token(source_tokens, 'class', from, 'after');
-					if (keyword?.loc && keyword.start < node.end) {
-						tokens.push({ source: 'class', generated: 'class', loc: keyword.loc, metadata: {} });
-					}
+					push_source_keyword_token('class', node.decorators?.at(-1)?.end ?? node.start, node);
 				}
 
 				// Visit in source order: decorators, id, typeParameters, superClass,
@@ -1913,19 +1919,10 @@ export function convert_source_map_to_mappings(
 					// expressions map their whole span, but an array literal and a
 					// non-null assertion (`maybe!`) don't.
 					if (
-						(node.superClass.type === 'ArrayExpression' ||
-							node.superClass.type === 'TSNonNullExpression') &&
-						has_location(node.superClass) &&
-						has_source_map_boundaries(node.superClass, src_to_gen_map)
+						node.superClass.type === 'ArrayExpression' ||
+						node.superClass.type === 'TSNonNullExpression'
 					) {
-						mappings.push(
-							get_mapping_from_node(
-								node.superClass,
-								src_to_gen_map,
-								gen_line_offsets,
-								mapping_data_verify_only,
-							),
-						);
+						push_verify_only_span_mapping(node.superClass);
 					}
 				}
 				if (node.superTypeParameters) {
@@ -2178,20 +2175,7 @@ export function convert_source_map_to_mappings(
 					has_location(node) &&
 					has_location(node.expression)
 				) {
-					const keyword = find_source_token(
-						source_tokens,
-						'satisfies',
-						node.expression.end,
-						'after',
-					);
-					if (keyword?.loc && keyword.start < node.end) {
-						tokens.push({
-							source: 'satisfies',
-							generated: 'satisfies',
-							loc: keyword.loc,
-							metadata: {},
-						});
-					}
+					push_source_keyword_token('satisfies', node.expression.end, node);
 				}
 				if (node.typeAnnotation) {
 					visit(node.typeAnnotation);
@@ -2630,8 +2614,7 @@ export function convert_source_map_to_mappings(
 			) {
 				// Primitive type keywords - leaf nodes, no children. TypeScript
 				// reports on the whole keyword (e.g. TS2355 on a `number` return
-				// type), so map it like an identifier. A composite return type gets
-				// a whole-span mapping in the function branch instead.
+				// type), so map it like an identifier.
 				if (has_location(node)) {
 					const keyword = source.slice(node.start, node.end);
 					tokens.push({ source: keyword, generated: keyword, loc: node.loc, metadata: {} });

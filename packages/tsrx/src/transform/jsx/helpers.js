@@ -85,13 +85,10 @@ export function set_node_path_metadata(node, path) {
 
 /**
  * Wrap esrap's `tsx()` printer with TSRX's printing fixes and comment handling.
- * esrap's `_` visitor maps the start and end of every located node, and a
- * typeOnly/volar print passes the parser's tokens to esrap's `tokens` option
- * (see the jsx transform), which maps the keywords and punctuation it writes.
  *
  * Shared across all JSX-producing targets (React, Preact, Solid).
  *
- * @param {boolean} [boundary_tokens] A typeOnly/volar print, whose comments
+ * @param {boolean} [type_only] A typeOnly/volar print, whose comments
  * stay with their owners; build prints stay sparse.
  * @param {AST.CommentWithLocation[]} [comments] Source comments. In type-only
  * output, file-wide pragmas lead the program while documentation and scoped
@@ -106,7 +103,7 @@ export function set_node_path_metadata(node, path) {
  * written.
  */
 export function tsx_with_ts_locations(
-	boundary_tokens = false,
+	type_only = false,
 	comments = undefined,
 	hashbang = null,
 	source = undefined,
@@ -114,7 +111,7 @@ export function tsx_with_ts_locations(
 	const base = with_deferred_imports(/** @type {ESRap.Visitors<AST.Node>} */ (tsx({})));
 	const { _: base_visitor, ...base_visitors } = base;
 	const preserve_comments = comments !== undefined;
-	const preserve_owner_comments = boundary_tokens && preserve_comments;
+	const preserve_owner_comments = type_only && preserve_comments;
 	/** @type {Set<string> | null} */
 	const emitted_comments = preserve_comments ? new Set() : null;
 
@@ -389,7 +386,7 @@ export function tsx_with_ts_locations(
 				print(node, context);
 				return;
 			}
-			const loc = boundary_tokens ? node.loc : undefined;
+			const loc = type_only ? node.loc : undefined;
 			if (loc) context.location(loc.start.line, loc.start.column);
 			context.write('export ');
 			print(node, context);

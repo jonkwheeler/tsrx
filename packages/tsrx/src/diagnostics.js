@@ -576,6 +576,8 @@ export const TS_ERRORS = {
 		code: 'TS1038',
 		message: "A 'declare' modifier cannot be used in an already ambient context.",
 	},
+	/** Decorators on a class `static` block. */
+	DECORATORS_NOT_VALID_HERE: { code: 'TS1206', message: 'Decorators are not valid here.' },
 	MODIFIER_ON_IMPORT: with_values(
 		'TS1079',
 		(modifier) => `A '${modifier}' modifier cannot be used with an import declaration.`,

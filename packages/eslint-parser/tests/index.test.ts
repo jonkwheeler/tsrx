@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { Linter } from 'eslint';
 import { DIAGNOSTIC_CODES } from '@tsrx/core';
+import * as parser from '../src/index.ts';
 import { parseForESLint } from '../src/index.ts';
+
+function lint(code: string, config: Linter.Config = {}) {
+	return new Linter()
+		.verify(code, { files: ['**/*.tsrx'], languageOptions: { parser }, ...config }, 'App.tsrx')
+		.map((message) => `${message.line}: ${message.ruleId}: ${message.message}`);
+}
 
 describe('eslint-parser', () => {
 	it('throws collected broken-markup diagnostics as ESLint parse errors', () => {
@@ -29,5 +37,23 @@ describe('eslint-parser', () => {
 				}),
 			]),
 		);
+	});
+
+	it('lints @switch cases with no rules enabled', () => {
+		expect(
+			lint(`export function App(n) @{
+				@switch (n) {
+					@case 1: { <div /> }
+					@case 2: { <p /> }
+				}
+			}`),
+		).toEqual([]);
+		expect(
+			lint(`export function App(n) @{
+				@switch (n) {
+					@default: { <div /> }
+				}
+			}`),
+		).toEqual([]);
 	});
 });

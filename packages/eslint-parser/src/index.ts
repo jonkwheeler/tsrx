@@ -32,6 +32,7 @@ const visitorKeys: Record<string, string[]> = {
 	JSXIfExpression: ['test', 'consequent', 'alternate'],
 	JSXForExpression: ['init', 'test', 'update', 'left', 'right', 'body', 'index', 'key', 'empty'],
 	JSXSwitchExpression: ['discriminant', 'cases'],
+	JSXSwitchCase: ['test', 'consequent'],
 	JSXTryExpression: ['block', 'handler', 'finalizer', 'pending'],
 	JSXCodeBlock: ['body', 'render'],
 	StyleSheet: [],
@@ -53,6 +54,13 @@ function normalize_tsrx_ast_for_eslint(ast: any): void {
 		// cycles break consumers that deep-clone or serialize the AST (RuleTester).
 		if (node.type === 'JSXStyleElement' && node.metadata?.styleApplies) {
 			delete node.metadata.styleApplies;
+		}
+
+		// ESLint's code path analysis handles every `SwitchCase` as a case of a
+		// `switch` statement and throws on one inside `@switch`. `@case` bodies
+		// never fall through, so they need no switch code paths.
+		if (node.type === 'JSXSwitchExpression') {
+			for (const switch_case of node.cases) switch_case.type = 'JSXSwitchCase';
 		}
 
 		for (const key of Object.keys(node)) {

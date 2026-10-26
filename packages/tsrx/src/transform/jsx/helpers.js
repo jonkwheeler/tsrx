@@ -213,6 +213,20 @@ export function tsx_with_ts_locations(
 			}
 			/** @type {NonNullable<typeof base.Program>} */ (base.Program)(node, context);
 		},
+		ArrayPattern: (node, context) => {
+			print_binding_pattern(
+				/** @type {NonNullable<typeof base.ArrayPattern>} */ (base.ArrayPattern),
+				node,
+				context,
+			);
+		},
+		ObjectPattern: (node, context) => {
+			print_binding_pattern(
+				/** @type {NonNullable<typeof base.ObjectPattern>} */ (base.ObjectPattern),
+				node,
+				context,
+			);
+		},
 		// esrap's tsx printer writes `<T,>` for every one-parameter list, but
 		// only an arrow needs it: TSX reads `<T>(…) => …` as a JSX tag. Other
 		// lists print as written.
@@ -464,6 +478,26 @@ const COMMENT_OWNER_NODE_TYPES = new Set([
 
 /** @type {WeakSet<AST.Node>} */
 const arrow_type_parameters = new WeakSet();
+
+/**
+ * esrap prints a binding pattern's type annotation but not the `?` of an
+ * optional one, `{ a }?: T` in a declared function or a signature, which then
+ * became a required parameter.
+ * UPSTREAM(sveltejs/esrap#245): remove once a release includes the fix
+ * @template {AST.ArrayPattern | AST.ObjectPattern} T
+ * @param {(node: T, context: ESRap.Context) => void} print
+ * @param {T} node
+ * @param {ESRap.Context} context
+ */
+function print_binding_pattern(print, node, context) {
+	if (!node.optional) {
+		print(node, context);
+		return;
+	}
+	print({ ...node, typeAnnotation: undefined }, context);
+	context.write('?');
+	if (node.typeAnnotation) context.visit(node.typeAnnotation);
+}
 
 /**
  * @param {AST.Node | null | undefined} node

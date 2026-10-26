@@ -3171,6 +3171,21 @@ break"}</p>
 			expect(code).toContain('export const query = sql<Row>`select 1`;');
 		});
 
+		it('keeps the ? of an optional binding pattern parameter', () => {
+			const { code } = compile(
+				`declare function f({ a }?: { a: number }): void;
+				type F = ([a]?: number[]) => void;
+				interface I { m({ a }?: { a: number }): void }
+				declare function g([a]?): void;`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('declare function f({ a }?: { a: number }): void;');
+			expect(code).toContain('type F = ([a]?: number[]) => void;');
+			expect(code).toContain('interface I { m({ a }?: { a: number }): void }');
+			expect(code).toContain('declare function g([a]?): void;');
+		});
+
 		it('prints the type annotation of a binding pattern parameter once', () => {
 			const { code } = compile(
 				'function f([a]: A, { b }: B, [c]: C = [], ...[d]: D) {}',

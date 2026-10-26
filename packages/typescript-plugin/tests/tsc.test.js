@@ -589,6 +589,24 @@ it('reports a missing return on a primitive return type in .tsrx files', () => {
 	);
 });
 
+it('reports a missing or unknown prop of a dynamic tag component in .tsrx files', () => {
+	const lines = [
+		'const Card = (props: { title: string }) => <div>{props.title}</div>;',
+		'export function Missing() @{ const C = Card; <{C} /> }',
+		'export function Unknown() @{ const C = Card; <{C} title="x" extra={1} /> }',
+		'export function Correct() @{ const C = Card; <{C} title="x" /> }',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	// TypeScript reports them on the generated name of the lowered tag, which
+	// maps to the authored `{C}`.
+	expect(result.output.match(/^layout\.tsrx\(\d+,\d+\): error TS\d+/gm)).toEqual([
+		`layout.tsrx(5,${lines[1].indexOf('{C}') + 1}): error TS2769`,
+		`layout.tsrx(6,${lines[2].indexOf('{C}') + 1}): error TS2769`,
+	]);
+	expect(result.status).toBe(2);
+});
+
 it('reports a superclass expression that is not a constructor in .tsrx files', () => {
 	const line =
 		'function createBase() { return {}; } export class Model extends createBase() {} export class Cast extends (Model as unknown as {}) {}';

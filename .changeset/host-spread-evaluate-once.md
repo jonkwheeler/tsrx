@@ -24,3 +24,8 @@ evaluated as they are in plain TSX:
   merged `ref` attribute moved after the spread and every later attribute. The
   merged `ref` now stays where the element's own `ref` is written, and reads
   the ref of a bag spread after it when the ref is applied.
+
+A custom platform with `jsx.hostSpreadRefBinding: 'in-place'` now imports
+`copy_spread_props` and `copy_spread_props_for_ref_attr` from its
+`imports.refProp` module, so that module must export them. `@tsrx/runtime/ref`
+and every first-party `*/ref` module re-export them.

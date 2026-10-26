@@ -1414,12 +1414,13 @@ describe('TSRX parser', () => {
 			parseModule(source, 'App.tsrx').body.map((node) =>
 				node.type === 'ExpressionStatement' ? node.expression.type : node.type,
 			);
-		// TypeScript reads `as` and `satisfies` as operators only on the element's line.
+		// TypeScript reads `as` and `satisfies` as operators only on the element's
+		// line, and on the next line as a statement's name, before another token.
 		expect(() => parseModule('<div />\nas any;', 'App.tsrx')).toThrow(
-			error_with(TS_ERRORS.UNEXPECTED_TOKEN),
+			error_with(TS_ERRORS.UNEXPECTED_KEYWORD_OR_IDENTIFIER, '2:0'),
 		);
 		expect(() => parseModule('<div />\nsatisfies any;', 'App.tsrx')).toThrow(
-			error_with(TS_ERRORS.UNEXPECTED_TOKEN),
+			error_with(TS_ERRORS.UNEXPECTED_KEYWORD_OR_IDENTIFIER, '2:0'),
 		);
 		// A tag start is the next element, not a comparison, and so is any `<`
 		// that starts the next line.
@@ -10371,7 +10372,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			source: 'class A { constructor(private readonly ...rest: number[], b) {} }',
 			errors: [
 				[TS_ERRORS.REST_PARAMETER_PROPERTY, 'private readonly ...'],
-				[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', b'],
+				[TS_ERRORS.REST_PARAMETER_NOT_LAST, '...rest'],
 			],
 			throws: [TS_ERRORS.UNEXPECTED_TOKEN, '1:39'],
 			pick: first_member,
@@ -10570,16 +10571,35 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			pick: first,
 		},
 		{
+			// TS1014 at the rest parameter (#956).
 			source: 'function f(...a: number[], b: string) {}',
-			errors: [[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', b']],
-			throws: [TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, '1:25'],
+			errors: [[TS_ERRORS.REST_PARAMETER_NOT_LAST, '...a']],
+			throws: [TS_ERRORS.REST_PARAMETER_NOT_LAST, '1:11'],
 			pick: first,
 			match: { params: [{ type: 'RestElement' }, { type: 'Identifier', name: 'b' }] },
 		},
 		{
+			// TS2462 at an assignment pattern's rest element (#956).
+			source: '[...a, b] = c;',
+			errors: [[TS_ERRORS.REST_ELEMENT_NOT_LAST, '...a']],
+			throws: [TS_ERRORS.REST_ELEMENT_NOT_LAST, '1:1'],
+		},
+		{
+			source: '({ ...a, b } = c);',
+			errors: [[TS_ERRORS.REST_ELEMENT_NOT_LAST, '...a']],
+			throws: [TS_ERRORS.REST_ELEMENT_NOT_LAST, '1:3'],
+		},
+		{
+			// TS1014 at an async arrow function's rest parameter.
+			source: 'const f = async (x, ...a: string[], y) => x;',
+			errors: [[TS_ERRORS.REST_PARAMETER_NOT_LAST, '...a']],
+			throws: [TS_ERRORS.REST_PARAMETER_NOT_LAST, '1:20'],
+		},
+		{
+			// TS2462 at the rest element's target (#956).
 			source: 'const [...a, b] = c;',
-			errors: [[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', b']],
-			throws: [TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, '1:11'],
+			errors: [[TS_ERRORS.REST_ELEMENT_NOT_LAST, 'a, b']],
+			throws: [TS_ERRORS.REST_ELEMENT_NOT_LAST, '1:10'],
 			pick: first,
 			match: {
 				declarations: [
@@ -10639,9 +10659,21 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			},
 		},
 		{
-			source: "import.foo('x');",
-			errors: [[UPSTREAM_ERRORS.IMPORT_META_PROPERTY, "foo('x')"]],
+			// Not called, TS17012 (#966).
+			source: 'import.foo`x`;',
+			errors: [[UPSTREAM_ERRORS.IMPORT_META_PROPERTY, 'foo`']],
 			throws: [UPSTREAM_ERRORS.IMPORT_META_PROPERTY, '1:7'],
+		},
+		{
+			source: 'import.foo?.<T>();',
+			errors: [[TS_ERRORS.IMPORT_META_PROPERTY_CALL, 'foo?.']],
+			throws: [TS_ERRORS.IMPORT_META_PROPERTY_CALL, '1:7'],
+		},
+		{
+			// Called, it's TS18061 (#966).
+			source: "import.foo('x');",
+			errors: [[TS_ERRORS.IMPORT_META_PROPERTY_CALL, "foo('x')"]],
+			throws: [TS_ERRORS.IMPORT_META_PROPERTY_CALL, '1:7'],
 			pick: first,
 			match: {
 				expression: {
@@ -10915,17 +10947,21 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		},
 		{
 			source: 'function f() {\n\tlet\n}',
-			errors: [[UPSTREAM_ERRORS.LET_RESERVED, 'let']],
-			throws: [UPSTREAM_ERRORS.LET_RESERVED, '2:1'],
+			errors: [[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'let']],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '2:1'],
 			pick: function_statement,
 			match: { type: 'ExpressionStatement', expression: { type: 'Identifier', name: 'let' } },
 		},
 		{
-			// acorn also reports the binding name and the lexical declaration's name,
-			// at the same place: one mistake, one error.
+			// acorn also reports the binding name at the same place, which is the
+			// same mistake. TypeScript reports TS2480 for a `let` or `const`
+			// declaration's name too (#962).
 			source: 'const { a: let } = b;',
-			errors: [[UPSTREAM_ERRORS.LET_RESERVED, 'let }']],
-			throws: [UPSTREAM_ERRORS.LET_RESERVED, '1:11'],
+			errors: [
+				[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'let }'],
+				[TS_ERRORS.LET_DECLARATION_NAME, 'let }'],
+			],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:11'],
 			pick: first,
 			match: {
 				type: 'VariableDeclaration',
@@ -10934,32 +10970,76 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		},
 		{
 			source: 'var let = 1;',
-			errors: [[UPSTREAM_ERRORS.LET_RESERVED, 'let =']],
-			throws: [UPSTREAM_ERRORS.LET_RESERVED, '1:4'],
+			errors: [[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'let =']],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:4'],
 			pick: first,
 			match: { type: 'VariableDeclaration', declarations: [{ id: { name: 'let' } }] },
 		},
 		{
+			// In a class, TS1213 (#962).
 			source: 'class let {}',
-			errors: [[UPSTREAM_ERRORS.LET_RESERVED, 'let {']],
-			throws: [UPSTREAM_ERRORS.LET_RESERVED, '1:6'],
+			errors: [[TS_ERRORS.STRICT_MODE_RESERVED_WORD_IN_CLASS, 'let {']],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD_IN_CLASS, '1:6'],
 			pick: first,
 			match: { type: 'ClassDeclaration', id: { name: 'let' } },
 		},
 		{
 			source: "import let from 'a';",
-			errors: [[UPSTREAM_ERRORS.LET_RESERVED, 'let from']],
-			throws: [UPSTREAM_ERRORS.LET_RESERVED, '1:7'],
+			errors: [[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'let from']],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:7'],
 			pick: first,
 			match: { type: 'ImportDeclaration', specifiers: [{ local: { name: 'let' } }] },
+		},
+		// The other words reserved in strict mode (#786).
+		{
+			source: 'let interface = 1;',
+			errors: [[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'interface']],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:4'],
+			valid: 'let iface = 1;',
+			pick: (program) =>
+				as_type(/** @type {AST.Node} */ (first(program)), 'VariableDeclaration').declarations[0]
+					.init,
+		},
+		{
+			source: 'function f(static) {\n\tprivate;\n}',
+			errors: [
+				[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'static)'],
+				[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'private;'],
+			],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:11'],
+			pick: first,
+			match: {
+				params: [{ type: 'Identifier', name: 'static' }],
+				body: { body: [{ expression: { type: 'Identifier', name: 'private' } }] },
+			},
+		},
+		{
+			source: 'class public {\n\tm(yield) {\n\t\tpackage = 1;\n\t}\n}',
+			errors: [
+				[TS_ERRORS.STRICT_MODE_RESERVED_WORD_IN_CLASS, 'public'],
+				[TS_ERRORS.STRICT_MODE_RESERVED_WORD_IN_CLASS, 'yield'],
+				[TS_ERRORS.STRICT_MODE_RESERVED_WORD_IN_CLASS, 'package'],
+			],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD_IN_CLASS, '1:6'],
+			pick: first,
+			match: { type: 'ClassDeclaration', id: { name: 'public' } },
+		},
+		{
+			// acorn reads `implements` as the class's name, where TypeScript reads a
+			// class without one.
+			source: 'class implements {}',
+			errors: [[TS_ERRORS.STRICT_MODE_RESERVED_WORD_IN_CLASS, 'implements']],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD_IN_CLASS, '1:6'],
+			pick: first,
+			match: { type: 'ClassDeclaration', id: { name: 'implements' } },
 		},
 		{
 			source: 'function f(let) {\n\tlet = 1;\n}',
 			errors: [
-				[UPSTREAM_ERRORS.LET_RESERVED, 'let)'],
-				[UPSTREAM_ERRORS.LET_RESERVED, 'let ='],
+				[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'let)'],
+				[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'let ='],
 			],
-			throws: [UPSTREAM_ERRORS.LET_RESERVED, '1:11'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:11'],
 			pick: first,
 			match: {
 				params: [{ type: 'Identifier', name: 'let' }],
@@ -11066,7 +11146,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		{
 			source: 'function f(public x: number) {}',
 			errors: [[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public x']],
-			throws: ['TS1212', '1:11'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:11'],
 			valid: 'class A { constructor(public x: number) {} }',
 			pick: first_parameter,
 			pickValid: constructor_parameter,
@@ -11078,7 +11158,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'private readonly'],
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'protected y'],
 			],
-			throws: ['TS1212', '2:1'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '2:1'],
 			valid:
 				'class A {\n\tconstructor(\n\t\tprivate readonly x: number,\n\t\tprotected y: number,\n\t) {}\n}',
 			pick: (program) =>
@@ -11110,7 +11190,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				[TS_ERRORS.REST_PARAMETER_PROPERTY, 'public'],
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 			],
-			throws: ['TS1212', '1:11'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:11'],
 			valid: 'function f(...rest: number[]) {}',
 			pick: first_parameter,
 		},
@@ -11120,7 +11200,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 				[TS_ERRORS.PATTERN_PARAMETER_PROPERTY, 'public'],
 			],
-			throws: ['TS1212', '1:11'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:11'],
 			pick: first_parameter,
 			match: { type: 'TSParameterProperty', parameter: { type: 'ArrayPattern' } },
 		},
@@ -11156,7 +11236,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 				[TS_ERRORS.PATTERN_PARAMETER_PROPERTY, 'public'],
 			],
-			throws: ['TS1212', '1:11'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:11'],
 			pick: first_parameter,
 			match: {
 				type: 'TSParameterProperty',
@@ -11176,7 +11256,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		{
 			source: 'type C = new (protected x: number) => object;',
 			errors: [[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'protected x']],
-			throws: ['TS1212', '1:14'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:14'],
 			valid: 'class A { constructor(protected x: number) {} }',
 			pick: (program) => as_type(type_alias_type(program), 'TSConstructorType').parameters,
 			pickValid: constructor_parameters,
@@ -11189,7 +11269,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'override y'],
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'readonly z'],
 			],
-			throws: ['TS1212', '2:3'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '2:3'],
 			pick: (program) =>
 				as_type(/** @type {AST.Node} */ (first(program)), 'TSInterfaceDeclaration').body.body,
 			match: [
@@ -11213,7 +11293,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 				[TS_ERRORS.PATTERN_PARAMETER_PROPERTY, 'public'],
 			],
-			throws: ['TS1212', '1:14'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:14'],
 			pick: (program) =>
 				as_type(as_type(type_alias_type(program), 'TSTypeLiteral').members[0], 'TSMethodSignature')
 					.parameters,
@@ -11231,7 +11311,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				[TS_ERRORS.REST_PARAMETER_PROPERTY, 'public'],
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 			],
-			throws: ['TS1212', '1:12'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:12'],
 			valid: 'type T = { (...rest: number[]): void };',
 			pick: type_alias_type,
 		},
@@ -11239,8 +11319,8 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			// A signature's parameters now go through `parseBindingList`, which reads
 			// the parameters after a rest parameter, as for a function.
 			source: 'type F = (...a: number[], b: string) => void;',
-			errors: [[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', b']],
-			throws: [TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, '1:24'],
+			errors: [[TS_ERRORS.REST_PARAMETER_NOT_LAST, '...a']],
+			throws: [TS_ERRORS.REST_PARAMETER_NOT_LAST, '1:10'],
 			pick: (program) => as_type(type_alias_type(program), 'TSFunctionType').parameters,
 			match: [{ type: 'RestElement' }, { type: 'Identifier', name: 'b' }],
 		},
@@ -11248,7 +11328,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		{
 			source: 'const k = (public x: number) => x;',
 			errors: [[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public x']],
-			throws: ['TS1212', '1:11'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:11'],
 			valid: 'class A { constructor(public x: number) {} }',
 			pick: arrow_parameters,
 			pickValid: constructor_parameters,
@@ -11334,7 +11414,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				[TS_ERRORS.REST_PARAMETER_PROPERTY, 'public'],
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 			],
-			throws: ['TS1212', '1:22'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:22'],
 			valid: 'const f = (a: number, ...rest: number[]) => a;',
 			pick: arrow_parameters,
 		},
@@ -11345,14 +11425,14 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 				[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ',)'],
 			],
-			throws: ['TS1212', '1:14'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:14'],
 			valid: 'const f = (a, ...r) => a;',
 			pick: arrow_parameters,
 		},
 		{
 			source: 'export const App = (public x: number) => @{\n\t<div>{x}</div>\n};',
 			errors: [[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public x']],
-			throws: ['TS1212', '1:20'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:20'],
 		},
 		// An arrow function's optional rest or pattern parameter (#663), as other
 		// functions' (#616, #557).
@@ -11725,12 +11805,12 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			pickValid: first,
 		},
 		// A property after an object binding pattern's rest element (#771,
-		// TypeScript's TS2462 from its checker), recorded at the comma as for an
-		// array binding pattern.
+		// TypeScript's TS2462 from its checker), at the rest element's target as
+		// for an array binding pattern (#956).
 		{
 			source: 'const { ...a, b } = c;',
-			errors: [[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', b']],
-			throws: [TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, '1:12'],
+			errors: [[TS_ERRORS.REST_ELEMENT_NOT_LAST, 'a, b']],
+			throws: [TS_ERRORS.REST_ELEMENT_NOT_LAST, '1:11'],
 			pick: (program) =>
 				as_type(/** @type {AST.Node} */ (first(program)), 'VariableDeclaration').declarations[0].id,
 			match: {
@@ -11744,10 +11824,10 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		{
 			source: 'function f({ ...a, ...b, c = 1 }) {}',
 			errors: [
-				[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', ...b'],
-				[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', c'],
+				[TS_ERRORS.REST_ELEMENT_NOT_LAST, 'a, ...b'],
+				[TS_ERRORS.REST_ELEMENT_NOT_LAST, 'b, c'],
 			],
-			throws: [TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, '1:17'],
+			throws: [TS_ERRORS.REST_ELEMENT_NOT_LAST, '1:16'],
 			pick: first_parameter,
 			match: {
 				type: 'ObjectPattern',
@@ -11763,7 +11843,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			source: 'const { ...a = 1, b } = c;',
 			errors: [
 				[TS_ERRORS.REST_ELEMENT_INITIALIZER, '= 1'],
-				[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', b'],
+				[TS_ERRORS.REST_ELEMENT_NOT_LAST, 'a = 1'],
 			],
 			throws: [TS_ERRORS.REST_ELEMENT_INITIALIZER, '1:13'],
 			pick: (program) =>
@@ -11777,11 +11857,11 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			},
 		},
 		// A parameter after an arrow function's rest parameter (#727, TS1014),
-		// recorded at the comma as for other functions' parameters.
+		// at the rest parameter as for other functions' parameters (#956).
 		{
 			source: 'const f = (...a, b) => [a, b];',
-			errors: [[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', b']],
-			throws: [TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, '1:15'],
+			errors: [[TS_ERRORS.REST_PARAMETER_NOT_LAST, '...a']],
+			throws: [TS_ERRORS.REST_PARAMETER_NOT_LAST, '1:11'],
 			pick: arrow_parameters,
 			match: [
 				{ type: 'RestElement', argument: { name: 'a' } },
@@ -11789,12 +11869,10 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			],
 		},
 		{
+			// TypeScript reports the first rest parameter that isn't last.
 			source: 'const g = (...a, ...b, c,) => c;',
-			errors: [
-				[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', ...b'],
-				[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', c'],
-			],
-			throws: [TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, '1:15'],
+			errors: [[TS_ERRORS.REST_PARAMETER_NOT_LAST, '...a']],
+			throws: [TS_ERRORS.REST_PARAMETER_NOT_LAST, '1:11'],
 			pick: arrow_parameters,
 			match: [
 				{ type: 'RestElement', argument: { name: 'a' } },
@@ -11804,8 +11882,8 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		},
 		{
 			source: 'const h = (...a, b = 1, { c }): void => c;',
-			errors: [[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', b']],
-			throws: [TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, '1:15'],
+			errors: [[TS_ERRORS.REST_PARAMETER_NOT_LAST, '...a']],
+			throws: [TS_ERRORS.REST_PARAMETER_NOT_LAST, '1:11'],
 			pick: arrow_parameters,
 			match: [
 				{ type: 'RestElement' },
@@ -11821,8 +11899,8 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 	) => b;
 	<div>{m()}</div>
 }`,
-			errors: [[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ',']],
-			throws: [TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, '3:16'],
+			errors: [[TS_ERRORS.REST_PARAMETER_NOT_LAST, '...a']],
+			throws: [TS_ERRORS.REST_PARAMETER_NOT_LAST, '3:2'],
 		},
 		{
 			// After a rest parameter with modifiers, async too.
@@ -11830,9 +11908,9 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			errors: [
 				[TS_ERRORS.REST_PARAMETER_PROPERTY, 'public'],
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
-				[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', b'],
+				[TS_ERRORS.REST_PARAMETER_NOT_LAST, '...a'],
 			],
-			throws: ['TS1212', '1:14'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:14'],
 			pick: arrow_parameters,
 			match: [{ name: 'x' }, { type: 'RestElement' }, { name: 'b' }],
 		},
@@ -11841,9 +11919,9 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			errors: [
 				[TS_ERRORS.REST_PARAMETER_PROPERTY, 'public'],
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
-				[TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', b'],
+				[TS_ERRORS.REST_PARAMETER_NOT_LAST, '...a'],
 			],
-			throws: ['TS1212', '1:20'],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:20'],
 			pick: arrow_parameters,
 			match: [{ name: 'x' }, { type: 'RestElement' }, { name: 'b' }],
 		},
@@ -12008,15 +12086,15 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		// arrow function fails at its `...`, as before.
 		/** @type {Array<[source: string, error: ErrorKind, at: string]>} */
 		const sources = [
-			['const a = (...b, c);', TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', c'],
+			['const a = (...b, c);', TS_ERRORS.REST_PARAMETER_NOT_LAST, '...b'],
 			[
 				`const a = (...b, c)
 => 1;`,
-				TS_ERRORS.REST_ELEMENT_TRAILING_COMMA,
-				', c',
+				TS_ERRORS.REST_PARAMETER_NOT_LAST,
+				'...b',
 			],
-			['const a = (...b, c()) => 1;', TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', c'],
-			['const a = x || (...b, c) => b;', TS_ERRORS.REST_ELEMENT_TRAILING_COMMA, ', c'],
+			['const a = (...b, c()) => 1;', TS_ERRORS.REST_PARAMETER_NOT_LAST, '...b'],
+			['const a = x || (...b, c) => b;', TS_ERRORS.REST_PARAMETER_NOT_LAST, '...b'],
 			['const a = (...b = []);', TS_ERRORS.UNEXPECTED_TOKEN, '...'],
 			['const a = x || (...b = []) => b;', TS_ERRORS.UNEXPECTED_TOKEN, '= []'],
 			['const a = async(...b: T = []);', TS_ERRORS.UNEXPECTED_TYPE_ANNOTATION, ': T'],
@@ -13500,6 +13578,66 @@ describe('`const` type parameters on an object method (#631)', () => {
 // comments, each piece exactly as written, and an empty `{}` for each comment,
 // spanning it. A piece that is whitespace with a line break renders nothing,
 // but is kept as text, as TSX parsers keep such text anywhere.
+describe("TypeScript's syntax error where acorn reports another", () => {
+	// Thrown in every mode, at TypeScript's position.
+	const modes = [undefined, { collect: true, preserveParens: true }, { loose: true }];
+
+	/** @param {Array<[source: string, error: ErrorKind, at: string]>} cases */
+	async function expect_thrown(cases) {
+		const outcomes = await parse_in_worker(
+			cases.flatMap(([source]) => modes.map((options) => ({ source, options }))),
+		);
+		expect(outcomes).toEqual(
+			cases.flatMap(([source, error, at]) => modes.map(() => thrown(error, source.indexOf(at)))),
+		);
+	}
+
+	it('reports a missing `;`, or `,` in a declaration list (#1053)', async () => {
+		await expect_thrown([
+			['import "m" x;', TS_ERRORS.TOKEN_EXPECTED, 'x;'],
+			['export * from "m" x;', TS_ERRORS.TOKEN_EXPECTED, 'x;'],
+			['const a = 1;\nexport { a } x;', TS_ERRORS.TOKEN_EXPECTED, 'x;'],
+			['x = 1 2;', TS_ERRORS.TOKEN_EXPECTED, '2;'],
+			['f() g();', TS_ERRORS.TOKEN_EXPECTED, 'g('],
+			['type T = string number;', TS_ERRORS.TOKEN_EXPECTED, 'number'],
+			['debugger x;', TS_ERRORS.TOKEN_EXPECTED, 'x;'],
+			['function f() {\n\treturn 1 2;\n}', TS_ERRORS.TOKEN_EXPECTED, '2;'],
+			['this x;', TS_ERRORS.TOKEN_EXPECTED, 'x;'],
+			['let a = 1 2;', TS_ERRORS.TOKEN_EXPECTED, '2;'],
+			['var v = 1 + 2 3;', TS_ERRORS.TOKEN_EXPECTED, '3;'],
+			['const q = 1, r = 2 s;', TS_ERRORS.TOKEN_EXPECTED, 's;'],
+			// `=>` ends a declaration list too.
+			['const k = async(a)(b) => 1;', TS_ERRORS.TOKEN_EXPECTED, '=>'],
+		]);
+	});
+
+	it("reports a lone name before another token as TypeScript's parser does (#1053)", async () => {
+		await expect_thrown([
+			['a b;', TS_ERRORS.UNEXPECTED_KEYWORD_OR_IDENTIFIER, 'a b'],
+			['throw a b;', TS_ERRORS.UNEXPECTED_KEYWORD_OR_IDENTIFIER, 'a b'],
+			['label: b c;', TS_ERRORS.UNEXPECTED_KEYWORD_OR_IDENTIFIER, 'b c'],
+			// A misspelled keyword, or one without its space.
+			['cosnt x = 1;', TS_ERRORS.UNKNOWN_KEYWORD_OR_IDENTIFIER, 'cosnt'],
+			['asyncfunction f() {}', TS_ERRORS.UNKNOWN_KEYWORD_OR_IDENTIFIER, 'asyncfunction'],
+		]);
+		expect(() => parseModule('cosnt x = 1;', 'App.tsrx')).toThrow(
+			"Unknown keyword or identifier. Did you mean 'const'?",
+		);
+		expect(() => parseModule('asyncfunction f() {}', 'App.tsrx')).toThrow(
+			"Unknown keyword or identifier. Did you mean 'async function'?",
+		);
+	});
+
+	it('reports type arguments after `?.` without a call at the token after them (#884)', async () => {
+		await expect_thrown([
+			['a?.<T>`c`;', TS_ERRORS.OPTIONAL_CHAIN_TAGGED_TEMPLATE, '`c`'],
+			['a?.<T>\n`c`;', TS_ERRORS.OPTIONAL_CHAIN_TAGGED_TEMPLATE, '`c`'],
+			['a?.<T>;', TS_ERRORS.TOKEN_EXPECTED, ';'],
+			['a?.<T>.b;', TS_ERRORS.TOKEN_EXPECTED, '.b'],
+		]);
+	});
+});
+
 describe('comments between template children', () => {
 	/** @type {Array<ParseOptions | undefined>} */
 	const modes = [undefined, { collect: true, errors: [], comments: [] }, { loose: true }];

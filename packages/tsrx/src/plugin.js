@@ -12,6 +12,7 @@ import { regex_newline_characters, regex_not_whitespace } from './utils/patterns
 import { error } from './errors.js';
 import { TS_ERRORS, TSRX_ERRORS, UPSTREAM_ERRORS, get_upstream_error } from './diagnostics.js';
 import { is_tsrx_render_output_node } from './utils/ast.js';
+import { keyword_suggestion } from './utils/keyword-suggestion.js';
 
 /** Whitespace and comments from `lastIndex` on, like acorn's `skipSpace` */
 const regex_space_and_comments = /(?:\s|\/\/[^\n\r\u2028\u2029]*|\/\*[\s\S]*?\*\/)*/y;
@@ -268,7 +269,8 @@ const DECLARATION_KEYWORDS = new Set([
  * initializer (`parseVarId`), a declaration list without a declarator
  * (`parseVarStatement`, `parseForStatement`), `await` in a namespace
  * (`canAwait`), a private name outside a class (the constructor and
- * `parsePrivateIdent`), a modifier on a rest parameter
+ * `parsePrivateIdent`), a word reserved in strict mode used as a name
+ * (`raiseRecoverable`), a modifier on a rest parameter
  * (`#parseRestParameterProperty`), a modifier on an arrow function's parameter
  * (`#parseArrowParameterProperty`), and decorators before a declaration other
  * than a class (`parseDecorators`, `#parseDecoratedStatement`).
@@ -292,7 +294,8 @@ const CHECKER_LEVEL_ERRORS = new Set([
 	UPSTREAM_ERRORS.EXPORT_NOT_DEFINED,
 	// acorn: `a?.b = c` (TS2779).
 	UPSTREAM_ERRORS.OPTIONAL_CHAIN_ASSIGNMENT,
-	// acorn: `import.foo('x')` (TS18061).
+	// acorn: `import.foo` (TS17012), or `import.foo('x')` (TS18061, see
+	// `raiseRecoverable`).
 	UPSTREAM_ERRORS.IMPORT_META_PROPERTY,
 	// acorn: `new.target` outside a function (TS17013).
 	UPSTREAM_ERRORS.NEW_TARGET_OUTSIDE_FUNCTION,
@@ -302,12 +305,6 @@ const CHECKER_LEVEL_ERRORS = new Set([
 	UPSTREAM_ERRORS.SUPER_CALL_OUTSIDE_CONSTRUCTOR,
 	// acorn: `function f(...a,) {}` (TS1013).
 	TS_ERRORS.REST_ELEMENT_TRAILING_COMMA,
-	// acorn: `let` used as a name in strict code (TS1213, TS1214), such as a bare
-	// `let`, a binding name (`var let`, `class let {}`), or an assignment target
-	// (`let = 1`). acorn reports a binding name or a target more than once, and
-	// only the first is recorded (see `#collectCheckerLevelError`).
-	UPSTREAM_ERRORS.LET_RESERVED,
-	UPSTREAM_ERRORS.LET_BINDING,
 	// acorn-typescript: `abstract` members in a class that isn't abstract (TS1244).
 	UPSTREAM_ERRORS.ABSTRACT_METHOD_IN_CLASS,
 	// `abstract function f() {}`, `export abstract let x = 1;` (TS1242), raised
@@ -409,6 +406,27 @@ const STATIC_BLOCK_MODIFIER_KEYS = [
 	'abstract',
 	'readonly',
 ];
+// acorn's errors for a word reserved only in strict mode used as a name, and
+// for `let` as the name of a `let` or `const` declaration (see
+// `raiseRecoverable`).
+const regex_strict_mode_reserved_word =
+	/^(?:The keyword '(implements|interface|let|package|private|protected|public|static|yield)' is reserved|(?:Binding|Assigning to) (implements|interface|let|package|private|protected|public|static|yield) in strict mode)$/;
+const LET_LEXICAL_BINDING = 'let is disallowed as a lexically bound name';
+// A name, without escapes, that TypeScript's parser reads as an identifier
+// where an expression starts: not one of the reserved words acorn reads as
+// one (see `semicolon`).
+const regex_plain_name = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*$/u;
+// The names after which TypeScript's parser reports another error than TS1434
+// for a missing `;`, or none (`parseErrorForMissingSemicolonAfter`), which
+// keep TS1005 here.
+const NAMES_WITH_OWN_MISSING_SEMICOLON_ERROR = new Set([
+	'declare',
+	'interface',
+	'is',
+	'module',
+	'namespace',
+	'type',
+]);
 // A word, or any other character, after whitespace and comments.
 const regex_next_token =
 	/(?:\s|\/\/[^\n\r\u2028\u2029]*|\/\*[\s\S]*?\*\/)*([\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*|\S)/uy;
@@ -1325,6 +1343,16 @@ export function TSRXPlugin(config) {
 			// Whether acorn-typescript raised its error for modifiers before the class
 			// `static` block being read (see `parseClassElement`).
 			#staticBlockModifiers = false;
+			// How many classes the parser is in (see `parseClass`).
+			#classDepth = 0;
+			// Where the last variable declarator ended, and where the expression of
+			// the last expression statement or `throw` started (see `semicolon`).
+			#declaratorEnd = -1;
+			#statementExpressionStart = -1;
+			// The rest elements that a comma follows, by where the comma is (see
+			// `#restElementCommaError`).
+			/** @type {Map<number, { start: number, target: number, kind: 'parameter' | 'binding' | 'assignment' }>} */
+			#restElementsBeforeComma = new Map();
 			// Where the `interface` after `export default` starts, which starts an
 			// interface declaration wherever its name is (see `hasFollowingLineBreak`).
 			#defaultExportInterfaceStart = -1;
@@ -1344,6 +1372,8 @@ export function TSRXPlugin(config) {
 			 */
 			finishNode(node, type) {
 				const finished = super.finishNode(node, type);
+				// See `semicolon`.
+				if (type === 'VariableDeclarator') this.#declaratorEnd = this.lastTokEnd;
 				if (this.#collect) this.#reportAwaitInNamespace(finished);
 				if (DECORATABLE_NODE_TYPES.has(type)) {
 					// acorn-typescript sets `decorators` only when there is one. Give every
@@ -4250,7 +4280,10 @@ export function TSRXPlugin(config) {
 					this.#raiseCheckerError(position, nested_import_export_error(this.input, position));
 					return /** @type {never} */ (undefined);
 				}
-				const error = to_diagnostic(message, kind);
+				let error = to_diagnostic(message, kind);
+				if (kind === TS_ERRORS.REST_ELEMENT_TRAILING_COMMA) {
+					({ position, error } = this.#restElementCommaError(position));
+				}
 				if (this.#collectCheckerLevelError(position, error, kind)) {
 					// The raise site goes on parsing (see `CHECKER_LEVEL_ERRORS`).
 					return /** @type {never} */ (undefined);
@@ -4281,8 +4314,30 @@ export function TSRXPlugin(config) {
 			 */
 			raiseRecoverable(position, message) {
 				const text = get_error_message(message);
+				const reserved = regex_strict_mode_reserved_word.exec(text);
+				if (reserved) {
+					this.#raiseStrictModeReservedWord(position, reserved[1] ?? reserved[2]);
+					return;
+				}
+				if (text === LET_LEXICAL_BINDING) {
+					// TypeScript's checker reports it only for a `let`, `const` or `using`
+					// declaration, after the reserved word, which acorn reports first.
+					const kind = this.#declaration?.kind;
+					if (kind && kind !== 'var' && kind !== 'class') {
+						this.#raiseCheckerError(position, TS_ERRORS.LET_DECLARATION_NAME);
+					}
+					return;
+				}
 				const kind = error_kind(text);
-				const fallback = to_diagnostic(text, kind);
+				/** @type {ReportedError} */
+				let fallback = to_diagnostic(text, kind);
+				if (kind === UPSTREAM_ERRORS.IMPORT_META_PROPERTY && this.#atCallArguments()) {
+					fallback = TS_ERRORS.IMPORT_META_PROPERTY_CALL(
+						this.input.slice(position, this.lastTokEnd),
+					);
+				} else if (kind === TS_ERRORS.REST_ELEMENT_TRAILING_COMMA) {
+					({ position, error: fallback } = this.#restElementCommaError(position));
+				}
 				const redeclaration = kind === UPSTREAM_ERRORS.REDECLARED ? this.#redeclaration : null;
 				const error =
 					redeclaration &&
@@ -4309,6 +4364,61 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
+			 * A word reserved only in strict mode (`let`, `static`, `yield`, …) used
+			 * as a name. TypeScript's parser reads it as a name, and its binder reports
+			 * TS1214, or TS1213 inside a class, so it's a checker error (see
+			 * `CHECKER_LEVEL_ERRORS`): a strict parse throws it, and a collecting one
+			 * records it at the word once, as acorn reports a binding name or an
+			 * assignment target again after it. acorn reported it as TS1212 and threw
+			 * it in every mode for any word but `let`.
+			 * @param {number} position
+			 * @param {string} word
+			 */
+			#raiseStrictModeReservedWord(position, word) {
+				const error = (
+					this.#classDepth > 0
+						? TS_ERRORS.STRICT_MODE_RESERVED_WORD_IN_CLASS
+						: TS_ERRORS.STRICT_MODE_RESERVED_WORD
+				)(word);
+				if (this.#errors?.some((other) => other.pos === position && other.code === error.code)) {
+					return;
+				}
+				if (
+					word === 'implements' &&
+					this.#declaration?.kind === 'class' &&
+					(Parser.acornTypeScript.tokenIsIdentifier(this.type) || this.type.keyword !== undefined)
+				) {
+					// TypeScript reads `class implements I {}` as a class without a name,
+					// which acorn can't, so it stays an error in every mode.
+					this.#throwError(position, error);
+				}
+				this.#raiseCheckerError(position, error);
+			}
+
+			/**
+			 * Whether the current token starts the arguments of a call of the
+			 * expression just read: `(`, after `?.` or type arguments, or both. A
+			 * call of `import.<name>` is TypeScript's TS18061, and otherwise TS17012.
+			 */
+			#atCallArguments() {
+				const errors = this.#errors;
+				const errors_length = errors?.length ?? 0;
+				try {
+					return this.tsLookAhead(() => {
+						try {
+							if (this.type === tt.questionDot) this.next();
+							if (this.tsMatchLeftRelational()) this.tsParseTypeArgumentsInExpression();
+							return this.type === tt.parenL;
+						} catch {
+							return false;
+						}
+					});
+				} finally {
+					if (errors) errors.length = errors_length;
+				}
+			}
+
+			/**
 			 * Record `error` in `errors` when collecting and it is a checker-level
 			 * error (`CHECKER_LEVEL_ERRORS`).
 			 * @param {number} position
@@ -4324,6 +4434,7 @@ export function TSRXPlugin(config) {
 					// trailing comma, as acorn-typescript does in ambient contexts (where
 					// it's allowed after a rest parameter); a comma that another element
 					// follows is still an error, unless it's an arrow function's parameter.
+					// `raiseRecoverable` has moved the error to TypeScript's position.
 					if (this.#isAmbientRestParameterTrailingComma()) return false;
 					const next = this.lookaheadCharCode();
 					if (
@@ -4331,21 +4442,10 @@ export function TSRXPlugin(config) {
 						next !== CharCode.closeBracket &&
 						next !== CharCode.closeBrace
 					) {
-						return this.#readArrowParametersPastRestElement(position);
+						return this.#readArrowParametersPastRestElement(position, error);
 					}
 					this.#recordCheckerLevelError(position, position + 1, error);
 					this.next();
-					return true;
-				}
-
-				if (
-					kind === UPSTREAM_ERRORS.LET_BINDING &&
-					this.#errors?.some((error) => error.pos === position)
-				) {
-					// acorn reports `let` as a binding name or an assignment target up to
-					// three times: as a reserved word, as a name that strict code can't
-					// bind or assign, and as the name of a `let` or `const` declaration.
-					// Record the first.
 					return true;
 				}
 
@@ -4816,6 +4916,9 @@ export function TSRXPlugin(config) {
 				/** @type {AST.Pattern[]} */
 				const elements = [];
 				let first = true;
+				// TypeScript reports the first rest parameter that isn't last, and every
+				// such rest element of a pattern.
+				let rest_reported = false;
 				while (!this.eat(close)) {
 					if (first) first = false;
 					else this.expect(tt.comma);
@@ -4827,12 +4930,14 @@ export function TSRXPlugin(config) {
 						const rest = this.parseRestBinding();
 						this.parseBindingListItem(rest);
 						elements.push(rest);
-						if (this.type === tt.comma && !this.#isAmbientRestParameterTrailingComma()) {
-							this.#recordCheckerLevelError(
-								this.start,
-								this.start + 1,
-								TS_ERRORS.REST_ELEMENT_TRAILING_COMMA,
-							);
+						if (
+							this.type === tt.comma &&
+							!this.#isAmbientRestParameterTrailingComma() &&
+							!(rest_reported && close === tt.parenR)
+						) {
+							const { position, error } = this.#restElementCommaError(this.start);
+							this.#recordCheckerLevelError(position, position + 1, error);
+							rest_reported = true;
 						}
 					} else {
 						elements.push(this.parseAssignableListItem(allowModifiers));
@@ -7122,20 +7227,64 @@ export function TSRXPlugin(config) {
 			/**
 			 * A rest element that `parseAssignableListItem` reads is an ordinary
 			 * element to the list, so report a comma after it here as acorn does
-			 * (TS1013, TS1014), recording it when collecting as `parseBindingList`
-			 * does. A trailing comma is allowed in an ambient context.
+			 * (TS1013, TS1014, see `#restElementCommaError`), recording it when
+			 * collecting as `parseBindingList` does. A trailing comma is allowed in an
+			 * ambient context.
 			 */
 			#reportCommaAfterRestParameter() {
 				if (this.type !== tt.comma || this.#isAmbientRestParameterTrailingComma()) return;
-				if (this.#collect) {
-					this.#recordCheckerLevelError(
-						this.start,
-						this.start + 1,
-						TS_ERRORS.REST_ELEMENT_TRAILING_COMMA,
-					);
-				} else {
-					this.raise(this.start, TS_ERRORS.REST_ELEMENT_TRAILING_COMMA);
+				const { position, error } = this.#restElementCommaError(this.start);
+				this.#raiseCheckerError(position, error);
+			}
+
+			/**
+			 * Note `rest`, a rest element just read, when a comma follows it, for the
+			 * error that comma is (see `#restElementCommaError`): a parameter, an
+			 * element of a binding pattern, or a spread in an array or object literal
+			 * that can become an assignment pattern.
+			 * @param {AST.Node} rest A `RestElement` or `SpreadElement`
+			 * @param {'parameter' | 'binding' | 'assignment'} kind
+			 */
+			#noteRestElement(rest, kind) {
+				if (this.type !== tt.comma) return;
+				const { argument } = /** @type {AST.RestElement} */ (rest);
+				this.#restElementsBeforeComma.set(this.start, {
+					start: /** @type {number} */ (rest.start),
+					target: /** @type {number} */ (/** @type {AST.Node} */ (argument).start),
+					kind,
+				});
+			}
+
+			/**
+			 * TypeScript's error for the comma at `position` after a rest element,
+			 * which acorn reports as `Comma is not permitted after the rest element`:
+			 * TS1013 for a comma before the list's end. For an item after the rest
+			 * element, TypeScript's checker reports TS1014 at a rest parameter, or
+			 * TS2462 at the target of a binding pattern's rest element or at an
+			 * assignment pattern's rest element (#956).
+			 * @param {number} position
+			 * @returns {{ position: number, error: Diagnostic }}
+			 */
+			#restElementCommaError(position) {
+				const rest = this.#restElementsBeforeComma.get(position);
+				regex_space_and_comments.lastIndex = position + 1;
+				regex_space_and_comments.exec(this.input);
+				const next = this.input.charCodeAt(regex_space_and_comments.lastIndex);
+				if (
+					!rest ||
+					next === CharCode.closeParen ||
+					next === CharCode.closeBracket ||
+					next === CharCode.closeBrace
+				) {
+					return { position, error: TS_ERRORS.REST_ELEMENT_TRAILING_COMMA };
 				}
+				if (rest.kind === 'parameter') {
+					return { position: rest.start, error: TS_ERRORS.REST_PARAMETER_NOT_LAST };
+				}
+				return {
+					position: rest.kind === 'binding' ? rest.target : rest.start,
+					error: TS_ERRORS.REST_ELEMENT_NOT_LAST,
+				};
 			}
 
 			/**
@@ -7183,6 +7332,12 @@ export function TSRXPlugin(config) {
 					} else if (this.#bindingListClose === tt.bracketR) {
 						this.#readRestElementDefault(item);
 					}
+				}
+				if (item.type === 'RestElement') {
+					this.#noteRestElement(
+						item,
+						this.#bindingListClose === tt.parenR ? 'parameter' : 'binding',
+					);
 				}
 				return item;
 			}
@@ -8225,6 +8380,7 @@ export function TSRXPlugin(config) {
 				}
 				// After a `?` or an annotation: `...a = []` is the spread's argument.
 				if (rest_parameter && this.type === tt.eq) this.#readRestParameterDefault(node);
+				this.#noteRestElement(node, rest_parameter ? 'parameter' : 'assignment');
 				return node;
 			}
 
@@ -8267,6 +8423,7 @@ export function TSRXPlugin(config) {
 					if (type_cast) item = this.typeCastToParameter(item);
 					this.#readRestParameterDefault(item);
 				}
+				if (node.type === 'RestElement') this.#noteRestElement(node, 'parameter');
 				return item;
 			}
 
@@ -8638,10 +8795,11 @@ export function TSRXPlugin(config) {
 			 * as `#parseBindingListPastRestElement` does, for `parseParenArrowList` to
 			 * add them to the parameters (#727). Otherwise the error is thrown, as
 			 * before. It's raised in a strict parse.
-			 * @param {number} position The comma
+			 * @param {number} position Where TypeScript reports the error
+			 * @param {ReportedError} error TypeScript's error (see `#restElementCommaError`)
 			 * @returns {boolean} Whether the items were read, and parsing goes on
 			 */
-			#readArrowParametersPastRestElement(position) {
+			#readArrowParametersPastRestElement(position, error) {
 				const list = this.#arrowParameterList;
 				if (
 					list === null ||
@@ -8654,11 +8812,7 @@ export function TSRXPlugin(config) {
 				) {
 					return false;
 				}
-				this.#recordCheckerLevelError(
-					position,
-					position + 1,
-					TS_ERRORS.REST_ELEMENT_TRAILING_COMMA,
-				);
+				this.#recordCheckerLevelError(position, position + 1, error);
 				const refDestructuringErrors = new /** @type {new () => Parse.DestructuringErrors} */ (
 					/** @type {unknown} */ (DestructuringErrors)
 				)();
@@ -8666,10 +8820,10 @@ export function TSRXPlugin(config) {
 				const items = [];
 				while (this.eat(tt.comma) && this.type !== tt.parenR) {
 					if (this.type === tt.ellipsis) {
+						// TypeScript reports only the first rest parameter that isn't last.
 						items.push(
 							/** @type {AST.Expression} */ (this.parseParenItem(this.parseRestBinding())),
 						);
-						this.#reportCommaAfterRestParameter();
 					} else {
 						items.push(this.parseMaybeAssign(false, refDestructuringErrors, this.parseParenItem));
 					}
@@ -11353,6 +11507,88 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
+			 * Type arguments after `?.` with no `(` after them: acorn-typescript's
+			 * `parseSubscript` passes a line and column where acorn's `unexpected`
+			 * takes a position, so the error said `Unexpected token (1:NaN)` (#884).
+			 * Report TypeScript's error at the token after the type arguments
+			 * instead: TS1358 before a template literal (`` a?.<T>`c` ``), and
+			 * otherwise TS1005 `'(' expected.`.
+			 * @param {number | AST.Position} [pos]
+			 * @returns {never}
+			 */
+			unexpected(pos) {
+				if (pos !== undefined && typeof pos === 'object') {
+					this.raise(
+						this.start,
+						this.type === tt.backQuote
+							? TS_ERRORS.OPTIONAL_CHAIN_TAGGED_TEMPLATE
+							: TS_ERRORS.TOKEN_EXPECTED('('),
+					);
+				}
+				return super.unexpected(pos);
+			}
+
+			/**
+			 * A statement followed by another token on its line, where acorn throws
+			 * `Unexpected token` (#1053). TypeScript's parser reports TS1005
+			 * `';' expected.` at the token, or `',' expected.` after a variable
+			 * declaration's declarator, which a `,` would continue, unless the token
+			 * is `=>` or `of`. After an
+			 * expression statement's or a `throw`'s lone name it reports TS1434
+			 * `Unexpected keyword or identifier.` at the name, TS1435 with the keyword
+			 * it takes the name for (`cosnt x = 1;`), or TS1440 after `let`
+			 * (`parseErrorForMissingSemicolonAfter`).
+			 * @type {Parse.Parser['semicolon']}
+			 */
+			semicolon() {
+				if (this.eat(tt.semi) || this.insertSemicolon()) return;
+				// `=>` and `of` end a declaration list too (`isListTerminator`).
+				if (
+					this.lastTokEnd === this.#declaratorEnd &&
+					this.type !== tt.arrow &&
+					!this.isContextual('of')
+				) {
+					this.raise(this.start, TS_ERRORS.TOKEN_EXPECTED(','));
+				}
+				const name = this.input.slice(this.lastTokStart, this.lastTokEnd);
+				if (
+					this.lastTokStart === this.#statementExpressionStart &&
+					regex_plain_name.test(name) &&
+					!this.keywords.test(name) &&
+					!NAMES_WITH_OWN_MISSING_SEMICOLON_ERROR.has(name)
+				) {
+					if (name === 'let')
+						this.raise(this.lastTokStart, TS_ERRORS.VARIABLE_DECLARATION_NOT_ALLOWED);
+					const suggestion = keyword_suggestion(name);
+					this.raise(
+						this.lastTokStart,
+						suggestion
+							? TS_ERRORS.UNKNOWN_KEYWORD_OR_IDENTIFIER(suggestion)
+							: TS_ERRORS.UNEXPECTED_KEYWORD_OR_IDENTIFIER,
+					);
+				}
+				this.raise(this.start, TS_ERRORS.TOKEN_EXPECTED(';'));
+			}
+
+			/**
+			 * See `semicolon`.
+			 * @type {Parse.Parser['parseExpressionStatement']}
+			 */
+			parseExpressionStatement(node, expr) {
+				this.#statementExpressionStart = /** @type {number} */ (expr.start);
+				return super.parseExpressionStatement(node, expr);
+			}
+
+			/**
+			 * See `semicolon`.
+			 * @type {Parse.Parser['parseThrowStatement']}
+			 */
+			parseThrowStatement(node) {
+				this.#statementExpressionStart = this.lookahead().start;
+				return super.parseThrowStatement(node);
+			}
+
+			/**
 			 * Report a missing `}` like TypeScript wherever acorn expects one: at
 			 * the end of the input, and at any token after the expression of a
 			 * template literal's `${ … }`. Elsewhere a token in place of the `}` is
@@ -11404,11 +11640,19 @@ export function TSRXPlugin(config) {
 				// property, which the output leaves out. Throw acorn's `Unexpected
 				// token` at the `@` in every mode.
 				if (this.type === tstt.at) this.unexpected();
-				return this.#parseBraceListElement(() =>
-					isPattern && this.type === tt.ellipsis
-						? /** @type {AST.Property} */ (/** @type {unknown} */ (this.#parseObjectPatternRest()))
-						: super.parseProperty(isPattern, refDestructuringErrors),
-				);
+				return this.#parseBraceListElement(() => {
+					if (isPattern && this.type === tt.ellipsis) {
+						return /** @type {AST.Property} */ (
+							/** @type {unknown} */ (this.#parseObjectPatternRest())
+						);
+					}
+					const property = super.parseProperty(isPattern, refDestructuringErrors);
+					// See `#restElementCommaError`.
+					if (/** @type {AST.Node} */ (property).type === 'SpreadElement') {
+						this.#noteRestElement(property, 'assignment');
+					}
+					return property;
+				});
 			}
 
 			// UPSTREAM(sveltejs/acorn-typescript#159): remove once a release includes the fix
@@ -11433,7 +11677,9 @@ export function TSRXPlugin(config) {
 				this.finishNode(rest, 'RestElement');
 				if (this.type === tt.eq) this.#readRestElementDefault(rest);
 				if (this.type === tt.comma) {
-					this.#raiseCheckerError(this.start, TS_ERRORS.REST_ELEMENT_TRAILING_COMMA);
+					this.#noteRestElement(rest, 'binding');
+					const { position, error } = this.#restElementCommaError(this.start);
+					this.#raiseCheckerError(position, error);
 				}
 				return rest;
 			}
@@ -11525,6 +11771,20 @@ export function TSRXPlugin(config) {
 					}
 				}
 				return this.#parseBraceListElement(() => super.tsParseTypeMember());
+			}
+
+			/**
+			 * Count the classes being read, for the error of a word reserved in strict
+			 * mode used as a name in one (see `#raiseStrictModeReservedWord`).
+			 * @type {Parse.Parser['parseClass']}
+			 */
+			parseClass(node, isStatement) {
+				this.#classDepth++;
+				try {
+					return super.parseClass(node, isStatement);
+				} finally {
+					this.#classDepth--;
+				}
 			}
 
 			/**

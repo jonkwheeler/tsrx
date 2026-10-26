@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { URI } from 'vscode-uri';
 import {
 	classifyWorkspaceChanges,
+	getWorkspaceFilePatterns,
 	handleWorkspaceChanges,
 	isPackageStateFile,
 	isTypeDefinitionFile,
@@ -41,6 +42,60 @@ describe('language-server workspace state', () => {
 		// against the config dependency graph before reloading.
 		expect(WORKSPACE_FILE_PATTERNS).toContain('**/*.json');
 		expect(WORKSPACE_FILE_PATTERNS).toContain('**/pnpm-lock.yaml');
+	});
+
+	it('watches only TSRX sources, configs and package state beside the editor TypeScript', () => {
+		expect(getWorkspaceFilePatterns('classic')).toEqual(WORKSPACE_FILE_PATTERNS);
+		for (const backend of /** @type {const} */ (['plugin', 'native'])) {
+			const patterns = getWorkspaceFilePatterns(backend);
+			expect(patterns).toContain('**/*.tsrx');
+			expect(patterns).toContain('**/*.json');
+			expect(patterns).toContain('**/pnpm-lock.yaml');
+			expect(patterns).not.toContain('**/*.js');
+			expect(patterns).not.toContain('**/*.ts');
+		}
+	});
+
+	it('restarts nothing for package files that installs, dev servers and builds write', () => {
+		for (const file_name of [
+			'/workspace/node_modules/.vite/deps/package.json',
+			'/workspace/apps/web/node_modules/.vite/deps_temp_1a2b/package.json',
+			'/workspace/node_modules/.pnpm/react@19.0.0/node_modules/react/package.json',
+			'/workspace/node_modules/.package-lock.json',
+			'/workspace/apps/site/.next/package.json',
+			'/workspace/apps/shop/.output/server/package.json',
+			'C:\\workspace\\node_modules\\.vite\\deps\\package.json',
+		]) {
+			expect(classifyWorkspaceChanges([change(file_name)])).toEqual({
+				restartLanguageServer: false,
+				reloadProjects: false,
+				changedTypeDefinitions: [],
+			});
+		}
+		expect(
+			classifyWorkspaceChanges([change('/workspace/apps/web/package.json')]).restartLanguageServer,
+		).toBe(true);
+	});
+
+	it('reloads projects for a generated config only when a project loaded it', () => {
+		expect(
+			classifyWorkspaceChanges([change('/workspace/node_modules/some-lib/tsconfig.json')])
+				.reloadProjects,
+		).toBe(false);
+
+		const tracked_config_files = new Set();
+		trackTypeScriptConfigDependencies(tracked_config_files, {
+			configFileName: '/workspace/tsconfig.json',
+			compilerOptions: {
+				configFile: {
+					extendedSourceFiles: ['/workspace/.nuxt/tsconfig.json'],
+				},
+			},
+		});
+		expect(
+			classifyWorkspaceChanges([change('/workspace/.nuxt/tsconfig.json')], tracked_config_files)
+				.reloadProjects,
+		).toBe(true);
 	});
 
 	it('classifies definition and package files independently', () => {

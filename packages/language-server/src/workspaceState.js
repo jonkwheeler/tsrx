@@ -1,6 +1,16 @@
 import path from 'node:path';
 import { URI } from 'vscode-uri';
 
+/** Configs and package state, which every backend reacts to (`classifyWorkspaceChanges`). */
+const CONFIG_AND_PACKAGE_STATE_PATTERNS = [
+	'**/*.json',
+	'**/pnpm-lock.yaml',
+	'**/pnpm-workspace.yaml',
+	'**/yarn.lock',
+	'**/bun.lock',
+	'**/bun.lockb',
+];
+
 export const WORKSPACE_FILE_PATTERNS = [
 	// Volar consumes source-file events itself to refresh filesystem snapshots
 	// and TypeScript project versions. These do not trigger the explicit cache
@@ -14,13 +24,38 @@ export const WORKSPACE_FILE_PATTERNS = [
 	'**/*.jsx',
 	'**/*.cjs',
 	'**/*.mjs',
-	'**/*.json',
-	'**/pnpm-lock.yaml',
-	'**/pnpm-workspace.yaml',
-	'**/yarn.lock',
-	'**/bun.lock',
-	'**/bun.lockb',
+	...CONFIG_AND_PACKAGE_STATE_PATTERNS,
 ];
+
+/**
+ * The files to watch on a backend. Only the classic backend hosts a TypeScript
+ * project, which needs the TypeScript and JavaScript source events. On the other
+ * backends the editor's TypeScript reads those files, and watching them in a large
+ * workspace only floods the server with events from build output and dev servers.
+ * @param {import('./backend.js').TypeScriptBackend} backend
+ * @returns {string[]}
+ */
+export function getWorkspaceFilePatterns(backend) {
+	return backend === 'classic'
+		? WORKSPACE_FILE_PATTERNS
+		: ['**/*.tsrx', ...CONFIG_AND_PACKAGE_STATE_PATTERNS];
+}
+
+/**
+ * Directories that installs, dev servers and builds write, such as Vite's
+ * `node_modules/.vite/deps/package.json` or Next.js's `.next/package.json`. No
+ * project the TSRX compiler resolves from lives in one, and an install that changes
+ * a compiler also changes the project's lockfile.
+ */
+const GENERATED_DIRECTORY_NAMES = new Set([
+	'node_modules',
+	'.next',
+	'.nuxt',
+	'.output',
+	'.svelte-kit',
+	'.turbo',
+	'.vercel',
+]);
 
 const PACKAGE_STATE_FILE_NAMES = new Set([
 	'package.json',
@@ -55,6 +90,13 @@ export function isTypeDefinitionFile(file_name) {
  */
 export function isPackageStateFile(file_name) {
 	return PACKAGE_STATE_FILE_NAMES.has(path.basename(file_name).toLowerCase());
+}
+
+/**
+ * @param {string} file_name
+ */
+export function isGeneratedFile(file_name) {
+	return file_name.split(/[\\/]/).some((segment) => GENERATED_DIRECTORY_NAMES.has(segment));
 }
 
 /**
@@ -106,7 +148,10 @@ export function trackTypeScriptConfigDependencies(config_files, project) {
 /**
  * Classify watched changes before mutating project state. Package changes need
  * a process restart because Node does not expose a supported way to evict a
- * loaded ESM compiler and its transitive module graph.
+ * loaded ESM compiler and its transitive module graph. A file in a generated
+ * directory restarts nothing, and reloads projects only when a project loaded
+ * it as a config: dev servers rewrite such files all the time, and restarting
+ * on each one kept a large workspace restarting the server.
  * @param {import('@volar/language-server').FileEvent[]} changes
  * @param {ReadonlySet<string>} [tracked_config_files]
  */
@@ -119,15 +164,16 @@ export function classifyWorkspaceChanges(changes, tracked_config_files = new Set
 	for (const change of changes) {
 		const uri = URI.parse(change.uri);
 		const file_name = uri.scheme === 'file' ? uri.fsPath : uri.path;
+		const generated = isGeneratedFile(file_name);
 
 		if (
-			isTypeScriptConfigFile(file_name) ||
+			(!generated && isTypeScriptConfigFile(file_name)) ||
 			tracked_config_files.has(normalizeFileName(file_name))
 		) {
 			reloadProjects = true;
 		}
 
-		if (isPackageStateFile(file_name)) {
+		if (!generated && isPackageStateFile(file_name)) {
 			restartLanguageServer = true;
 		} else if (isTypeDefinitionFile(file_name)) {
 			changedTypeDefinitions.add(file_name);

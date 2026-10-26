@@ -210,6 +210,14 @@ export const c = 1;
 			expect(code).toContain("/* @ts-expect-error */ export const a: number = 'bad';");
 			expect(code).toContain('/** Docs. */ export const b = 1;');
 		});
+
+		it('maps an object literal getter or setter with type parameters', () => {
+			const source = 'export const o = { get g<T>() { return 1; }, set s<T>(v: T) {} };';
+			const result = compile_to_volar_mappings(source, 'App.tsrx');
+
+			expect(result.code).toContain('get g<T>() {');
+			expect(result.code).toContain('set s<T>(v: T) {}');
+		});
 	});
 
 	describe(`[${name}] JSX spread children in virtual code`, () => {
@@ -3284,6 +3292,16 @@ break"}</p>
 			expect(code).toContain("'use client';");
 			expect(code).toMatch(/run\(value = 1\) \{\n\t\('use strict'\);/);
 			expect(code).toMatch(/strict\(\) \{\n\t'use strict';\n\t'also';\n\trun\(\);\n\t\('later'\);/);
+		});
+
+		it('keeps the type parameters of an object literal getter or setter', () => {
+			const { code } = compile(
+				'export const o = { get g<T>() { return 1; }, set s<T>(v: T) {} };',
+				'App.tsrx',
+			);
+
+			expect(code).toContain('get g<T>() {');
+			expect(code).toContain('set s<T>(v: T) {}');
 		});
 
 		it('preserves optional markers in tuple members and function parameters', () => {

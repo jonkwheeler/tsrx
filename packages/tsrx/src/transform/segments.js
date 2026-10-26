@@ -18,6 +18,7 @@
 	TokenClass,
 } from '../../types/index';
 @import { CodeMapping as VolarCodeMapping } from '@volar/language-core';
+@import { Parse } from '../../types/parse';
  */
 
 import { walk } from 'zimmerframe';
@@ -442,6 +443,7 @@ export function convert_source_map_to_mappings(
 
 	/** @type {MappingToken[]} */
 	const tokens = [];
+	const source_tokens = ast_from_source.tsrx_tokens;
 	/** @type {CssSourceRegion[]} */
 	const css_regions = [];
 	/** @type {CssElementInfo} */
@@ -681,35 +683,28 @@ export function convert_source_map_to_mappings(
 	}
 
 	/**
-	 * Needed for a mapping that includes the computed brackets for diagnostics
+	 * Needed for a mapping that includes the computed brackets for diagnostics.
+	 * The brackets come from the parser's tokens, so spaces, comments and line
+	 * breaks inside them don't matter. The search starts at the key, not the
+	 * member, whose span includes decorators that can hold a `[` of their own.
 	 * @param {AST.MethodDefinition | AST.PropertyDefinition | AST.Property} node
 	 * @param {CodeMapping[]} mappings
 	 * @returns {void}
 	 */
 	function set_bracket_computed_mapping(node, mappings) {
-		if (has_location(node.key)) {
-			const key = node.key;
-			const start_key = `${key.loc.start.line}:${key.loc.start.column - 1}`;
-			const end_key = `${key.loc.end.line}:${key.loc.end.column + 1}`;
-			if (!src_to_gen_map.get(start_key)?.length || !src_to_gen_map.get(end_key)?.length) {
-				return;
-			}
-			mappings.push(
-				get_mapping_from_node(
-					/** @type {AST.NodeWithLocation} */ ({
-						start: key.start - 1,
-						end: key.end + 1,
-						loc: {
-							start: { line: key.loc.start.line, column: key.loc.start.column - 1 },
-							end: { line: key.loc.end.line, column: key.loc.end.column + 1 },
-						},
-					}),
-					src_to_gen_map,
-					gen_line_offsets,
-					mapping_data_verify_only,
-				),
-			);
-		}
+		if (!has_location(node.key)) return;
+		const open = find_source_token(source_tokens, '[', node.key.start, 'before');
+		const close = find_source_token(source_tokens, ']', node.key.end, 'after');
+		if (!open?.loc || !close?.loc) return;
+		const span = /** @type {AST.NodeWithLocation} */ ({
+			start: open.start,
+			end: close.end,
+			loc: { start: open.loc.start, end: close.loc.end },
+		});
+		if (!has_source_map_boundaries(span, src_to_gen_map)) return;
+		mappings.push(
+			get_mapping_from_node(span, src_to_gen_map, gen_line_offsets, mapping_data_verify_only),
+		);
 	}
 
 	/** @type {Set<string>} */
@@ -2996,6 +2991,35 @@ function has_source_map_boundaries(node, src_to_gen_map) {
 		src_to_gen_map.has(`${start.line}:${start.column}`) &&
 		src_to_gen_map.has(`${end.line}:${end.column}`)
 	);
+}
+
+/**
+ * The parser token for `text` nearest to `offset`: the last one ending at or
+ * before it (`before`), or the first one starting at or after it (`after`).
+ * Acorn keeps a keyword or punctuator in its type and leaves `value` unset for
+ * punctuators; a name, contextual keywords like `satisfies` included, carries
+ * its text in `value`. A backtracking parser can record tokens out of order,
+ * so the search compares offsets rather than trusting array order.
+ * @param {Parse.Token[] | undefined} tokens
+ * @param {string} text
+ * @param {number} offset
+ * @param {'before' | 'after'} direction
+ * @returns {Parse.Token | undefined}
+ */
+function find_source_token(tokens, text, offset, direction) {
+	/** @type {Parse.Token | undefined} */
+	let found;
+	for (const token of tokens ?? []) {
+		const token_text =
+			token.type.keyword ?? (token.type.label === 'name' ? token.value : token.type.label);
+		if (token_text !== text) continue;
+		if (direction === 'before') {
+			if (token.end <= offset && (!found || token.end > found.end)) found = token;
+		} else if (token.start >= offset && (!found || token.start < found.start)) {
+			found = token;
+		}
+	}
+	return found;
 }
 
 /**

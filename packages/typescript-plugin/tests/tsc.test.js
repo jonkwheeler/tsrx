@@ -462,6 +462,38 @@ it('reports errors on private class fields in .tsrx files', () => {
 	);
 });
 
+it('reports computed property name errors whatever is inside the brackets in .tsrx files', () => {
+	const lines = [
+		'declare const o: {}; declare function f(): string; declare const key: "m";',
+		'export const tight = { [o]: 1 }; export const spaced = { [ o ]: 1 }; export const commented = { [/* c */ o]: 1 };',
+		'export const multiline = { [',
+		'\to',
+		']: 1 };',
+		'export class Field { [ f() ]: number = 1; }',
+		'export type Literal = { [ f() ]: number };',
+		'class Base { [key](): number { return 1; } } export class Sub extends Base { [ key ](): string { return ""; } }',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	const at = (/** @type {number} */ index, /** @type {string} */ text) =>
+		`layout.tsrx(${index + 4},${lines[index].indexOf(text) + 1})`;
+	const ts2464 =
+		"error TS2464: A computed property name must be of type 'string', 'number', 'symbol', or 'any'.";
+	for (const key of ['[o]', '[ o ]', '[/* c */ o]']) {
+		expect(result.output).toContain(`${at(1, key)}: ${ts2464}`);
+	}
+	expect(result.output).toContain(`${at(2, '[')}: ${ts2464}`);
+	expect(result.output).toContain(
+		`${at(5, '[')}: error TS1166: A computed property name in a class property declaration must have a simple literal type or a 'unique symbol' type.`,
+	);
+	expect(result.output).toContain(
+		`${at(6, '[')}: error TS1170: A computed property name in a type literal must refer to an expression whose type is a literal type or a 'unique symbol' type.`,
+	);
+	// TypeScript quotes the property name from the generated code, which prints `[key]`.
+	expect(result.output).toContain(`${at(7, '[ key ]')}: error TS2416: Property '[key]' in type`);
+});
+
 it('reports a missing return on a primitive return type in .tsrx files', () => {
 	const line = 'export class Model { value(): number {} }';
 	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${line}\n`);

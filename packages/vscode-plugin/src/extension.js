@@ -30,6 +30,7 @@ import { register_source_definition_command } from './source-definition.js';
 import { register_project_config_command } from './project-config.js';
 import { register_import_commands } from './import-commands.js';
 import { CompileErrorDedupe } from './diagnostics.js';
+import { forward_file_event } from './file-events.js';
 import { activate_typescript } from './typescript.js';
 import { activate_typescript_guidance } from './typescript-guidance.js';
 
@@ -145,6 +146,7 @@ export async function activate(context) {
 			closeTagsOnType: false,
 		},
 		middleware: {
+			workspace: { didChangeWatchedFile: forward_file_event },
 			handleDiagnostics(uri, diagnostics, next) {
 				const all = vscode.languages.getDiagnostics(uri);
 				next(uri, dedupe.receive(uri.toString(), diagnostics, all, true));

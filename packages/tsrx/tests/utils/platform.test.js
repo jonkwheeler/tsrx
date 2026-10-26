@@ -133,6 +133,30 @@ const active = import.meta.env.platform.web;`;
 		expect(result.code).toBe(source.replace('import.meta.env.platform.web', 'true'));
 	});
 
+	it('reads comment-like JSX text in ordinary JSX and TSX as text', () => {
+		const jsx = 'export default function Page() { return <main><pre>/*</pre></main>; }';
+		const tsx = 'export default function Page() { return <main><pre>// docs</pre></main>; }';
+
+		expect(replacePlatformFlags(jsx, 'page.jsx', 'web').code).toBe(jsx);
+		expect(replacePlatformFlags(tsx, 'page.tsx', 'web').code).toBe(tsx);
+	});
+
+	it('replaces a flag in an expression container between comment-like JSX text', () => {
+		const source = 'export const Note = () => <pre>/* {import.meta.env.platform.web} */ @if</pre>;';
+		const result = replacePlatformFlags(source, 'Note.tsx', 'web');
+
+		expect(result.code).toBe('export const Note = () => <pre>/* {true} */ @if</pre>;');
+	});
+
+	it('replaces flags in a module that uses syntax only the TSRX parser reads', () => {
+		const source = `import defer * as feature from './feature.js';
+const lazy = import('./lazy.js',);
+const active = import.meta.env.platform.ios;`;
+		const result = replacePlatformFlags(source, 'feature.ts', 'ios');
+
+		expect(result.code).toBe(source.replace('import.meta.env.platform.ios', 'true'));
+	});
+
 	it('preserves an incoming map when there is nothing to rewrite', () => {
 		const source = 'export const ready = true;';
 		const incoming = {

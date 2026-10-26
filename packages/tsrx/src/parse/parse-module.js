@@ -2,10 +2,13 @@
 /** @import { ParseOptions } from '../../types/index' */
 /** @import { NonEmptyString } from '../../types/helpers' */
 
+import * as acorn from 'acorn';
+import { tsPlugin } from '@sveltejs/acorn-typescript';
 import { createParser } from './index.js';
 import { TSRXPlugin } from '../plugin.js';
 
 const parse = createParser(TSRXPlugin());
+const TSXParser = acorn.Parser.extend(tsPlugin({ jsx: true }));
 
 /**
  * Parse source code to an ESTree AST using the TSRX parser.
@@ -17,4 +20,35 @@ const parse = createParser(TSRXPlugin());
  */
 export function parse_module(source, filename, options) {
 	return parse(source, filename, options);
+}
+
+/**
+ * Parse an ordinary JavaScript or TypeScript module, or the TSX a TSRX compile
+ * produced, with TSX's grammar rather than TSRX's: in JSX text, `/*`, `//` and
+ * `@if` are text. acorn-typescript lacks some syntax the TSRX parser reads
+ * (phase imports, a trailing comma in `import()`), so a module it rejects is
+ * read with the TSRX parser, and the TSX error is thrown if that fails too.
+ *
+ * @param {string} source
+ * @param {string} filename
+ * @returns {AST.Program}
+ */
+export function parse_ordinary_module(source, filename) {
+	try {
+		return /** @type {AST.Program} */ (
+			/** @type {unknown} */ (
+				TSXParser.parse(source, {
+					sourceType: 'module',
+					ecmaVersion: 'latest',
+					allowReturnOutsideFunction: true,
+				})
+			)
+		);
+	} catch (error) {
+		try {
+			return parse(source, /** @type {NonEmptyString<string>} */ (filename));
+		} catch {
+			throw error;
+		}
+	}
 }

@@ -1027,7 +1027,7 @@ function BodyThrowApp() @{
 	@try {
 		const result = loadOrThrow(fail);
 		<p className="ok">{result}</p>
-	} @catch (err: Error, reset: () => void) {
+	} @catch (err, reset: () => void) {
 		<button
 			className="reset"
 			onClick={() => {
@@ -1035,9 +1035,62 @@ function BodyThrowApp() @{
 				reset();
 			}}
 		>
-			{err.message}
+			{(err as Error).message}
 		</button>
 	}
+}
+
+// ── Distinct try sites rendered in one slot ──
+
+function SameHookCountArmsApp() @{
+	const [first, setFirst] = useState(true);
+
+	<>
+		<button className="flip" onClick={() => setFirst(!first)}>
+			{'flip'}
+		</button>
+		@if (first) {
+			@try {
+				const [label] = useState('A');
+				<p className="arm">{label}</p>
+			} @catch (err) {
+				<p className="caught">{(err as Error).message}</p>
+			}
+		} @else {
+			@try {
+				const [label] = useState('B');
+				<p className="arm">{label}</p>
+			} @catch (err) {
+				<p className="caught">{(err as Error).message}</p>
+			}
+		}
+	</>
+}
+
+function DifferentHookCountArmsApp() @{
+	const [first, setFirst] = useState(true);
+
+	<>
+		<button className="flip" onClick={() => setFirst(!first)}>
+			{'flip'}
+		</button>
+		@if (first) {
+			@try {
+				const [label] = useState('A');
+				<p className="arm">{label}</p>
+			} @catch (err) {
+				<p className="caught">{(err as Error).message}</p>
+			}
+		} @else {
+			@try {
+				const [label] = useState('B');
+				const [suffix] = useState('!');
+				<p className="arm">{label + suffix}</p>
+			} @catch (err) {
+				<p className="caught">{(err as Error).message}</p>
+			}
+		}
+	</>
 }
 
 // ── Try/catch with a thrown non-Error value ──
@@ -1785,6 +1838,29 @@ describe('tsrx-react runtime', () => {
 		await click('.reset');
 		expect(text('.ok')).toBe('loaded');
 		expect(container.querySelector('.reset')).toBeNull();
+	});
+
+	// ── Distinct try sites rendered in one slot ──
+
+	it('gives each try site in an if/else its own body state', async () => {
+		await render(SameHookCountArmsApp);
+		expect(text('.arm')).toBe('A');
+
+		await click('.flip');
+		expect(text('.arm')).toBe('B');
+		expect(container.querySelector('.caught')).toBeNull();
+	});
+
+	it('switches between try sites whose bodies call different hooks', async () => {
+		await render(DifferentHookCountArmsApp);
+		expect(text('.arm')).toBe('A');
+
+		await click('.flip');
+		expect(text('.arm')).toBe('B!');
+		expect(container.querySelector('.caught')).toBeNull();
+
+		await click('.flip');
+		expect(text('.arm')).toBe('A');
 	});
 
 	// ── Try/catch with a thrown non-Error value ──

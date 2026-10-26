@@ -1379,6 +1379,41 @@ describe('@tsrx/react basic', () => {
 		).not.toThrow();
 	}, 60_000);
 
+	it('keys each @try site so different sites in one slot do not share state', () => {
+		const { code } = compile(
+			`export function App({ a, items }) @{
+				<>
+					@if (a) {
+						@try {
+							<A />
+						} @catch (e) {
+							<p>{'a'}</p>
+						}
+					} @else {
+						@try {
+							<B />
+						} @catch (e) {
+							<p>{'b'}</p>
+						}
+					}
+					@for (const item of items; key item.id) {
+						@try {
+							<Row item={item} />
+						} @pending {
+							<p>{'loading'}</p>
+						}
+					}
+				</>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toMatch(/<TsrxErrorBoundary fallback=[\s\S]*? key='try1'>/);
+		expect(code).toMatch(/<TsrxErrorBoundary fallback=[\s\S]*? key='try2'>/);
+		// A loop key is combined with the site name rather than dropped.
+		expect(code).toContain("key={'try3:' + item.id}");
+	});
+
 	it('applies scoped CSS hashes inside try blocks', () => {
 		const { code, css, cssHash } = compile(
 			`export function App() @{

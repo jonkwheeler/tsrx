@@ -128,7 +128,7 @@ function BodyThrowApp() @{
 	@try {
 		const result = loadOrThrow(fail);
 		<p class="ok">{result}</p>
-	} @catch (err: Error, reset: () => void) {
+	} @catch (err, reset: () => void) {
 		<button
 			class="reset"
 			onClick={() => {
@@ -136,9 +136,35 @@ function BodyThrowApp() @{
 				reset();
 			}}
 		>
-			{err.message}
+			{(err as Error).message}
 		</button>
 	}
+}
+
+function DifferentHookCountArmsApp() @{
+	const [first, setFirst] = useState(true);
+
+	<>
+		<button class="flip" onClick={() => setFirst(!first)}>
+			{'flip'}
+		</button>
+		@if (first) {
+			@try {
+				const [label] = useState('A');
+				<p class="arm">{label}</p>
+			} @catch (err) {
+				<p class="caught">{(err as Error).message}</p>
+			}
+		} @else {
+			@try {
+				const [label] = useState('B');
+				const [suffix] = useState('!');
+				<p class="arm">{label + suffix}</p>
+			} @catch (err) {
+				<p class="caught">{(err as Error).message}</p>
+			}
+		}
+	</>
 }
 
 function ForFilteredApp() @{
@@ -459,6 +485,17 @@ describe('@tsrx/vite-plugin-preact runtime', () => {
 		});
 		expect(text('.ok')).toBe('loaded');
 		expect(container.querySelector('.reset')).toBeNull();
+	});
+
+	it('gives each try site in an if/else its own body state', async () => {
+		await render(DifferentHookCountArmsApp);
+		expect(text('.arm')).toBe('A');
+
+		await act(async () => {
+			(container.querySelector('.flip') as HTMLButtonElement).click();
+		});
+		expect(text('.arm')).toBe('B!');
+		expect(container.querySelector('.caught')).toBeNull();
 	});
 
 	it('renders dynamic host elements', async () => {

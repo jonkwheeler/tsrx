@@ -34,6 +34,8 @@ export interface JsxTransformContext {
 	local_statement_component_index: number;
 	needs_error_boundary: boolean;
 	needs_try_body: boolean;
+	/** Counts `@try` sites, which runtime output keys `try1`, `try2`, …. */
+	try_site_index: number;
 	needs_suspense: boolean;
 	needs_merge_refs: boolean;
 	needs_normalize_spread_props: boolean;

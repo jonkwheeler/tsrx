@@ -1252,22 +1252,14 @@ export function convert_source_map_to_mappings(
 						gen_line_offsets,
 						closing ? mapping_data_verify_only : mapping_data_verify_complete,
 					);
-					// The generated code includes a semicolon after the closing or self-closed tag
-					// We're extending the mapping to include the semicolon
-					// because the diagnostics errors can include the whole element
-					// and we need to account for the semicolon as it's a part of the diagnostic
-					// At the same time, we could've instead applied this logic to the whole `node` element
-					// but since we already map the opening - start, we just need the proper end
-					// and it was causing some issues with mappings
-					mapping.generatedLengths = [mapping.generatedLengths[0] + 1];
 					if (!closing && opening.selfClosing) {
-						const generated_close_length = '/>;'.length;
-						mapping.sourceOffsets = [target_node.end - 2];
-						mapping.lengths = ['/>'.length];
+						const close_length = '/>'.length;
+						mapping.sourceOffsets = [target_node.end - close_length];
+						mapping.lengths = [close_length];
 						mapping.generatedOffsets = [
-							mapping.generatedOffsets[0] + mapping.generatedLengths[0] - generated_close_length,
+							mapping.generatedOffsets[0] + mapping.generatedLengths[0] - close_length,
 						];
-						mapping.generatedLengths = [generated_close_length];
+						mapping.generatedLengths = [close_length];
 					}
 					mappings.push(mapping);
 				}
@@ -1977,6 +1969,11 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'SpreadElement' || node.type === 'RestElement') {
+				// TypeScript reports some errors on a whole rest parameter (TS2370 on a
+				// type that is not an array), which starts at the `...`.
+				if (node.type === 'RestElement' && has_location(node)) {
+					push_source_keyword_token('...', node.start, node);
+				}
 				// Visit the argument
 				if (node.argument) {
 					visit(node.argument);
@@ -1998,11 +1995,12 @@ export function convert_source_map_to_mappings(
 					visit(node.argument);
 				}
 
-				// An `await` the compiler added around a generated closure has no
-				// authored keyword to map.
-				if (node.type === 'AwaitExpression' && node.loc) {
-					const max_len = 'await'.length;
-					// We need a mapping for diagnostics but only on the 'await' keyword
+				// An `await` the compiler added around a generated closure, or a
+				// `yield*` that delegates to a generated generator, has no authored
+				// keyword to map.
+				if (node.loc) {
+					const max_len = (node.type === 'AwaitExpression' ? 'await' : 'yield').length;
+					// We need a mapping for diagnostics but only on the keyword
 					const mapping = get_mapping_from_node(
 						node,
 						src_to_gen_map,
@@ -2642,6 +2640,19 @@ export function convert_source_map_to_mappings(
 				return;
 			} else if (node.type === 'TSNamespaceExportDeclaration') {
 				// TypeScript namespace export: export as namespace foo;
+				if (has_location(node)) {
+					// TypeScript reports a nested one (TS1316) on the whole statement,
+					// up to the `;` the printer writes whether or not the source has one.
+					const mapping = declaration_mapping(node, EXPORT_KEYWORD);
+					if (mapping) {
+						const end = mapping.generatedOffsets[0] + mapping.generatedLengths[0];
+						if (generated_code[end] === ';') mapping.generatedLengths[0]++;
+						mappings.push(mapping);
+					}
+					push_source_keyword_token('export', node.start, node);
+					push_source_keyword_token('as', node.start, node);
+					push_source_keyword_token('namespace', node.start, node);
+				}
 				if (node.id) {
 					visit(node.id);
 				}

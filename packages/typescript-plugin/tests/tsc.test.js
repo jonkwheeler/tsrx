@@ -643,3 +643,32 @@ it('reports errors on a bare this in .tsrx files', () => {
 		`layout.tsrx(4,${line.lastIndexOf('this') + 1}): error TS17009: 'super' must be called before accessing 'this' in the constructor of a derived class.`,
 	);
 });
+
+it('reports errors that start at a yield, a rest parameter or a nested export as namespace in .tsrx files', () => {
+	const lines = [
+		'export function* plain() { const value = yield 1; return value; }',
+		'export function bad(...args: number) {} export class K { m(...args: number) {} }',
+		'export function List<T>(...items: T) @{ <ul /> }',
+		'function nested() { export as namespace A; }',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	const at = (/** @type {number} */ index, /** @type {number} */ offset) =>
+		`layout.tsrx(${index + 4},${offset + 1})`;
+	expect(result.output).toContain(
+		`${at(0, lines[0].indexOf('yield'))}: error TS7057: 'yield' expression implicitly results in an 'any' type because its containing generator lacks a return-type annotation.`,
+	);
+	for (const [index, offset] of [
+		[1, lines[1].indexOf('...')],
+		[1, lines[1].lastIndexOf('...')],
+		[2, lines[2].indexOf('...')],
+	]) {
+		expect(result.output).toContain(
+			`${at(index, offset)}: error TS2370: A rest parameter must be of an array type.`,
+		);
+	}
+	expect(result.output).toContain(
+		`${at(3, lines[3].indexOf('export'))}: error TS1316: Global module exports may only appear at top level.`,
+	);
+});

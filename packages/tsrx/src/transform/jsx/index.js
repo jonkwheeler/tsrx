@@ -2863,7 +2863,8 @@ function delegate_to_generated_generator(call, transform_context) {
  * @returns {void}
  */
 function find_function_context_references(node, found) {
-	if (node.type === 'ThisExpression') {
+	// A JSX tag can read `this` too: `<this.Widget />`
+	if (node.type === 'ThisExpression' || (node.type === 'JSXIdentifier' && node.name === 'this')) {
 		found.this = true;
 	} else if (node.type === 'Identifier' && node.name === 'arguments') {
 		found.arguments = true;

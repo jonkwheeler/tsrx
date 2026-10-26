@@ -246,6 +246,41 @@ function generator_module(body) {
 }
 
 /**
+ * Runs a module's runtime output, with JSX elements as plain
+ * `{ type, props }` objects and every import a function that returns its
+ * first argument.
+ * @param {{ code: string }} compiled
+ * @returns {Record<string, any>}
+ */
+function run_module({ code }) {
+	const { outputText } = ts.transpileModule(code, {
+		compilerOptions: {
+			jsx: ts.JsxEmit.React,
+			jsxFactory: 'h',
+			jsxFragmentFactory: 'Fragment',
+			module: ts.ModuleKind.CommonJS,
+			// Lowers `await using`, which Node does not run natively yet
+			target: ts.ScriptTarget.ES2022,
+		},
+	});
+	/** @param {unknown} type @param {Record<string, unknown> | null} props @param {unknown[]} children */
+	const h = (type, props, ...children) => ({
+		type,
+		props: children.length ? { ...props, children } : { ...props },
+	});
+	const imports = new Proxy({}, { get: () => (/** @type {unknown} */ value) => value });
+	const module = { exports: {} };
+	new Function('h', 'Fragment', 'require', 'module', 'exports', outputText)(
+		h,
+		'Fragment',
+		() => imports,
+		module,
+		module.exports,
+	);
+	return module.exports;
+}
+
+/**
  * @param {string} code
  * @returns {ts.SourceFile}
  */
@@ -535,6 +570,28 @@ describe('type-only JSX analysis', () => {
 				);
 			},
 		);
+
+		it('keeps the receiver of a JSX tag that reads this (#502)', () => {
+			const { View } = run_module(
+				compile_source(
+					'export class View {\n' +
+						'\tWidget = () => null;\n' +
+						'\t*render() {\n' +
+						"\t\treturn @if (true) { const message = yield 'ready'; <this.Widget message={message} /> };\n" +
+						'\t}\n' +
+						'}\n',
+					false,
+				),
+			);
+			const view = new View();
+			const iterator = view.render();
+
+			expect(iterator.next()).toEqual({ value: 'ready', done: false });
+			const { value, done } = iterator.next('resumed');
+			expect(done).toBe(true);
+			expect(value.type).toBe(view.Widget);
+			expect(value.props.message).toBe('resumed');
+		});
 
 		it('delegates to a closure made both async and a generator without awaiting it', () => {
 			const source = generator_module(

@@ -5,7 +5,13 @@
 /** @import { ErrorKind } from '../shared/errors.js' */
 
 import { describe, expect, it } from 'vitest';
-import { acorn, analyzeTsrx, isLayoutWhitespace, parseModule } from '../../src/index.js';
+import {
+	acorn,
+	analyzeTsrx,
+	getCommentHandlers,
+	isLayoutWhitespace,
+	parseModule,
+} from '../../src/index.js';
 import { TS_ERRORS, TSRX_ERRORS, UPSTREAM_ERRORS } from '../../src/diagnostics.js';
 import { node_children } from '../../src/utils/ast.js';
 import { code_of, error_with, line_column, thrown } from '../shared/errors.js';
@@ -7376,6 +7382,24 @@ namespace N {
 			expect(scan(800)).toBeLessThan(3 * scan(400));
 		},
 	);
+
+	it('leaves a comment after a root node with no parent where it is', () => {
+		const source = 'a + b; // c';
+		/** @type {AST.CommentWithLocation[]} */
+		const comments = [];
+		const { onComment, add_comments } = getCommentHandlers(source, comments);
+		const program = acorn.parse(source, {
+			ecmaVersion: 'latest',
+			locations: true,
+			// It reads the locations, which `locations: true` always passes
+			onComment: /** @type {import('acorn').Options['onComment']} */ (onComment),
+		});
+		const expression = /** @type {AST.ExpressionStatement} */ (program.body[0]).expression;
+
+		add_comments(expression);
+		expect(expression.trailingComments).toBeUndefined();
+		expect(comments.map((comment) => comment.value)).toEqual([' c']);
+	});
 });
 
 describe('comments in member lists', () => {

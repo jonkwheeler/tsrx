@@ -3402,6 +3402,7 @@ export function get_comment_handlers(source, comments, index = 0) {
 								// ends the header: like Prettier, a comment after it leads the body,
 								// unless another `)` follows it (`if ((a) /* c */) b();`)
 								const isAfterStatementHeader =
+									!!parent &&
 									endsStatementHeader(node, parent) &&
 									slice.includes(')') &&
 									getNextNonSpaceNonCommentCharacter(comments[0].end) !== ')';

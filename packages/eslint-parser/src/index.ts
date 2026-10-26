@@ -1,5 +1,5 @@
 import type { Program } from 'estree';
-import type { Linter } from 'eslint';
+import type { AST, Linter } from 'eslint';
 import {
 	analyzeTsrx as analyze_tsrx,
 	DIAGNOSTIC_CODES,
@@ -141,6 +141,237 @@ function ensure_node_properties(node: any, code: string): void {
 	}
 }
 
+/** The fields read from an acorn token recorded by the TSRX parser. */
+interface LexerToken {
+	type: { label: string; keyword?: string };
+	value?: any;
+	start: number;
+	end: number;
+}
+
+/** A comment as the TSRX parser collects it. */
+interface ParserComment {
+	type: 'Line' | 'Block';
+	start: number;
+	end: number;
+}
+
+interface ESLintToken extends AST.Token {
+	start: number;
+	end: number;
+	regex?: { pattern: string; flags: string };
+}
+
+interface ESLintComment {
+	type: 'Line' | 'Block';
+	value: string;
+	start: number;
+	end: number;
+	range: AST.Range;
+	loc: AST.SourceLocation;
+}
+
+interface Span {
+	type: AST.TokenType;
+	start: number;
+	end: number;
+	regex?: ESLintToken['regex'];
+}
+
+type Locate = (start: number, end: number) => AST.SourceLocation;
+
+/**
+ * Builds `loc` objects from offsets, with the line terminators acorn and ESLint
+ * count.
+ */
+function create_locator(code: string): Locate {
+	const line_starts = [0];
+	for (const match of code.matchAll(/\r\n?|[\n\u2028\u2029]/g)) {
+		line_starts.push(match.index + match[0].length);
+	}
+	const position = (offset: number) => {
+		let low = 0;
+		let high = line_starts.length - 1;
+		while (low < high) {
+			const middle = (low + high + 1) >> 1;
+			if (line_starts[middle] <= offset) low = middle;
+			else high = middle - 1;
+		}
+		return { line: low + 1, column: offset - line_starts[low] };
+	};
+	return (start, end) => ({ start: position(start), end: position(end) });
+}
+
+/**
+ * Converts the parser's comments to ESLint comments, in source order. The value
+ * is read from the source: the parser strips the indentation from the value of
+ * a multi-line block comment.
+ */
+function to_eslint_comments(
+	code: string,
+	comments: ParserComment[],
+	locate: Locate,
+): ESLintComment[] {
+	const result: ESLintComment[] = [];
+	for (const { type, start, end } of [...comments].sort((a, b) => a.start - b.start)) {
+		if (result.at(-1)?.start === start) continue;
+		const value_end = type === 'Block' && code.startsWith('*/', end - 2) ? end - 2 : end;
+		result.push({
+			type,
+			value: code.slice(start + 2, value_end),
+			start,
+			end,
+			range: [start, end],
+			loc: locate(start, end),
+		});
+	}
+	return result;
+}
+
+/**
+ * Converts the tokens the TSRX lexer reported into the token list ESLint
+ * expects: in source order, without overlaps, in espree's token types, and
+ * covering every character that is not whitespace or a comment.
+ */
+function to_eslint_tokens(
+	code: string,
+	lexer_tokens: LexerToken[],
+	comments: ESLintComment[],
+	locate: Locate,
+): ESLintToken[] {
+	// The lexer reports a token again when it re-reads it after looking ahead.
+	const lexed: LexerToken[] = [];
+	for (const token of [...lexer_tokens].sort((a, b) => a.start - b.start || a.end - b.end)) {
+		const last = lexed.at(-1);
+		if (last?.start === token.start && last.end === token.end) {
+			lexed[lexed.length - 1] = token;
+		} else if (!last || token.start >= last.end) {
+			lexed.push(token);
+		}
+	}
+
+	const spans: Span[] = [];
+	for (let i = 0; i < lexed.length; i++) {
+		const token = lexed[i];
+		const label = token.type.label;
+
+		if (label === '`' || (label === '}' && is_template_part(lexed[i + 1]))) {
+			// Like espree, one token per template chunk: `` `a${ ``, `` }b${ ``, `` }c` ``.
+			let last = i + 1;
+			while (is_template_part(lexed[last])) last++;
+			const closer = lexed[last]?.type.label;
+			if (closer !== '${' && closer !== '`') last--;
+			spans.push({ type: 'Template', start: token.start, end: lexed[last].end });
+			i = last;
+			continue;
+		}
+
+		if (code.startsWith('</', token.start) && token.end > token.start + 1) {
+			// The lexer skips the body of a raw `<style>` or `<script>` element and
+			// reports its closing tag as one token.
+			for (const match of code.slice(token.start, token.end).matchAll(/([</>])|[^\s</>]+/g)) {
+				const start = token.start + match.index;
+				spans.push({
+					type: match[1] ? 'Punctuator' : 'JSXIdentifier',
+					start,
+					end: start + match[0].length,
+				});
+			}
+			continue;
+		}
+
+		if (label === 'eof' || token.start === token.end) continue;
+		spans.push({
+			type: token_type(token, lexed[i - 1], lexed[i - 2]),
+			start: token.start,
+			end: token.end,
+			regex:
+				label === 'regexp' ? { pattern: token.value.pattern, flags: token.value.flags } : undefined,
+		});
+	}
+
+	// Text the lexer read as part of a comment, such as a comment inside JSX
+	// text, is left to the gap filling below.
+	let comment_index = 0;
+	const kept = spans.filter((span) => {
+		while (comment_index < comments.length && comments[comment_index].end <= span.start) {
+			comment_index++;
+		}
+		return comment_index === comments.length || comments[comment_index].start >= span.end;
+	});
+
+	const tokens: ESLintToken[] = [];
+	const add = (span: Span) => {
+		const token: ESLintToken = {
+			type: span.type,
+			value: code.slice(span.start, span.end),
+			start: span.start,
+			end: span.end,
+			range: [span.start, span.end],
+			loc: locate(span.start, span.end),
+		};
+		if (span.regex) token.regex = span.regex;
+		tokens.push(token);
+	};
+
+	// The lexer reports no token for the `@` of a template directive or the
+	// body of a raw `<style>` or `<script>` element.
+	const fill = (start: number, end: number) => {
+		const at = end > start && code[end - 1] === '@';
+		if (at) end--;
+		if (/\S/.test(code.slice(start, end))) add({ type: 'JSXText', start, end });
+		if (at) add({ type: 'Punctuator', start: end, end: end + 1 });
+	};
+
+	const covered: Array<Span | ESLintComment> = [...kept, ...comments];
+	let position = 0;
+	for (const item of covered.sort((a, b) => a.start - b.start)) {
+		fill(position, item.start);
+		if (!('value' in item)) add(item);
+		position = item.end;
+	}
+	fill(position, code.length);
+
+	return tokens;
+}
+
+function is_template_part(token: LexerToken | undefined): boolean {
+	return token?.type.label === 'template' || token?.type.label === 'invalidTemplate';
+}
+
+/** The espree token type of an acorn token. */
+function token_type(
+	token: LexerToken,
+	previous: LexerToken | undefined,
+	before_previous: LexerToken | undefined,
+): AST.TokenType {
+	const { label, keyword } = token.type;
+	switch (label) {
+		case 'name':
+			return token.value === 'static' || token.value === 'yield' || token.value === 'let'
+				? 'Keyword'
+				: 'Identifier';
+		case 'privateId':
+			return 'PrivateIdentifier';
+		case 'jsxName':
+			return 'JSXIdentifier';
+		case 'jsxText':
+			return 'JSXText';
+		case 'num':
+			return 'Numeric';
+		case 'regexp':
+			return 'RegularExpression';
+		case 'string':
+			// A JSX attribute value, as in espree.
+			return previous?.type.label === '=' && before_previous?.type.label === 'jsxName'
+				? 'JSXText'
+				: 'String';
+	}
+	if (keyword === 'true' || keyword === 'false') return 'Boolean';
+	if (keyword === 'null') return 'Null';
+	return keyword ? 'Keyword' : 'Punctuator';
+}
+
 function is_fatal_parser_diagnostic(error: any): boolean {
 	return (
 		error?.code === DIAGNOSTIC_CODES.UNCLOSED_TAG ||
@@ -178,8 +409,13 @@ export function parseForESLint(code: string, options?: Linter.ParserOptions): Pa
 			collect: true,
 			errors,
 			comments,
+			// Also records every token, as `tsrx_tokens`.
+			keywordTokens: true,
 		}) as any;
 		if (!ast) throw new Error('Parser returned null or undefined AST');
+		const lexer_tokens = ast.tsrx_tokens;
+		delete ast.tsrx_tokens;
+		delete ast.tsrx_keyword_tokens;
 		analyze_tsrx(ast, options?.filePath || 'ESLintParser.tsrx', {
 			collect: true,
 			errors,
@@ -197,6 +433,9 @@ export function parseForESLint(code: string, options?: Linter.ParserOptions): Pa
 		// Recursively ensure all nodes have range and loc properties
 		ensure_node_properties(ast, code);
 
+		const locate = create_locator(code);
+		const eslint_comments = to_eslint_comments(code, comments, locate);
+
 		// Create a properly structured AST object ensuring all required properties exist
 		const result: any = {
 			type: ast.type || 'Program',
@@ -209,8 +448,8 @@ export function parseForESLint(code: string, options?: Linter.ParserOptions): Pa
 			range: ast.range || [0, code.length],
 			body: ast.body || [],
 			sourceType: ast.sourceType || 'module',
-			comments: ast.comments || [],
-			tokens: ast.tokens || [],
+			comments: eslint_comments,
+			tokens: to_eslint_tokens(code, lexer_tokens, eslint_comments, locate),
 		};
 
 		return {

@@ -23,6 +23,9 @@ import {
 	setLocation,
 } from '@tsrx/core';
 
+/** The local name of Vue's `computed` in a keyed slot that destructures its item. */
+const VUE_COMPUTED_INTERNAL_NAME = '__vapor_computed';
+
 /**
  * Minimal Vue platform descriptor consumed by `createJsxTransform`.
  *
@@ -536,7 +539,7 @@ function render_for_of_as_vapor_for(node, loop_params, body_statements, transfor
 		: (find_jsx_key_expression(rendered) ?? (node.index ? clone_ast_node(node.index) : null));
 
 	const slot = key_expression
-		? create_keyed_vapor_for_slot(loop_params, rendered)
+		? create_keyed_vapor_for_slot(loop_params, rendered, transform_context)
 		: { params: loop_params, body: rendered, expression: true };
 	if (!slot) {
 		return null;
@@ -545,7 +548,7 @@ function render_for_of_as_vapor_for(node, loop_params, body_statements, transfor
 	transform_context.needs_vapor_for = true;
 
 	if (key_expression) {
-		strip_top_level_jsx_keys(slot.body);
+		strip_top_level_jsx_keys(slot.rendered ?? slot.body);
 	}
 
 	const attributes = [
@@ -693,7 +696,7 @@ function strip_top_level_jsx_keys(node) {
 
 /**
  * @param {AST.Pattern[]} loop_params
- * @param {AST.Expression} body
+ * @param {AST.Expression | AST.BlockStatement} body
  * @param {boolean} expression
  * @returns {AST.ArrowFunctionExpression}
  */
@@ -709,9 +712,10 @@ function create_loop_callback(loop_params, body, expression) {
 /**
  * @param {AST.Pattern[]} loop_params
  * @param {AST.Expression} rendered
- * @returns {{ params: AST.Pattern[], body: AST.Expression, expression: boolean } | null}
+ * @param {TransformContext} transform_context
+ * @returns {{ params: AST.Pattern[], body: AST.Expression | AST.BlockStatement, expression: boolean, rendered?: AST.Expression } | null}
  */
-function create_keyed_vapor_for_slot(loop_params, rendered) {
+function create_keyed_vapor_for_slot(loop_params, rendered, transform_context) {
 	if (loop_params[0]?.type === 'Identifier') {
 		return {
 			params: loop_params,
@@ -721,6 +725,11 @@ function create_keyed_vapor_for_slot(loop_params, rendered) {
 	}
 
 	const item_ref = create_generated_identifier('__vapor_item');
+	if (contains_array_pattern(loop_params[0])) {
+		transform_context.needs_vapor_computed = true;
+		return create_destructured_keyed_vapor_for_slot(loop_params, rendered, item_ref);
+	}
+
 	const item_ref_value = create_value_member_expression(item_ref);
 	const replacements = create_pattern_replacements(loop_params[0], item_ref_value);
 	if (!replacements) {
@@ -742,14 +751,97 @@ function create_keyed_vapor_for_slot(loop_params, rendered) {
 }
 
 /**
+ * A keyed slot for an item pattern that property reads can't stand in for:
+ * an array pattern destructures through the item's iterator, so `[a, b]` of
+ * a `Set` or a string is not `item[0]` and `item[1]`. The slot destructures
+ * the item with the authored pattern in a `computed`, which runs once per
+ * item value and keeps the row's reads reactive, and reads each name from it.
+ *
+ * @param {AST.Pattern[]} loop_params
+ * @param {AST.Expression} rendered
+ * @param {AST.Identifier} item_ref
+ * @returns {{ params: AST.Pattern[], body: AST.BlockStatement, expression: boolean, rendered: AST.Expression }}
+ */
+function create_destructured_keyed_vapor_for_slot(loop_params, rendered, item_ref) {
+	const bindings_ref = create_generated_identifier('__vapor_bindings');
+	/** @type {Set<string>} */
+	const names = new Set();
+	collect_pattern_names(loop_params[0], names);
+
+	/** @type {Map<string, AST.Expression>} */
+	const replacements = new Map();
+	for (const name of names) {
+		replacements.set(
+			name,
+			b.member(create_value_member_expression(bindings_ref), create_generated_identifier(name)),
+		);
+	}
+
+	const bindings = b.const(
+		bindings_ref,
+		b.call(
+			VUE_COMPUTED_INTERNAL_NAME,
+			b.arrow(
+				[],
+				b.block([
+					// A default in the pattern reads the index through its ref too.
+					b.const(
+						rewrite_vapor_for_keyed_slot_refs(loop_params[0], loop_params.slice(1)),
+						create_value_member_expression(item_ref),
+					),
+					b.return(
+						b.object([...names].map((name) => b.prop('init', b.id(name), b.id(name), false, true))),
+					),
+				]),
+			),
+		),
+	);
+	const rewritten_rendered = rewrite_vapor_for_keyed_slot_refs(
+		rendered,
+		loop_params.slice(1),
+		replacements,
+	);
+
+	return {
+		params: [item_ref, ...loop_params.slice(1)],
+		body: b.block([bindings, b.return(rewritten_rendered)]),
+		expression: false,
+		rendered: rewritten_rendered,
+	};
+}
+
+/**
+ * @param {AST.Node | null} node
+ * @returns {boolean}
+ */
+function contains_array_pattern(node) {
+	if (!node) return false;
+	switch (node.type) {
+		case 'ArrayPattern':
+			return true;
+		case 'ObjectPattern':
+			return node.properties.some((property) =>
+				contains_array_pattern(property.type === 'RestElement' ? property : property.value),
+			);
+		case 'AssignmentPattern':
+			return contains_array_pattern(node.left);
+		case 'RestElement':
+			return contains_array_pattern(node.argument);
+		default:
+			return false;
+	}
+}
+
+/**
  * Vue's `VaporFor` passes plain item values to unkeyed slots, but keyed slots
  * receive shallow refs so row instances can update in place. Match that runtime
  * shape by reading loop params through `.value` inside the slot body.
  *
- * @param {AST.Expression} node
+ * @template {AST.Node} T
+ * @param {T} node
  * @param {AST.Pattern[]} loop_params
  * @param {Map<string, AST.Expression>} [replacements]
- * @returns {AST.Expression}
+ * @returns {T}
  */
 function rewrite_vapor_for_keyed_slot_refs(node, loop_params, replacements = new Map()) {
 	const loop_param_names = new Set();
@@ -761,7 +853,7 @@ function rewrite_vapor_for_keyed_slot_refs(node, loop_params, replacements = new
 		return node;
 	}
 
-	return /** @type {AST.Expression} */ (
+	return /** @type {T} */ (
 		walk(
 			node,
 			{ loop_param_names, shadowed_names: new Set() },
@@ -1204,6 +1296,10 @@ function inject_vue_imports(program, transform_context) {
 
 	if (transform_context.needs_vapor_for) {
 		ensure_named_import(program, 'vue-jsx-vapor', 'VaporFor');
+	}
+
+	if (transform_context.needs_vapor_computed) {
+		ensure_named_import(program, 'vue', 'computed', VUE_COMPUTED_INTERNAL_NAME);
 	}
 
 	if (transform_context.needs_suspense) {

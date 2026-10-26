@@ -686,6 +686,26 @@ describe('@tsrx/vue basic', () => {
 		expect(code).not.toContain('<Fragment');
 	});
 
+	it('destructures a keyed array pattern from the item, not by index (#938)', () => {
+		const { code, errors } = compile(
+			`function App({ rows }: { rows: Iterable<string>[] }) @{
+				@for (const [first, second = 'none'] of rows; key first) {
+					<p>{first}|{second}</p>
+				}
+			}`,
+			'App.tsrx',
+		);
+
+		expect(errors).toEqual([]);
+		expect(code).toContain("<VaporFor in={rows} getKey={([first, second = 'none']) => first}>");
+		expect(code).toMatch(
+			/const __vapor_bindings = __vapor_computed\(\(\) => \{\s*const \[first, second = 'none'\] = __vapor_item\.value;\s*return \{ first, second \};/,
+		);
+		expect(code).toContain('{__vapor_bindings.value.first}|{__vapor_bindings.value.second}');
+		expect(code).not.toContain('__vapor_item.value[0]');
+		expect(code).toContain("import { computed as __vapor_computed } from 'vue';");
+	});
+
 	it('falls back without injecting VaporFor for keyed destructuring patterns it cannot rewrite', () => {
 		const { code } = compile(
 			`function App({ items, keyName }: { items: Array<Record<string, string>>, keyName: string }) @{

@@ -2646,6 +2646,10 @@ function suspend_generated_closures(program, transform_context) {
 	const made_generator = new Map();
 	let sync_iterable_calls = 0;
 	let async_iterable_calls = 0;
+	/** @type {string | undefined} */
+	let arguments_name;
+	/** A name for the enclosing `arguments` that no identifier in the module uses. */
+	const get_arguments_name = () => (arguments_name ??= unused_name('__arguments', program));
 
 	/**
 	 * Returns the node with its generated closures made async or generators,
@@ -2768,7 +2772,10 @@ function suspend_generated_closures(program, transform_context) {
 				// `yield*` also settles a delegated async generator, so a closure
 				// made both async and a generator is not awaited as well.
 				result = {
-					node: b.yield(delegate_to_generated_generator(call, transform_context), true),
+					node: b.yield(
+						delegate_to_generated_generator(call, transform_context, get_arguments_name),
+						true,
+					),
 					first_await: made_async.get(call.callee) ?? first_await,
 					first_yield: made_generator.get(call.callee) ?? first_yield,
 				};
@@ -2839,9 +2846,10 @@ function to_generator_function(fn, make_async) {
  *
  * @param {AST.CallExpression} call
  * @param {TransformContext} transform_context
+ * @param {() => string} get_arguments_name the name of that parameter
  * @returns {AST.CallExpression}
  */
-function delegate_to_generated_generator(call, transform_context) {
+function delegate_to_generated_generator(call, transform_context, get_arguments_name) {
 	const generator = /** @type {AST.FunctionExpression} */ (call.callee);
 	/** @type {{ this: boolean, arguments: boolean, super: AST.Node | null }} */
 	const found = { this: false, arguments: false, super: null };
@@ -2862,10 +2870,13 @@ function delegate_to_generated_generator(call, transform_context) {
 	// TypeScript types the delegated `yield` results only for a direct call.
 	if (transform_context.typeOnly) return call;
 	if (found.arguments) {
+		const name = get_arguments_name();
 		const receives_arguments = {
 			...generator,
-			params: [b.id(ARGUMENTS_INTERNAL_NAME)],
-			body: /** @type {AST.BlockStatement} */ (rename_function_context_arguments(generator.body)),
+			params: [b.id(name)],
+			body: /** @type {AST.BlockStatement} */ (
+				rename_function_context_arguments(generator.body, name)
+			),
 		};
 		return b.call(b.member(receives_arguments, 'call'), b.this, b.id('arguments'));
 	}
@@ -2913,14 +2924,13 @@ function find_function_context_references(node, found) {
  * `find_function_context_references`.
  *
  * @param {AST.Node} node
+ * @param {string} name the parameter's name
  * @param {AST.Node | null} [parent]
  * @returns {AST.Node}
  */
-function rename_function_context_arguments(node, parent = null) {
+function rename_function_context_arguments(node, name, parent = null) {
 	if (node.type === 'Identifier') {
-		return node.name === 'arguments' && is_reference(node, parent)
-			? { ...node, name: ARGUMENTS_INTERNAL_NAME }
-			: node;
+		return node.name === 'arguments' && is_reference(node, parent) ? { ...node, name } : node;
 	}
 	if (
 		node.type === 'FunctionExpression' ||
@@ -2942,11 +2952,11 @@ function rename_function_context_arguments(node, parent = null) {
 		let next = value;
 		if (Array.isArray(value)) {
 			const renamed = value.map((child) =>
-				is_ast_node(child) ? rename_function_context_arguments(child, node) : child,
+				is_ast_node(child) ? rename_function_context_arguments(child, name, node) : child,
 			);
 			if (renamed.some((child, index) => child !== value[index])) next = renamed;
 		} else if (is_ast_node(value)) {
-			next = rename_function_context_arguments(value, node);
+			next = rename_function_context_arguments(value, name, node);
 		}
 		if (next !== value) {
 			if (out === node) out = { ...out };
@@ -2956,6 +2966,28 @@ function rename_function_context_arguments(node, parent = null) {
 	// `{ arguments }` keeps its key and reads the parameter
 	if (out !== node && node.type === 'Property') out.shorthand = false;
 	return /** @type {AST.Node} */ (out);
+}
+
+/**
+ * `base`, or `base` with the first number after it that makes it a name no
+ * identifier in `program` uses, so a declaration of it shadows nothing.
+ *
+ * @param {string} base
+ * @param {AST.Node} program
+ * @returns {string}
+ */
+function unused_name(base, program) {
+	/** @type {Set<string>} */
+	const names = new Set();
+	/** @param {AST.Node} node */
+	const collect = (node) => {
+		if (node.type === 'Identifier' || node.type === 'JSXIdentifier') names.add(node.name);
+		for (const child of child_nodes(node)) collect(child);
+	};
+	collect(program);
+	let name = base;
+	for (let index = 1; names.has(name); index++) name = `${base}${index}`;
+	return name;
 }
 
 /**
@@ -5807,8 +5839,6 @@ function stamp_directive_origin(node, directive, keyword, transform_context) {
 
 export const MAP_ITERABLE_INTERNAL_NAME = '__map_iterable';
 export const MAP_ITERABLE_ASYNC_INTERNAL_NAME = '__map_iterable_async';
-/** The parameter a generated generator receives the enclosing `arguments` as. */
-const ARGUMENTS_INTERNAL_NAME = '__arguments';
 
 const HTML_REF_TAG_NAMES = new Set(
 	'a abbr address area article aside audio b base bdi bdo blockquote body br button canvas caption cite code col colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li link main map mark menu meta meter nav noscript object ol optgroup option output p picture pre progress q rp rt ruby s samp script search section select slot small source span strong style sub summary sup table tbody td template textarea tfoot th thead time title tr track u ul var video wbr'.split(

@@ -616,6 +616,30 @@ describe('type-only JSX analysis', () => {
 		});
 
 		it.each([
+			['the enclosing function', "\tconst __arguments = 'mine';\n\treturn @if (true) {", ''],
+			['the branch', '\treturn @if (true) {', " const __arguments = 'mine';"],
+		])(
+			'reads a __arguments declared in %s as written, not as the arguments parameter (#264)',
+			(_where, opening, declaration) => {
+				const { g } = run_module(
+					compile_source(
+						'export function* g(label: string) {\n' +
+							`${opening}${declaration} const x = yield 1; <div user={__arguments} first={arguments[0]} x={x} /> };\n` +
+							'}\n',
+						false,
+					),
+				);
+				const iterator = g('initial');
+				iterator.next();
+				expect(iterator.next('resumed').value.props).toEqual({
+					user: 'mine',
+					first: 'initial',
+					x: 'resumed',
+				});
+			},
+		);
+
+		it.each([
 			[
 				'@switch case',
 				'@switch (1) { @case 1: { const title = yield* prompts(); <div>{title}</div> } }',

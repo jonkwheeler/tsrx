@@ -836,6 +836,10 @@ describe('@tsrx/vue basic', () => {
 		expect(code.match(/error\.message/g)).toHaveLength(1);
 		expect(code).toContain('StatementBodyHook');
 		expect(code).toContain('suffix={suffix}');
+		// The Suspense default slot renders the body through its own boundary,
+		// so `reset` works for errors thrown there.
+		expect(code).toMatch(/default: \(\) => <TsrxErrorBoundary fallback=\{\(error, reset\) => \{/);
+		expect(code).not.toContain('reset={() => {}}');
 
 		const error_boundary_index = code.indexOf('<TsrxErrorBoundary');
 		const suspense_index = code.indexOf('<Suspense');

@@ -15,8 +15,34 @@ const vapor = /** @type {VaporRuntime} */ (/** @type {unknown} */ (Vue));
 
 /** @typedef {{ error: ShallowRef<unknown>, reset: () => void }} BoundaryState */
 
+/** @typedef {{ asyncDep?: Promise<unknown> | null, asyncResolved?: boolean }} AsyncSetupState */
+
 /** @type {WeakMap<ComponentInternalInstance, BoundaryState>} */
 const boundary_states = new WeakMap();
+
+/**
+ * The errors captured for each boundary that is rendering its content right
+ * now, innermost last. An error thrown while a boundary renders belongs to the
+ * innermost one, whichever component's `onErrorCaptured` hook sees it first.
+ *
+ * @type {unknown[][]}
+ */
+const rendering = [];
+
+/**
+ * The instance of a boundary rendered as a component. Vapor calls a
+ * component's setup with its instance as the second argument. Compiled output
+ * also calls `TsrxErrorBoundary` as a plain function inside element children;
+ * that call runs under the enclosing component's instance and must not take
+ * over its state. `getCurrentInstance()` returns null for a Vapor instance.
+ *
+ * @param {unknown} ctx
+ * @returns {ComponentInternalInstance | null}
+ */
+function own_instance(ctx) {
+	const instance = vapor.currentInstance ?? getCurrentInstance();
+	return instance && ctx === instance ? instance : null;
+}
 
 /**
  * @param {VaporBlock} nodes
@@ -138,10 +164,11 @@ function create_boundary_nodes(render) {
  * that clears the error state to re-render the children.
  *
  * @param {TsrxErrorBoundaryProps} props
+ * @param {unknown} [ctx] the instance, when Vapor renders it as a component
  * @returns {Array<VaporRenderedBlock | undefined>}
  */
-export function TsrxErrorBoundary(props) {
-	const instance = getCurrentInstance();
+export function TsrxErrorBoundary(props, ctx) {
+	const instance = own_instance(ctx);
 	if (instance) {
 		initialize_boundary_state(instance);
 	}
@@ -158,18 +185,33 @@ export function TsrxErrorBoundary(props) {
 			return props.fallback(error.value, reset);
 		}
 
+		/** @type {unknown[]} */
+		const captured = [];
+		/** @type {unknown} */
+		let content;
+		rendering.push(captured);
 		try {
-			return props.content();
+			content = props.content();
 		} catch (caught_error) {
-			error.value = caught_error;
-			return props.fallback(caught_error, reset);
+			captured.push(caught_error);
+		} finally {
+			rendering.pop();
 		}
+		if (captured.length > 0) {
+			error.value = captured[0];
+			return props.fallback(captured[0], reset);
+		}
+		return content;
 	});
 }
 
-/** @returns {void} */
-TsrxErrorBoundary.__setup = function setup() {
-	const instance = getCurrentInstance();
+/**
+ * @param {unknown} _props
+ * @param {unknown} [ctx]
+ * @returns {void}
+ */
+TsrxErrorBoundary.__setup = function setup(_props, ctx) {
+	const instance = own_instance(ctx);
 	if (instance) {
 		initialize_boundary_state(instance);
 	}
@@ -191,8 +233,24 @@ function initialize_boundary_state(instance) {
 
 	boundary_states.set(instance, { error, reset });
 
-	onErrorCaptured((captured_error) => {
-		error.value = captured_error;
+	onErrorCaptured((captured_error, source) => {
+		const active = rendering[rendering.length - 1];
+		if (active) {
+			active.push(captured_error);
+			return false;
+		}
+		// Thrown after the content rendered. An async component whose loader
+		// rejected still has its setup pending, and Vapor cannot unmount it
+		// until its Suspense has mounted it, so swap in the fallback after that.
+		const show = () => {
+			error.value = captured_error;
+		};
+		const pending = /** @type {AsyncSetupState | null} */ (source);
+		if (pending?.asyncDep && !pending.asyncResolved) {
+			pending.asyncDep.then(show, show);
+		} else {
+			show();
+		}
 		return false;
 	});
 }

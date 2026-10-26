@@ -1,5 +1,14 @@
 import type { MockInstance } from 'vitest';
-import { defineVaporAsyncComponent, inject, provide, reactive, ref, watch, watchEffect } from 'vue';
+import {
+	createVaporApp,
+	defineVaporAsyncComponent,
+	inject,
+	provide,
+	reactive,
+	ref,
+	watch,
+	watchEffect,
+} from 'vue';
 import { mergeRefs } from '@tsrx/vue/ref';
 import { runSwitchFallthroughRuntimeTests } from '@tsrx/core/test-harness/runtime/switch-fallthrough';
 import { runTsxExpressionTsrxRuntimeTests } from '@tsrx/core/test-harness/runtime/tsx-expression-tsrx';
@@ -13,6 +22,8 @@ const EXPECTED_ERROR_LOG_SNIPPETS = [
 	'conditional boom',
 	'inner error',
 	'pending catch boom',
+	'async reject boom',
+	'pending reset boom',
 	'Unhandled error during execution of setup function',
 	'Active effect was not restored correctly',
 ];
@@ -976,6 +987,31 @@ function SuspenseErrorApp() @{
 	}
 }
 
+function loadOrThrow(state: { fail: boolean }) {
+	if (state.fail) throw new Error('pending reset boom');
+	return 'Ready';
+}
+
+function SuspenseResetApp() @{
+	const state = { fail: true };
+	@try {
+		const result = loadOrThrow(state);
+		<p class="async-resolved">{result}</p>
+	} @pending {
+		<p class="async-pending">{'loading...'}</p>
+	} @catch (err, reset) {
+		<button
+			class="reset"
+			onClick={() => {
+				state.fail = false;
+				reset();
+			}}
+		>
+			{(err as Error).message}
+		</button>
+	}
+}
+
 describe('tsrx-vue runtime', () => {
 	beforeEach(() => {
 		const original_console_error = console.error;
@@ -1452,6 +1488,19 @@ describe('tsrx-vue runtime', () => {
 		expect(text('.caught')).toBe('sync boom');
 	});
 
+	it('catches a child setup error when the app has its own errorHandler', async () => {
+		const app = createVaporApp(ErrorBoundaryApp);
+		const handled: unknown[] = [];
+		app.config.errorHandler = (error) => {
+			handled.push(error);
+		};
+		app.mount(container);
+		await flush();
+		expect(text('.caught')).toBe('sync boom');
+		expect(handled).toEqual([]);
+		app.unmount();
+	});
+
 	it('recovers from error via reset and re-triggers on state change', async () => {
 		await render(ErrorToggleApp);
 		expect(text('.ok')).toBe('no error');
@@ -1558,6 +1607,33 @@ describe('tsrx-vue runtime', () => {
 		resolve_fn!(AsyncResolvedChild);
 		await flush();
 		expect(text('.async-resolved')).toBe('hello');
+	});
+
+	it('routes a rejected Vapor async component to catch blocks', async () => {
+		let reject_fn: (error: Error) => void;
+		const promise = new Promise<typeof AsyncResolvedChild>((_resolve, reject) => {
+			reject_fn = reject;
+		});
+
+		await render(SuspenseCatchApp, { promise });
+		expect(text('.async-pending')).toBe('loading...');
+
+		reject_fn!(new Error('async reject boom'));
+		await flush();
+		expect(text('.async-caught')).toBe('async reject boom');
+		expect(container.querySelector('.async-pending')).toBeNull();
+		expect(container.querySelector('.async-resolved')).toBeNull();
+	});
+
+	it('re-renders the try body on reset after a sync error with pending', async () => {
+		await render(SuspenseResetApp);
+		await flush();
+		expect(text('.reset')).toBe('pending reset boom');
+
+		await click('.reset');
+		await flush();
+		expect(text('.async-resolved')).toBe('Ready');
+		expect(container.querySelector('.reset')).toBeNull();
 	});
 
 	it('routes errors from Suspense default content to catch blocks', async () => {

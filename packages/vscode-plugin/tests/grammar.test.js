@@ -392,6 +392,26 @@ describe('TSRX TextMate grammar: using declarations', () => {
 		// `using` followed by `of` is the loop variable, not a declaration keyword.
 		expect(find(tokens, 'using', 1).scopes).toContain('variable.other.readwrite.js');
 	});
+
+	it('keeps using a variable in a directive head that is not a for…of declaration', () => {
+		const tokens = tokenize(
+			[
+				'function List() @{',
+				'  <ul>',
+				'    @for (using item in items) {',
+				'      <li />',
+				'    }',
+				'    @if (using instanceof Foo) {',
+				'      <li />',
+				'    }',
+				'  </ul>',
+				'}',
+			].join('\n'),
+		);
+
+		expect(find(tokens, 'using').scopes).toContain('variable.other.readwrite.js');
+		expect(find(tokens, 'using', 1).scopes).toContain('variable.other.readwrite.js');
+	});
 });
 
 describe('TSRX TextMate grammar: JSX expression boundaries', () => {

@@ -9569,10 +9569,18 @@
 					<string>storage.type.js</string>
 				</dict>
 				<dict>
+					<key>captures</key>
+					<dict>
+						<key>2</key>
+						<dict>
+							<key>name</key>
+							<string>storage.type.js</string>
+						</dict>
+					</dict>
+					<key>comment</key>
+					<string>A using declaration heads only a for...of loop: `@for (using item of items)`.</string>
 					<key>match</key>
-					<string>(?&lt;![_$[:alnum:]])(?:await\s+)?using(?=\s+(?!in\b|of\b(?!\s*(?:of\b|=)))[_$[:alpha:]])</string>
-					<key>name</key>
-					<string>storage.type.js</string>
+					<string>(?&lt;=\()(\s*)((?:await\s+)?using)(?=\s+[_$[:alpha:]][_$[:alnum:]]*\s+of(?![_$[:alnum:]]))</string>
 				</dict>
 				<dict>
 					<key>match</key>

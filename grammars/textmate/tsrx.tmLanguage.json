@@ -591,8 +591,13 @@
           "match": "(?<![_$[:alnum:]])(const|let|var)(?![_$[:alnum:]])"
         },
         {
-          "name": "storage.type.js",
-          "match": "(?<![_$[:alnum:]])(?:await\\s+)?using(?=\\s+(?!in\\b|of\\b(?!\\s*(?:of\\b|=)))[_$[:alpha:]])"
+          "comment": "A using declaration heads only a for...of loop: `@for (using item of items)`.",
+          "match": "(?<=\\()(\\s*)((?:await\\s+)?using)(?=\\s+[_$[:alpha:]][_$[:alnum:]]*\\s+of(?![_$[:alnum:]]))",
+          "captures": {
+            "2": {
+              "name": "storage.type.js"
+            }
+          }
         },
         {
           "name": "keyword.operator.expression.js",

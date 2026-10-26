@@ -650,15 +650,18 @@ it('reports errors that start at a yield, a rest parameter or a nested export as
 		'export function bad(...args: number) {} export class K { m(...args: number) {} }',
 		'export function List<T>(...items: T) @{ <ul /> }',
 		'function nested() { export as namespace A; }',
+		'export function* View() @{ @if (yield 1) { <div /> } }',
 	];
 	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
 	const result = run_cli('native');
 	expect(result.status).toBe(2);
 	const at = (/** @type {number} */ index, /** @type {number} */ offset) =>
 		`layout.tsrx(${index + 4},${offset + 1})`;
-	expect(result.output).toContain(
-		`${at(0, lines[0].indexOf('yield'))}: error TS7057: 'yield' expression implicitly results in an 'any' type because its containing generator lacks a return-type annotation.`,
-	);
+	for (const index of [0, 4]) {
+		expect(result.output).toContain(
+			`${at(index, lines[index].indexOf('yield'))}: error TS7057: 'yield' expression implicitly results in an 'any' type because its containing generator lacks a return-type annotation.`,
+		);
+	}
 	for (const [index, offset] of [
 		[1, lines[1].indexOf('...')],
 		[1, lines[1].lastIndexOf('...')],

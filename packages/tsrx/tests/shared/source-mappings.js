@@ -2571,16 +2571,23 @@ function App() @{
 
 		it('maps an authored yield keyword', () => {
 			// TypeScript reports TS7057 on a yield in a generator without a return type.
+			// A lowered `@if (yield 1)` prints its test in parentheses that start
+			// where the yield does.
 			const source = `export function* plain() {
 	const value = yield 1;
 	yield;
 	yield* plain();
 	return value;
+}
+export function* View() @{
+	@if (yield 1) {
+		<div />
+	}
 }`;
 			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
 			expect(result.errors).toEqual([]);
 			for (const match of source.matchAll(/\byield\b/g)) {
-				expect(generated_at(result, /** @type {number} */ (match.index), 5)).toContain('yield');
+				expect(generated_at(result, /** @type {number} */ (match.index), 5)).toEqual(['yield']);
 			}
 		});
 

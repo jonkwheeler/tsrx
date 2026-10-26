@@ -2029,20 +2029,21 @@ export function convert_source_map_to_mappings(
 
 				// An `await` the compiler added around a generated closure, or a
 				// `yield*` that delegates to a generated generator, has no authored
-				// keyword to map.
-				if (node.loc) {
-					const max_len = (node.type === 'AwaitExpression' ? 'await' : 'yield').length;
-					// We need a mapping for diagnostics but only on the keyword
-					const mapping = get_mapping_from_node(
-						node,
-						src_to_gen_map,
-						gen_line_offsets,
-						mapping_data_verify_only,
-						max_len,
-						max_len,
-					);
-
-					mappings.push(mapping);
+				// keyword to map. The keyword maps for diagnostics only, from where
+				// its own text is printed: a lowered `@if (yield 1)` prints the
+				// expression in parentheses that share its start.
+				if (has_location(node)) {
+					const text = node.type === 'AwaitExpression' ? 'await' : 'yield';
+					const keyword = find_source_token(source_tokens, text, node.start, 'after');
+					if (keyword?.loc && keyword.start < node.end) {
+						tokens.push({
+							source: text,
+							generated: text,
+							loc: keyword.loc,
+							metadata: {},
+							mappingData: mapping_data_verify_only,
+						});
+					}
 				}
 				return;
 			} else if (node.type === 'ChainExpression') {

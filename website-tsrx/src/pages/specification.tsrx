@@ -530,6 +530,8 @@ const SPECIAL_AST_SHAPE = [
 const TSRX_ERROR_CODES = [
 	"TSRX1001  Unclosed tag '<div>'. Expected '</div>' before end of template.",
 	'          const a = <div><b>text</b>;',
+	'          (for a lone type parameter before `(`, also: To write a generic arrow function, add a trailing comma, as in `<T,>() => ...`.)',
+	'          const f = <T>(x: T) => x;',
 	"TSRX1002  Expected closing tag to match opening tag. Expected '</div>' but found '</span>'",
 	'          const a = <div></span>;',
 	'TSRX1003  Unexpected closing tag',

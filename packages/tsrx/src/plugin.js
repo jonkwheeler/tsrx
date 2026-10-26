@@ -893,6 +893,49 @@ function is_lone_equals(input, i) {
 }
 
 /**
+ * The type parameter that the opening tag `open` reads as in a `.ts` file,
+ * where `<T>(x) => x` is a generic arrow function: `T` for `<T>` and `const T`
+ * for `<const T>`, when a `(` follows. Null for any other tag.
+ * @param {string} input
+ * @param {ESTreeJSX.TSRXJSXOpeningElement & AST.NodeWithLocation} open
+ * @param {string} tag_name
+ * @returns {string | null}
+ */
+function lone_type_parameter(input, open, tag_name) {
+	if (open.selfClosing || scan_identifier_from(tag_name, 0) !== tag_name.length) return null;
+	let parameter = tag_name;
+	if (TYPE_PARAMETER_MODIFIERS.has(tag_name) && open.attributes.length === 1) {
+		const [attribute] = open.attributes;
+		if (
+			attribute.type !== 'JSXAttribute' ||
+			attribute.value ||
+			attribute.name.type !== 'JSXIdentifier'
+		) {
+			return null;
+		}
+		parameter += ` ${attribute.name.name}`;
+	} else if (open.attributes.length > 0) {
+		return null;
+	}
+	const next = skip_space_and_comments_from(input, open.end);
+	return next !== -1 && input.charCodeAt(next) === CharCode.openParen ? parameter : null;
+}
+
+/**
+ * Whether a closing tag for `name` (`</name`) comes anywhere after `index`.
+ * @param {string} input
+ * @param {string} name
+ * @param {number} index
+ */
+function has_closing_tag(input, name, index) {
+	const closing = `</${name}`;
+	for (let at = input.indexOf(closing, index); at !== -1; at = input.indexOf(closing, at + 1)) {
+		if (scan_identifier_from(input, at + 2) === at + closing.length) return true;
+	}
+	return false;
+}
+
+/**
  * Acorn parser plugin for TSRX syntax extensions.
  * Adds support for: native TSRX templates, submodule imports, TSRX directives,
  * and enhanced JSX handling.
@@ -10073,19 +10116,51 @@ export function TSRXPlugin(config) {
 					this.#path.pop();
 				} else {
 					this.#elementContextDepths.set(node, pre_element_context_depth);
-					this.#parseNativeTemplateBody(node, /** @type {AST.Node[]} */ (node.children), {
-						enterScope: true,
-						resetFunctionBodyDepth: true,
-					});
+					// `<T>(x) => x` is a tag, as in a `.tsx` file; unclosed, it gets the fix.
+					const type_parameter =
+						is_fragment || is_dynamic
+							? null
+							: lone_type_parameter(this.input, open, String(tag_name));
+					try {
+						this.#parseNativeTemplateBody(node, /** @type {AST.Node[]} */ (node.children), {
+							enterScope: true,
+							resetFunctionBodyDepth: true,
+						});
+					} catch (error) {
+						// An arrow body such as `{ return x; }` fails as markup first.
+						if (
+							type_parameter !== null &&
+							!has_closing_tag(this.input, String(tag_name), open.end)
+						) {
+							this.raise(
+								open.start,
+								TSRX_ERRORS.UNCLOSED_TAG_GENERIC_ARROW(String(tag_name), type_parameter),
+							);
+						}
+						throw error;
+					}
 
 					if (this.#path[this.#path.length - 1] === node) {
 						const displayTag = is_fragment
 							? ''
 							: this.getElementName(/** @type {ESTreeJSX.JSXElement} */ (node).openingElement.name);
-						this.#report_broken_markup_error(
-							this.start,
-							TSRX_ERRORS.UNCLOSED_TAG(String(displayTag)),
-						);
+						if (type_parameter === null) {
+							this.#report_broken_markup_error(
+								this.start,
+								TSRX_ERRORS.UNCLOSED_TAG(String(displayTag)),
+							);
+						} else {
+							// Reported in loose mode too: only this error names the fix.
+							const error = TSRX_ERRORS.UNCLOSED_TAG_GENERIC_ARROW(
+								String(displayTag),
+								type_parameter,
+							);
+							if (this.#collect) {
+								this.#report_recoverable_error_range(open.start, open.end, error);
+							} else {
+								this.raise(open.start, error);
+							}
+						}
 						slots.unclosed = true;
 						/** @type {AST.SourceLocation} */ (node.loc).end = {
 							.../** @type {AST.SourceLocation} */ (

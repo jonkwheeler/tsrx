@@ -36,6 +36,7 @@ export const ERROR_EXAMPLES = [
 }
 `,
 	},
+	{ error: TSRX_ERRORS.UNCLOSED_TAG_GENERIC_ARROW, source: `export const f = <T>(x: T) => x;` },
 	{
 		error: TSRX_ERRORS.MISMATCHED_CLOSING_TAG,
 		source: `export function C() @{
@@ -871,6 +872,9 @@ export const KNOWN_PROBLEMS = new Map(
 	/** @type {Array<[ErrorEntry, KnownProblem]>} */ ([
 		[TSRX_ERRORS.UNCLOSED_TAG, { problem: 'lost', issue: 978 }],
 		[TSRX_ERRORS.MISMATCHED_CLOSING_TAG, { problem: 'lost', issue: 978 }],
+		// The generated code keeps the tag unclosed, so TypeScript reports it too
+		// (TS17008), a syntax error that no directive hides.
+		[TSRX_ERRORS.UNCLOSED_TAG_GENERIC_ARROW, { problem: 'typescript', issue: 978 }],
 		[TSRX_ERRORS.CODE_BLOCK_SINGLE_OUTPUT, { problem: 'twice', issue: 981 }],
 		[TSRX_ERRORS.CODE_BLOCK_STATEMENT_AFTER_OUTPUT, { problem: 'twice', issue: 981 }],
 		[TSRX_ERRORS.TARGET_AWAIT_UNSUPPORTED, { problem: 'twice', issue: 980 }],

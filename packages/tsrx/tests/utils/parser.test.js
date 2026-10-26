@@ -9862,6 +9862,73 @@ export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
 		}
 	});
 
+	describe('a lone type parameter without a comma', () => {
+		/** @type {Array<[source: string, tag: string, parameter: string]>} */
+		const cases = [
+			['const f = <T>(x: T) => x;', 'T', 'T'],
+			['const f = <T>(x: T): T => x;\nconst g = 1;', 'T', 'T'],
+			['const f = <Value> (value: Value) => value;', 'Value', 'Value'],
+			['const f = <const T>(x: T) => x;', 'const', 'const T'],
+			['function App() @{\n\tconst f = <T>(x: T) => x;\n\t<b>{f}</b>\n}', 'T', 'T'],
+		];
+
+		/**
+		 * A matcher for the trailing-comma diagnostic at the first `<` of `source`.
+		 * @param {string} source
+		 * @param {string} tag
+		 * @param {string} parameter
+		 */
+		function trailingCommaError(source, tag, parameter) {
+			return expect.objectContaining({
+				code: TSRX_ERRORS.UNCLOSED_TAG_GENERIC_ARROW.code,
+				message: expect.stringContaining(
+					TSRX_ERRORS.UNCLOSED_TAG_GENERIC_ARROW(tag, parameter).message,
+				),
+				pos: source.indexOf('<'),
+			});
+		}
+
+		it('throws the trailing-comma diagnostic at the tag', () => {
+			for (const [source, tag, parameter] of cases) {
+				expect(() => parseModule(source, 'App.tsrx'), source).toThrow(
+					trailingCommaError(source, tag, parameter),
+				);
+			}
+		});
+
+		it.each([
+			['when collecting', { collect: true }],
+			['in loose mode', { loose: true }],
+		])('reports the trailing-comma diagnostic %s', (_, options) => {
+			for (const [source, tag, parameter] of cases) {
+				/** @type {CompileError[]} */
+				const errors = [];
+				parseModule(source, 'App.tsrx', { ...options, errors, comments: [] });
+				expect(errors, source).toEqual([trailingCommaError(source, tag, parameter)]);
+			}
+		});
+
+		it('keeps the plain unclosed-tag error for a tag that is not a lone type parameter', () => {
+			for (const source of [
+				'const a = <T>text;',
+				'const a = <T x>(text);',
+				'const a = <T.U>(x);',
+			]) {
+				/** @type {unknown} */
+				let thrown_error;
+				try {
+					parseModule(source, 'App.tsrx');
+				} catch (error) {
+					thrown_error = error;
+				}
+				expect(thrown_error, source).toEqual(error_with(TSRX_ERRORS.UNCLOSED_TAG));
+				expect(thrown_error, source).not.toEqual(
+					expect.objectContaining({ message: expect.stringContaining('trailing comma') }),
+				);
+			}
+		});
+	});
+
 	// A `@{ … }` body hands a `<` that starts a line to `parseElement`; the rule
 	// only decides whether a `<` reads as a tag or a generic arrow there.
 	it('reads `@{ … }` bodies as before', () => {

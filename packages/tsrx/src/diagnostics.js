@@ -246,6 +246,15 @@ export const TSRX_ERRORS = {
 		'UNCLOSED_TAG',
 		(tag) => `Unclosed tag '<${tag}>'. Expected '</${tag}>' before end of template.`,
 	),
+	/**
+	 * An unclosed tag that is a lone type parameter before a `(`, as in
+	 * `<T>(x) => x`. `parameter` is the type parameter, with its `const`.
+	 */
+	UNCLOSED_TAG_GENERIC_ARROW: tsrx_with_values(
+		'UNCLOSED_TAG',
+		(tag, parameter) =>
+			`Unclosed tag '<${tag}>'. Expected '</${tag}>' before end of template. To write a generic arrow function, add a trailing comma, as in \`<${parameter},>() => ...\`.`,
+	),
 	MISMATCHED_CLOSING_TAG: tsrx_with_values(
 		'MISMATCHED_CLOSING_TAG',
 		(opening, closing) =>

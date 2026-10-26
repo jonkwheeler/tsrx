@@ -129,6 +129,7 @@ export function App() @{
 			'Template }`',
 			'Punctuator }',
 			'JSXText  ',
+			'JSXText \n\t\t',
 			'Punctuator @',
 			'Keyword if',
 			'Punctuator (',
@@ -153,6 +154,7 @@ export function App() @{
 			'Punctuator /',
 			'Punctuator >',
 			'Punctuator }',
+			'JSXText \n\t',
 			'Punctuator <',
 			'Punctuator /',
 			'JSXIdentifier p',
@@ -183,5 +185,43 @@ export function App() @{
 			position = item.range[1];
 		}
 		expect(code.slice(position).trim()).toBe('');
+	});
+
+	it('starts and ends template elements and JSX children on tokens', () => {
+		const spacing = { rules: { 'template-curly-spacing': 'error' } } as const;
+		expect(lint('export const s = (y) => `x${y}z`;', spacing)).toEqual([]);
+		expect(lint('export const s = (y) => `x${ y }z`;', spacing)).toEqual([
+			"1: template-curly-spacing: Unexpected space(s) after '${'.",
+			"1: template-curly-spacing: Unexpected space(s) before '}'.",
+		]);
+
+		const code = `export function A(x) @{
+	<div>
+		@if (x) { <span /> }
+		// note
+		<b />
+		{/* empty */}
+	</div>
+}`;
+		const indent = { rules: { indent: ['error', 'tab'] } } as const;
+		expect(lint(code, indent)).toEqual([]);
+		expect(lint(code.replace('\t\t<b />', '  <b />'), indent)).toEqual([
+			'5: indent: Expected indentation of 2 tabs but found 2 spaces.',
+		]);
+	});
+
+	it('gives text after a template directive block one JSXText token', () => {
+		for (const text of [' hello', ' 2', ' if (a) b']) {
+			const code = `export function A(x) @{
+	<span>@if (x) { <b /> }${text}</span>
+}`;
+			const { tokens } = parseForESLint(code, { filePath: 'App.tsrx' }).ast as any;
+			const start = code.indexOf(text);
+			expect(
+				tokens
+					.filter((token: any) => token.range[0] >= start && token.range[0] < start + text.length)
+					.map((token: any) => `${token.type} ${token.value}`),
+			).toEqual([`JSXText ${text}`]);
+		}
 	});
 });

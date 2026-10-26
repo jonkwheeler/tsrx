@@ -40,9 +40,11 @@ const visitorKeys: Record<string, string[]> = {
 };
 
 /**
- * Keep this hook for small ESLint-only AST normalizations.
+ * Keep this hook for small ESLint-only AST normalizations. Returns the `JSXText`
+ * nodes, which each get a token of their own.
  */
-function normalize_tsrx_ast_for_eslint(ast: any): void {
+function normalize_tsrx_ast_for_eslint(ast: any): Span[] {
+	const texts: Span[] = [];
 	const seen = new Set<any>();
 	const visit = (node: any) => {
 		if (!node || typeof node !== 'object') return;
@@ -63,6 +65,33 @@ function normalize_tsrx_ast_for_eslint(ast: any): void {
 			for (const switch_case of node.cases) switch_case.type = 'JSXSwitchCase';
 		}
 
+		// A comment in JSX text is a comment for ESLint, not a `{}` container:
+		// drop the placeholder node the parser keeps for it.
+		if (node.type === 'JSXElement' || node.type === 'JSXFragment') {
+			node.children = node.children.filter(
+				(child: any) =>
+					child.type !== 'JSXExpressionContainer' ||
+					child.expression.type !== 'JSXEmptyExpression' ||
+					child.start !== child.expression.start,
+			);
+		}
+
+		// Like espree, a template element spans its delimiters: `` `a${ ``, `` }b` ``.
+		if (node.type === 'TemplateElement') {
+			const end_offset = node.tail ? 1 : 2;
+			node.start -= 1;
+			node.end += end_offset;
+			node.range = [node.start, node.end];
+			node.loc = {
+				start: { line: node.loc.start.line, column: node.loc.start.column - 1 },
+				end: { line: node.loc.end.line, column: node.loc.end.column + end_offset },
+			};
+		}
+
+		if (node.type === 'JSXText' && node.end > node.start) {
+			texts.push({ type: 'JSXText', start: node.start, end: node.end });
+		}
+
 		for (const key of Object.keys(node)) {
 			if (key === 'parent' || key === 'loc' || key === 'range') continue;
 			const value = node[key];
@@ -75,6 +104,7 @@ function normalize_tsrx_ast_for_eslint(ast: any): void {
 	};
 
 	visit(ast);
+	return texts.sort((a, b) => a.start - b.start);
 }
 
 /**
@@ -236,6 +266,7 @@ function to_eslint_comments(
 function to_eslint_tokens(
 	code: string,
 	lexer_tokens: LexerToken[],
+	texts: Span[],
 	comments: ESLintComment[],
 	locate: Locate,
 ): ESLintToken[] {
@@ -290,15 +321,12 @@ function to_eslint_tokens(
 		});
 	}
 
-	// Text the lexer read as part of a comment, such as a comment inside JSX
-	// text, is left to the gap filling below.
-	let comment_index = 0;
-	const kept = spans.filter((span) => {
-		while (comment_index < comments.length && comments[comment_index].end <= span.start) {
-			comment_index++;
-		}
-		return comment_index === comments.length || comments[comment_index].start >= span.end;
-	});
+	// Each JSX text node is one token. The lexer reports no token for
+	// whitespace-only text, and reads text after a template directive's block
+	// as code (`Identifier " hello"`).
+	const with_texts = [...outside(spans, texts), ...texts].sort((a, b) => a.start - b.start);
+	// Text the lexer read as part of a comment is left to the gap filling below.
+	const kept = outside(with_texts, comments);
 
 	const tokens: ESLintToken[] = [];
 	const add = (span: Span) => {
@@ -333,6 +361,15 @@ function to_eslint_tokens(
 	fill(position, code.length);
 
 	return tokens;
+}
+
+/** The spans that overlap none of the sorted, disjoint `ranges`. */
+function outside(spans: Span[], ranges: Array<{ start: number; end: number }>): Span[] {
+	let index = 0;
+	return spans.filter((span) => {
+		while (index < ranges.length && ranges[index].end <= span.start) index++;
+		return index === ranges.length || ranges[index].start >= span.end;
+	});
 }
 
 function is_template_part(token: LexerToken | undefined): boolean {
@@ -428,7 +465,7 @@ export function parseForESLint(code: string, options?: Linter.ParserOptions): Pa
 		}
 
 		// Normalize for ESLint traversal (avoid duplicate node visits)
-		normalize_tsrx_ast_for_eslint(ast);
+		const texts = normalize_tsrx_ast_for_eslint(ast);
 
 		// Recursively ensure all nodes have range and loc properties
 		ensure_node_properties(ast, code);
@@ -449,7 +486,7 @@ export function parseForESLint(code: string, options?: Linter.ParserOptions): Pa
 			body: ast.body || [],
 			sourceType: ast.sourceType || 'module',
 			comments: eslint_comments,
-			tokens: to_eslint_tokens(code, lexer_tokens, eslint_comments, locate),
+			tokens: to_eslint_tokens(code, lexer_tokens, texts, eslint_comments, locate),
 		};
 
 		return {

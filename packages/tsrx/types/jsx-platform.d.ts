@@ -459,8 +459,11 @@ export interface JsxPlatform {
 		 * - `'in-place'`: assign the bag inside the spread
 		 *   (`{...(bag = normalize(expr))}`) and declare `let bag;` ahead of the
 		 *   element, so attribute expressions keep their authored evaluation
-		 *   order. Requires a JSX runtime that evaluates attributes left to
-		 *   right, as `jsx()` and `createElement` calls do.
+		 *   order and a reactive spread is evaluated again with the element's
+		 *   other attributes. Requires compiled JSX that evaluates the spread
+		 *   before it reads the `ref`: `jsx()` and `createElement` calls evaluate
+		 *   attributes left to right, and vue-jsx-vapor sets a template ref after
+		 *   the element's props.
 		 * - `undefined`: evaluate the spread in a `let bag = normalize(expr);`
 		 *   declaration ahead of the element, for compiled JSX that reads `ref`
 		 *   before the spread or evaluates the spread lazily, such as Solid's.

@@ -8,7 +8,8 @@ function setup_plugin(options, config = {}) {
 	const hooks = { onResolve: [], onLoad: [] };
 	const plugin = tsrxHono(options);
 	const build = {
-		config: { entrypoints: [], plugins: [], ...config },
+		// `null` stands for Bun.plugin() registration, which has no build config.
+		config: config === null ? undefined : { entrypoints: [], plugins: [], ...config },
 		onResolve(hook_options, callback) {
 			hooks.onResolve.push({ options: hook_options, callback });
 			return build;
@@ -116,6 +117,26 @@ describe('@tsrx/bun-plugin-hono', () => {
 
 			expect(result?.contents).toContain('selected_ios');
 			expect(result?.contents).not.toContain('selected_other');
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('writes platform flag values into the output for Bun.plugin() registration', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-runtime-'));
+		try {
+			const file_path = path.join(dir, 'Platform.tsrx');
+			await writeFile(
+				file_path,
+				`export function flags() {
+					return [import.meta.env.platform.web, import.meta.env.platform.ios, import.meta.env.platform.android];
+				}`,
+			);
+			const hooks = setup_plugin({ platform: 'ios' }, null);
+			const result = await load_tsrx(hooks, file_path);
+
+			expect(result?.contents).toMatch(/\[\s*false,\s*true,\s*false\s*\]/);
+			expect(result?.contents).not.toContain('import.meta.env.platform');
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}

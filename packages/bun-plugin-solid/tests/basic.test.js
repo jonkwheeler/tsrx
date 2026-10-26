@@ -13,17 +13,14 @@ import { tsrxSolid } from '../src/index.js';
 
 /**
  * @param {import('../types/index.js').TsrxSolidBunPluginOptions} [options]
- * @param {{ target?: import('bun').Target, root?: string, entrypoints?: string[] }} [config]
+ * @param {{ target?: import('bun').Target, root?: string, entrypoints?: string[] } | null} [config]
  * @param {Hooks} [hooks] hooks shared with other instances in the same build
  */
 function setup_plugin(options, config = {}, hooks = { onResolve: [], onLoad: [] }) {
 	const plugin = tsrxSolid(options);
 	const build = {
-		config: {
-			entrypoints: [],
-			plugins: [],
-			...config,
-		},
+		// `null` stands for Bun.plugin() registration, which has no build config.
+		config: config === null ? undefined : { entrypoints: [], plugins: [], ...config },
 		/**
 		 * @param {{ filter: RegExp, namespace?: string }} hook_options
 		 * @param {Function} callback
@@ -228,6 +225,26 @@ describe('@tsrx/bun-plugin-solid', () => {
 
 			expect(transformed?.contents).toContain('selected_ios');
 			expect(transformed?.contents).not.toContain('selected_other');
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('writes platform flag values into the output for Bun.plugin() registration', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-solid-runtime-'));
+		try {
+			const file_path = path.join(dir, 'Platform.tsrx');
+			await writeFile(
+				file_path,
+				`export function flags() {
+					return [import.meta.env.platform.web, import.meta.env.platform.ios, import.meta.env.platform.android];
+				}`,
+			);
+			const hooks = setup_plugin({ platform: 'ios' }, null);
+			const transformed = await load_tsrx(hooks, file_path);
+
+			expect(transformed?.contents).toMatch(/\[\s*false,\s*true,\s*false\s*\]/);
+			expect(transformed?.contents).not.toContain('import.meta.env.platform');
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}

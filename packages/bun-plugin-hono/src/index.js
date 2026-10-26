@@ -3,7 +3,7 @@
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { mergePlatformDefinitions, validatePlatform } from '@tsrx/core';
+import { mergePlatformDefinitions, replacePlatformFlags, validatePlatform } from '@tsrx/core';
 import { compile as compileServer } from '@tsrx/hono';
 import { compile as compileDom } from '@tsrx/hono/dom';
 import { resolveBuildPlatform } from '@tsrx/core/config';
@@ -105,6 +105,9 @@ export function tsrxHono(options = {}) {
 					})
 				);
 			}
+			// Bun.plugin() registration has no `define`, so the flags left in compiled
+			// output get their values written in directly.
+			const inline_platform = build.config ? undefined : platform;
 
 			build.onResolve({ filter: CSS_QUERY_PATTERN }, (args) => {
 				if (!css_cache.has(args.path)) return undefined;
@@ -118,7 +121,11 @@ export function tsrxHono(options = {}) {
 
 			build.onLoad({ filter: TSRX_EXTENSION_PATTERN, namespace: 'file' }, async (args) => {
 				const source = await readFile(args.path, 'utf-8');
-				const { code, css } = compile(source, args.path, compile_options);
+				const { code: compiled, css } = compile(source, args.path, compile_options);
+				const code =
+					inline_platform === undefined
+						? compiled
+						: replacePlatformFlags(compiled, args.path, inline_platform).code;
 				const css_id = args.path + CSS_QUERY;
 				const output = append_css_import(code, css_id, css, emit_css);
 

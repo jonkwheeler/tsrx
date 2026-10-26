@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { compile } from '@tsrx/vue';
-import { mergePlatformDefinitions, validatePlatform } from '@tsrx/core';
+import { mergePlatformDefinitions, replacePlatformFlags, validatePlatform } from '@tsrx/core';
 import { resolveBuildPlatform } from '@tsrx/core/config';
 import { addVaporInteropToCreateVaporApp } from '@tsrx/vue/interop';
 
@@ -189,6 +189,9 @@ export function tsrxVue(options = {}) {
 					})
 				);
 			}
+			// Bun.plugin() registration has no `define`, so the flags left in compiled
+			// output get their values written in directly.
+			const inline_platform = build.config ? undefined : platform;
 			const transpiler = create_transpiler(build_config.target);
 
 			// Every instance sees every virtual CSS request. Leave the ones another
@@ -210,7 +213,11 @@ export function tsrxVue(options = {}) {
 					if (!should_compile(options, args.path)) return undefined;
 
 					const source = await readFile(args.path, 'utf-8');
-					const { code, css } = compile(source, args.path, compile_options);
+					const { code: compiled, css } = compile(source, args.path, compile_options);
+					const code =
+						inline_platform === undefined
+							? compiled
+							: replacePlatformFlags(compiled, args.path, inline_platform).code;
 					const css_id = to_css_id(args.path);
 
 					let output = code;

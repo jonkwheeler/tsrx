@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { TS_ERRORS } from '@tsrx/core';
 import { describe, expect, it } from 'vitest';
 import {
@@ -40,6 +42,7 @@ describe('@tsrx/react direct runtime imports', () => {
 		);
 
 		expect(code).toContain("from '@tsrx/react-runtime/error-boundary'");
+		expect(code).toContain("from '@tsrx/react-runtime/try-body'");
 		expect(code).toContain("from '@tsrx/react-runtime/ref'");
 		expect(code).toContain("from '@tsrx/react-runtime/iterable'");
 		expect(code).not.toMatch(/from '@tsrx\/react\//);
@@ -1296,7 +1299,7 @@ describe('@tsrx/react basic', () => {
 			'App.tsrx',
 		);
 
-		expect(code).toContain("import { TsrxTryBody } from '@tsrx/react/error-boundary';");
+		expect(code).toContain("import { TsrxTryBody } from '@tsrx/react/try-body';");
 		// The body renders as a child of <Suspense>, so `use()` suspends to it.
 		expect(code).toMatch(
 			/<Suspense fallback=[\s\S]*><TsrxTryBody render=\{\(\) => \{\s*const data = use\(fetchData\(\)\);/,
@@ -1335,6 +1338,46 @@ describe('@tsrx/react basic', () => {
 		expect(code).not.toContain('TsrxTryBody');
 		expect(code).toContain('await (async () => {');
 	});
+
+	it('imports only modules that load under react-server for a @pending-only try', () => {
+		const { code } = compile(
+			`export async function Page() @{
+				@try {
+					<Posts />
+				} @pending {
+					<p>{'Loading'}</p>
+				}
+			}`,
+			'App.tsrx',
+		);
+
+		/** @type {Array<[string, string[]]>} */
+		const imports = [...code.matchAll(/^import \{([^}]*)\} from '([^']+)';$/gm)].map((match) => [
+			match[2],
+			match[1].split(',').map((name) => name.trim()),
+		]);
+		expect(imports).toEqual([
+			['react', ['Suspense']],
+			['@tsrx/react/try-body', ['TsrxTryBody']],
+		]);
+
+		// A Server Component module graph resolves `react` under the
+		// `react-server` condition, which has no `Component` export, so the
+		// class error boundary must stay out of this graph.
+		const script = `for (const [source, names] of ${JSON.stringify(imports)}) {
+			const module = await import(source);
+			for (const name of names) {
+				if (!(name in module)) throw new Error(source + ' has no export ' + name);
+			}
+		}`;
+		expect(() =>
+			execFileSync(
+				process.execPath,
+				['--conditions=react-server', '--input-type=module', '--eval', script],
+				{ cwd: fileURLToPath(new URL('..', import.meta.url)), stdio: 'pipe' },
+			),
+		).not.toThrow();
+	}, 60_000);
 
 	it('applies scoped CSS hashes inside try blocks', () => {
 		const { code, css, cssHash } = compile(

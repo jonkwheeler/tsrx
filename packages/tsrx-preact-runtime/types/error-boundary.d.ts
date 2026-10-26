@@ -14,9 +14,3 @@ export class TsrxErrorBoundary extends Component<TsrxErrorBoundaryProps, TsrxErr
 	static getDerivedStateFromError(error: Error): TsrxErrorBoundaryState;
 	render(): ComponentChildren | VNode;
 }
-
-export interface TsrxTryBodyProps {
-	render: () => ComponentChildren;
-}
-
-export function TsrxTryBody(props: TsrxTryBodyProps): ComponentChildren;

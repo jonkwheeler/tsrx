@@ -5037,7 +5037,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 }
 
 /**
- * The `@try` body as the boundary's child. See `jsx.tryBodyComponent`.
+ * The `@try` body as the boundary's child. See `imports.tryBody`.
  *
  * @param {AST.Node[]} body_nodes
  * @param {TransformContext} transform_context
@@ -5045,7 +5045,7 @@ function try_statement_to_jsx_child(node, transform_context) {
  */
 function try_body_to_jsx_child(body_nodes, transform_context) {
 	if (
-		!transform_context.platform.jsx.tryBodyComponent ||
+		!transform_context.platform.imports.tryBody ||
 		transform_context.typeOnly ||
 		body_nodes.some(suspends_enclosing_function)
 	) {
@@ -5138,16 +5138,14 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 		imports.push(b.import_declaration(specifiers, platform.imports.forOfIterableHelper));
 	}
 
-	if (transform_context.needs_error_boundary || transform_context.needs_try_body) {
-		/** @type {[string, string][]} */
-		const specifiers = [];
-		if (transform_context.needs_error_boundary) {
-			specifiers.push(['TsrxErrorBoundary', 'TsrxErrorBoundary']);
-		}
-		if (transform_context.needs_try_body) {
-			specifiers.push(['TsrxTryBody', 'TsrxTryBody']);
-		}
-		imports.push(b.imports(specifiers, platform.imports.errorBoundary));
+	if (transform_context.needs_error_boundary) {
+		imports.push(
+			b.imports([['TsrxErrorBoundary', 'TsrxErrorBoundary']], platform.imports.errorBoundary),
+		);
+	}
+
+	if (transform_context.needs_try_body && platform.imports.tryBody) {
+		imports.push(b.imports([['TsrxTryBody', 'TsrxTryBody']], platform.imports.tryBody));
 	}
 
 	const merge_refs_source =

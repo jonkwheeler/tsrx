@@ -376,6 +376,19 @@ export interface JsxPlatform {
 		 */
 		errorBoundary: string;
 		/**
+		 * Module to import `TsrxTryBody` from. When set, runtime output renders
+		 * a `@try` body as `<TsrxTryBody render={() => …} />` instead of an
+		 * expression the parent evaluates while rendering, and keys the
+		 * outermost element of each `@try` with its site. For runtimes whose
+		 * boundaries (React-style error boundaries and `Suspense`) catch only
+		 * what descendant components throw: the body's setup statements then
+		 * run inside the boundary. A body that awaits or yields stays inline,
+		 * since the enclosing function has to settle it. The type-only output
+		 * keeps the inline body. Keep this module free of class components so
+		 * a `@try` with only `@pending` works in React Server Components.
+		 */
+		tryBody?: string;
+		/**
 		 * Module to import `mergeRefs` from when an element has more than one
 		 * `ref` attribute and the platform uses the `'merge-refs'` strategy.
 		 * Required when `jsx.multiRefStrategy === 'merge-refs'`; ignored
@@ -405,6 +418,7 @@ export interface JsxPlatform {
 	 */
 	directRuntimeImports?: {
 		errorBoundary?: string;
+		tryBody?: string;
 		mergeRefs?: string;
 		refProp?: string;
 		forOfIterableHelper?: string;
@@ -471,17 +485,6 @@ export interface JsxPlatform {
 		 *   writes a string `innerHTML` into its HTML template as an attribute.
 		 */
 		scriptBody?: 'children' | 'dangerouslySetInnerHTML' | 'innerHTML' | 'v-html';
-		/**
-		 * Render a `@try` body as `<TsrxTryBody render={() => …} />`, imported
-		 * from `imports.errorBoundary`, instead of an expression the parent
-		 * evaluates while rendering. For runtimes whose boundaries (React-style
-		 * error boundaries and `Suspense`) only catch what their descendant
-		 * components throw: the body's setup statements then run inside the
-		 * boundary. A body that awaits or yields stays inline, since the
-		 * enclosing function has to settle it. Runtime output only; the
-		 * type-only output keeps the inline body.
-		 */
-		tryBodyComponent?: boolean;
 	};
 
 	validation: {

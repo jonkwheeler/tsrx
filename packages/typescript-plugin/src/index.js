@@ -6,7 +6,11 @@ import {
 	projectExternalFileExtensions,
 } from '@volar/typescript/lib/quickstart/languageServicePluginCommon.js';
 import { getTsrxLanguagePlugin } from './language.js';
-import { with_completion_import_edits, with_top_of_file_imports } from './plugin-auto-imports.js';
+import {
+	with_completion_import_edits,
+	with_top_of_file_import_edits,
+	with_top_of_file_imports,
+} from './plugin-auto-imports.js';
 import { without_typescript_diagnostics_on_compile_error } from './plugin-diagnostics.js';
 import { with_jsx_closing_tags } from './plugin-jsx-closing-tag.js';
 import { with_whole_file_import_edits } from './plugin-organize-imports.js';
@@ -77,13 +81,17 @@ const plugin = (modules) => {
 			const get_language = () => languages.get(decorated);
 			const get_original = () => originals.get(decorated);
 			return with_jsx_closing_tags(
-				with_completion_import_edits(
-					with_whole_file_import_edits(
-						without_typescript_diagnostics_on_compile_error(decorated),
+				with_top_of_file_import_edits(
+					with_completion_import_edits(
+						with_whole_file_import_edits(
+							without_typescript_diagnostics_on_compile_error(decorated),
+							get_original,
+							get_language,
+						),
 						get_original,
 						get_language,
 					),
-					get_original,
+					ts,
 					get_language,
 				),
 				get_language,
@@ -108,7 +116,7 @@ function decorate(ts, info, config_file_name) {
 	};
 	/** @type {import('@volar/language-core').Language<string> | undefined} */
 	let language;
-	const original = with_top_of_file_imports(info.languageService, () => language);
+	const original = with_top_of_file_imports(info.languageService, ts, () => language);
 	const { proxy, initialize } = createProxyLanguageService(original);
 	originals.set(proxy, original);
 	info.languageService = proxy;

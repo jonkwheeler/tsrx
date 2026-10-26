@@ -3,6 +3,17 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { create_tsserver_workspace, start_tsserver } from './tsserver.js';
 
+/** The text before the first statement of each preamble test file. */
+const PREAMBLES = {
+	Hashbang: '#!/usr/bin/env node\n',
+	HashbangBlankLine: '#!/usr/bin/env node\n\n',
+	License: '/** License */\n\n',
+	Pinned: '/*! keep */\n',
+	Directive: "'use client';\n\n",
+	TripleSlash: '/// <reference lib="dom" />\n',
+	Docs: '/** Docs */\n',
+};
+
 /**
  * Three imports, two of them unused, ended by `end` (`;` or nothing), with
  * `comment` after the second one.
@@ -141,7 +152,29 @@ export function NewLine() @{
 	<p>{helperB()}</p>
 }
 `,
+	...preamble_files(),
 };
+
+/**
+ * A `.tsrx` file and the same code as `.tsx` for each way a file can start before its
+ * first statement, where TypeScript places the first import of a file after the
+ * hashbang, the directive prologue, and pinned or detached leading comments.
+ */
+function preamble_files() {
+	/** @type {Record<string, string>} */
+	const files = {};
+	for (const [name, preamble] of Object.entries(PREAMBLES)) {
+		files[`src/${name}.tsrx`] = `${preamble}export function ${name}() @{
+	<p>{helperB()}</p>
+}
+`;
+		files[`src/${name}.tsx`] = `${preamble}export function ${name}() {
+	return <p>{helperB()}</p>;
+}
+`;
+	}
+	return files;
+}
 
 /** @typedef {keyof typeof FILES} FileName */
 
@@ -457,6 +490,39 @@ import def from './def';
 			).toBe(expected);
 			expect(imports_of(await after_completion('src/NewLine.tsrx', 'helperB'))).toBe(expected);
 		}, 60_000);
+
+		it.each(Object.keys(PREAMBLES))(
+			'adds the first import of a file where it goes in a .tsx file (%s)',
+			async (name) => {
+				const tsrx = /** @type {FileName} */ (`src/${name}.tsrx`);
+				const tsx = /** @type {FileName} */ (`src/${name}.tsx`);
+				const expected = imports_of(await after_quick_fix(tsx, 'helperB', 2304, 'Add import'));
+				expect(expected).toContain('import { helperB }');
+				expect(imports_of(await after_quick_fix(tsrx, 'helperB', 2304, 'Add import'))).toBe(
+					expected,
+				);
+				expect(imports_of(await after_completion(tsrx, 'helperB'))).toBe(expected);
+			},
+			60_000,
+		);
+
+		it.each(/** @type {const} */ (['Directive', 'License']))(
+			'adds the first import of a file with Fix All where it goes in a .tsx file (%s)',
+			async (name) => {
+				/** @param {FileName} file */
+				const fix_all = async (file) => {
+					const response = await server.request('getCombinedCodeFix', {
+						scope: { type: 'file', args: { file: path.join(workspace, file) } },
+						fixId: 'fixMissingImport',
+					});
+					return imports_of(apply(file, response.body.changes));
+				};
+				const expected = await fix_all(/** @type {FileName} */ (`src/${name}.tsx`));
+				expect(expected).toContain('import { helperB }');
+				expect(await fix_all(/** @type {FileName} */ (`src/${name}.tsrx`))).toBe(expected);
+			},
+			60_000,
+		);
 
 		it('adds an import to a file without imports (#828)', async () => {
 			const expected = `import { helperB } from "./lib";\n\n${FILES['src/NoImports.tsrx']}`;

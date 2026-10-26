@@ -639,6 +639,50 @@ describe('type-only JSX analysis', () => {
 			},
 		);
 
+		it('renames only the references to the enclosing arguments (#264)', () => {
+			const { g } = run_module(
+				compile_source(
+					'export function* g(label: string) {\n' +
+						'\treturn @if (true) {\n' +
+						'\t\tenum Key { arguments = 7 }\n' +
+						'\t\tconst typed: { arguments: number } = { arguments: 3 };\n' +
+						'\t\tconst x = yield Key.arguments;\n' +
+						'\t\t<div key_value={Key.arguments} typed={typed.arguments} first={arguments[0]} x={x} />\n' +
+						'\t};\n' +
+						'}\n',
+					false,
+				),
+			);
+			const iterator = g('initial');
+
+			expect(iterator.next().value).toBe(7);
+			expect(iterator.next('resumed').value.props).toEqual({
+				key_value: 7,
+				typed: 3,
+				first: 'initial',
+				x: 'resumed',
+			});
+		});
+
+		it('passes the enclosing arguments to a JSX tag that reads it (#264)', () => {
+			const { g } = run_module(
+				compile_source(
+					'export function* g(components: { Widget: unknown }) {\n' +
+						'\t(arguments as any).Widget = components.Widget;\n' +
+						"\treturn @if (true) { const value = yield 'ready'; <arguments.Widget value={value} /> };\n" +
+						'}\n',
+					false,
+				),
+			);
+			const Widget = () => null;
+			const iterator = g({ Widget });
+			iterator.next();
+			const { value } = iterator.next('resumed');
+
+			expect(value.type).toBe(Widget);
+			expect(value.props.value).toBe('resumed');
+		});
+
 		it.each([
 			[
 				'@switch case',

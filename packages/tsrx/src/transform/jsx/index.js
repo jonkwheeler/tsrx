@@ -2900,7 +2900,13 @@ function find_function_context_references(node, found) {
 	// A JSX tag can read `this` too: `<this.Widget />`
 	if (node.type === 'ThisExpression' || (node.type === 'JSXIdentifier' && node.name === 'this')) {
 		found.this = true;
-	} else if (node.type === 'Identifier' && node.name === 'arguments') {
+	} else if (
+		(node.type === 'Identifier' && node.name === 'arguments') ||
+		// and `arguments`, as the object of a member tag: `<arguments.Widget />`
+		(node.type === 'JSXMemberExpression' &&
+			node.object.type === 'JSXIdentifier' &&
+			node.object.name === 'arguments')
+	) {
 		found.arguments = true;
 	} else if (node.type === 'Super') {
 		found.super ??= node;
@@ -2933,6 +2939,13 @@ function rename_function_context_arguments(node, name, parent = null) {
 		return node.name === 'arguments' && is_reference(node, parent) ? { ...node, name } : node;
 	}
 	if (
+		node.type === 'JSXMemberExpression' &&
+		node.object.type === 'JSXIdentifier' &&
+		node.object.name === 'arguments'
+	) {
+		return { ...node, object: { ...node.object, name } };
+	}
+	if (
 		node.type === 'FunctionExpression' ||
 		node.type === 'FunctionDeclaration' ||
 		node.type === 'StaticBlock'
@@ -2945,8 +2958,10 @@ function rename_function_context_arguments(node, name, parent = null) {
 	for (const key of Object.keys(node)) {
 		if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
 		if (key === 'value' && node.type === 'PropertyDefinition') continue;
-		// A shorthand property's key can be its value node too
-		if (key === 'key' && node.type === 'Property' && !node.computed) continue;
+		// Names, not references: a key that is not computed (a shorthand
+		// property's key can be its value node too), and an enum member's name
+		if (key === 'key' && !(/** @type {any} */ (node).computed)) continue;
+		if (key === 'id' && /** @type {string} */ (node.type) === 'TSEnumMember') continue;
 		const value = /** @type {AST.TraversableAstNode} */ (node)[key];
 		/** @type {unknown} */
 		let next = value;

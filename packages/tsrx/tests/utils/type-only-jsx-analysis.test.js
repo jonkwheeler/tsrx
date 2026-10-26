@@ -593,6 +593,31 @@ describe('type-only JSX analysis', () => {
 			expect(value.props.message).toBe('resumed');
 		});
 
+		it.each([
+			[
+				'@switch case',
+				'@switch (1) { @case 1: { const title = yield* prompts(); <div>{title}</div> } }',
+			],
+			['@if branch', '@if (true) { const title = yield* prompts(); <div>{title}</div> }'],
+		])(
+			'delegates to an async iterable from a closure in an async generator (%s, #265)',
+			async (_name, directive) => {
+				const compiled = compile_source(
+					"async function* prompts() { yield 'question'; return 'answer'; }\n" +
+						`export async function* sample() { return ${directive}; }\n`,
+					false,
+				);
+				expect(compiled.errors).toEqual([]);
+				expect(compiled.code).toContain('yield* (async function* () {');
+
+				const iterator = run_module(compiled).sample();
+				expect(await iterator.next()).toEqual({ value: 'question', done: false });
+				const { value, done } = await iterator.next();
+				expect(done).toBe(true);
+				expect(value).toMatchObject({ type: 'div', props: { children: ['answer'] } });
+			},
+		);
+
 		it('awaits a closure that holds an await using declaration (#501)', async () => {
 			const compiled = compile_source(
 				'export async function App({ resource }: { resource: AsyncDisposable | null }) @{\n' +

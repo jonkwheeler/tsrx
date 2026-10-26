@@ -2593,12 +2593,13 @@ function lower_remaining_jsx_code_blocks(node, transform_context, seen = new Set
  * - an IIFE holding an `await` (or an `await using` declaration) becomes
  *   `await (async () => { … })()`;
  * - an IIFE holding a `yield` becomes a generator the call delegates to,
- *   `yield* (function* () { … })()`, which is also `async` when it awaits.
- *   An arrow shares `this` and `arguments` with the enclosing function and a
- *   generator does not, so the runtime call passes whichever the body reads
- *   (`.call(this)` or `.apply(this, arguments)`). The type-only print keeps
- *   the plain call, the form TypeScript types the delegated `yield` results
- *   from;
+ *   `yield* (function* () { … })()`, which is also `async` when it awaits or
+ *   runs in an async generator, where the authored `yield*` may delegate to
+ *   an async iterable. An arrow shares `this` and `arguments` with the
+ *   enclosing function and a generator does not, so the runtime call passes
+ *   whichever the body reads (`.call(this)` or `.apply(this, arguments)`).
+ *   The type-only print keeps the plain call, the form TypeScript types the
+ *   delegated `yield` results from;
  * - a `map_iterable` call given an async callback becomes
  *   `await map_iterable_async(…)`, which settles one item before the next,
  *   like a `for...of` loop with an `await` in its body.
@@ -2654,9 +2655,11 @@ function suspend_generated_closures(program, transform_context) {
 	 *   it becomes an async closure
 	 * @param {boolean} delegable whether the parent delegates to this node's
 	 *   call when it becomes a generator
+	 * @param {boolean} in_async_generator whether the code runs in an async
+	 *   generator, so a closure made a generator there is async as well
 	 * @returns {SuspendResult}
 	 */
-	const visit = (node, awaitable, delegable) => {
+	const visit = (node, awaitable, delegable, in_async_generator) => {
 		const cached = results.get(node);
 		if (cached) return cached;
 
@@ -2676,6 +2679,10 @@ function suspend_generated_closures(program, transform_context) {
 			node.callee.name === MAP_ITERABLE_INTERNAL_NAME;
 		/** @type {AST.TraversableAstNode} */
 		let out = /** @type {AST.TraversableAstNode} */ (node);
+		// A generated closure is not a generator yet: if it becomes one, it runs
+		// where the enclosing function does.
+		const child_in_async_generator =
+			is_function_node(node) && node.generator ? !!node.async : in_async_generator;
 
 		for (const key of Object.keys(node)) {
 			if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
@@ -2689,7 +2696,7 @@ function suspend_generated_closures(program, transform_context) {
 			 * @returns {AST.Node}
 			 */
 			const visit_child = (child) => {
-				const result = visit(child, child_awaitable, is_callee);
+				const result = visit(child, child_awaitable, is_callee, child_in_async_generator);
 				first_await ??= result.first_await;
 				first_yield ??= result.first_yield;
 				return result.node;
@@ -2732,7 +2739,7 @@ function suspend_generated_closures(program, transform_context) {
 			}
 			if (make_generator) {
 				if (delegable) {
-					fn = to_generator_function(fn);
+					fn = to_generator_function(fn, in_async_generator);
 				} else {
 					error(
 						TSRX_ERRORS.TARGET_YIELD_UNSUPPORTED(transform_context.platform.name),
@@ -2791,7 +2798,7 @@ function suspend_generated_closures(program, transform_context) {
 		return result;
 	};
 
-	const lowered = /** @type {T} */ (visit(program, false, false).node);
+	const lowered = /** @type {T} */ (visit(program, false, false, false).node);
 	if (async_iterable_calls > 0) {
 		transform_context.needs_for_of_iterable = sync_iterable_calls > 0;
 		transform_context.needs_for_of_iterable_async = true;
@@ -2804,13 +2811,17 @@ function suspend_generated_closures(program, transform_context) {
  * body becomes a `return`, since a generator has no concise form.
  *
  * @param {AST.Function} fn
+ * @param {boolean} make_async whether it runs in an async generator, where an
+ *   authored `yield*` may delegate to an async iterable, which only an async
+ *   generator can
  * @returns {AST.FunctionExpression}
  */
-function to_generator_function(fn) {
+function to_generator_function(fn, make_async) {
 	return /** @type {AST.FunctionExpression} */ ({
 		...fn,
 		type: 'FunctionExpression',
 		id: fn.type === 'ArrowFunctionExpression' ? null : fn.id,
+		async: fn.async || make_async,
 		generator: true,
 		body: fn.body.type === 'BlockStatement' ? fn.body : b.block([b.return(fn.body)]),
 	});

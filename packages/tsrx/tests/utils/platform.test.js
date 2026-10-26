@@ -137,7 +137,9 @@ const active = import.meta.env.platform.web;`;
 		const jsx = 'export default function Page() { return <main><pre>/*</pre></main>; }';
 		const tsx = 'export default function Page() { return <main><pre>// docs</pre></main>; }';
 
-		expect(replacePlatformFlags(jsx, 'page.jsx', 'web').code).toBe(jsx);
+		for (const filename of ['page.jsx', 'page.js', 'page.mjs', 'page.cjs']) {
+			expect(replacePlatformFlags(jsx, filename, 'web').code).toBe(jsx);
+		}
 		expect(replacePlatformFlags(tsx, 'page.tsx', 'web').code).toBe(tsx);
 	});
 
@@ -146,6 +148,32 @@ const active = import.meta.env.platform.web;`;
 		const result = replacePlatformFlags(source, 'Note.tsx', 'web');
 
 		expect(result.code).toBe('export const Note = () => <pre>/* {true} */ @if</pre>;');
+	});
+
+	it('reads a constrained or defaulted generic arrow function in TSX', () => {
+		const constrained = `const pick = <T extends object>(o: T) => o;
+export const Note = () => <pre>/* {import.meta.env.platform.web} */</pre>;`;
+		const defaulted = `const pick = <T = string>(o: T) => o;
+export const Note = () => <pre>// docs</pre>;`;
+
+		expect(replacePlatformFlags(constrained, 'Note.tsx', 'web').code).toBe(
+			constrained.replace('import.meta.env.platform.web', 'true'),
+		);
+		expect(replacePlatformFlags(defaulted, 'Note.tsx', 'web').code).toBe(defaulted);
+	});
+
+	it('reports a syntax error after a constrained generic arrow function where it is', () => {
+		const source = `const pick = <T extends object>(o: T) => o;
+const = 1;`;
+
+		expect(() => replacePlatformFlags(source, 'pick.tsx', 'web')).toThrow('Unexpected token (2:6)');
+	});
+
+	it('reports the TSX syntax error when neither parser reads the module', () => {
+		const source = `export const Note = () => <pre>/*</pre>;
+const = 1;`;
+
+		expect(() => replacePlatformFlags(source, 'page.tsx', 'web')).toThrow('Unexpected token (2:6)');
 	});
 
 	it('reads angle-bracket type assertions in TypeScript modules without JSX', () => {

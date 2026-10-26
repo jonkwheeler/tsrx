@@ -8,8 +8,28 @@ import { createParser } from './index.js';
 import { TSRXPlugin } from '../plugin.js';
 
 const parse = createParser(TSRXPlugin());
-const TSXParser = acorn.Parser.extend(tsPlugin({ jsx: true }));
+const TSXParser = acorn.Parser.extend(tsPlugin({ jsx: true }), allow_unambiguous_arrow_type_params);
 const TSParser = acorn.Parser.extend(tsPlugin());
+
+/**
+ * A constraint or default already tells a generic arrow function from JSX
+ * (`<T extends object>(o: T) => o`), as the TSRX parser's override allows;
+ * acorn-typescript reserves every single-parameter list without a trailing
+ * comma.
+ *
+ * @param {typeof acorn.Parser} Parser
+ * @returns {typeof acorn.Parser}
+ */
+function allow_unambiguous_arrow_type_params(Parser) {
+	return class extends Parser {
+		/** @param {AST.TSTypeParameterDeclaration} node */
+		reportReservedArrowTypeParam(node) {
+			const [param] = node.params;
+			if (param?.constraint || param?.default) return;
+			/** @type {any} */ (Parser.prototype).reportReservedArrowTypeParam.call(this, node);
+		}
+	};
+}
 
 /**
  * Parse source code to an ESTree AST using the TSRX parser.

@@ -566,7 +566,7 @@ describe('type-only JSX analysis', () => {
 				// delegated `yield` results from; nothing runs it.
 				expect(with_this.code).toMatch(type_only ? /\}\)\(\)/ : /\}\)\.call\(this\)/);
 				expect(with_arguments.code).toMatch(
-					type_only ? /\}\)\(\)/ : /\}\)\.apply\(this, arguments\)/,
+					type_only ? /\}\)\(\)/ : /\}\)\.call\(this, arguments\)/,
 				);
 			},
 		);
@@ -591,6 +591,28 @@ describe('type-only JSX analysis', () => {
 			expect(done).toBe(true);
 			expect(value.type).toBe(view.Widget);
 			expect(value.props.message).toBe('resumed');
+		});
+
+		it('shares the enclosing arguments object with the generated generator (#264)', () => {
+			const { makeInput } = run_module(
+				compile_source(
+					'export function* makeInput(label: string) {\n' +
+						'\tconst original = arguments;\n' +
+						"\tconst element = label ? <input {...{}} ref={() => {}} data-same={yield ({ arguments }).arguments === original} title={yield (arguments[0] = 'changed')} /> : null;\n" +
+						'\treturn { element, label: arguments[0] };\n' +
+						'}\n',
+					false,
+					IN_PLACE_PLATFORM,
+				),
+			);
+			const iterator = makeInput('initial');
+
+			expect(iterator.next()).toEqual({ value: true, done: false });
+			expect(iterator.next('same').value).toBe('changed');
+			const { value, done } = iterator.next('resumed');
+			expect(done).toBe(true);
+			expect(value.element.props).toMatchObject({ 'data-same': 'same', title: 'resumed' });
+			expect(value.label).toBe('changed');
 		});
 
 		it.each([

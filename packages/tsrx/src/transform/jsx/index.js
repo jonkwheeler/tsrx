@@ -68,6 +68,7 @@ import {
 	node_children,
 	render_children,
 } from '../../utils/ast.js';
+import { is_reference } from '../../utils/is-reference.js';
 
 const DYNAMIC_IMPORT_LOCAL = 'TsrxDynamic';
 const DYNAMIC_FACTORY_LOCAL = '_tsrx_dynamic';
@@ -2597,9 +2598,10 @@ function lower_remaining_jsx_code_blocks(node, transform_context, seen = new Set
  *   runs in an async generator, where the authored `yield*` may delegate to
  *   an async iterable. An arrow shares `this` and `arguments` with the
  *   enclosing function and a generator does not, so the runtime call passes
- *   whichever the body reads (`.call(this)` or `.apply(this, arguments)`).
- *   The type-only print keeps the plain call, the form TypeScript types the
- *   delegated `yield` results from;
+ *   whichever the body reads (`.call(this)`, or `.call(this, arguments)` with
+ *   the body reading its `arguments` from a parameter). The type-only print
+ *   keeps the plain call, the form TypeScript types the delegated `yield`
+ *   results from;
  * - a `map_iterable` call given an async callback becomes
  *   `await map_iterable_async(…)`, which settles one item before the next,
  *   like a `for...of` loop with an `await` in its body.
@@ -2830,8 +2832,10 @@ function to_generator_function(fn, make_async) {
 /**
  * The call a `yield*` delegates to for an IIFE made a generator. The arrow it
  * replaces read `this` and `arguments` from the enclosing function, so the
- * runtime call passes on whichever the body reads. `super` has no such
- * hand-off: a function expression cannot reference it, so it is reported.
+ * runtime call passes on whichever the body reads. The enclosing `arguments`
+ * object itself is passed, as a parameter the body reads instead, so a write
+ * to it reaches the enclosing function. `super` has no such hand-off: a
+ * function expression cannot reference it, so it is reported.
  *
  * @param {AST.CallExpression} call
  * @param {TransformContext} transform_context
@@ -2858,7 +2862,12 @@ function delegate_to_generated_generator(call, transform_context) {
 	// TypeScript types the delegated `yield` results only for a direct call.
 	if (transform_context.typeOnly) return call;
 	if (found.arguments) {
-		return b.call(b.member(generator, 'apply'), b.this, b.id('arguments'));
+		const receives_arguments = {
+			...generator,
+			params: [b.id(ARGUMENTS_INTERNAL_NAME)],
+			body: /** @type {AST.BlockStatement} */ (rename_function_context_arguments(generator.body)),
+		};
+		return b.call(b.member(receives_arguments, 'call'), b.this, b.id('arguments'));
 	}
 	if (found.this) {
 		return b.call(b.member(generator, 'call'), b.this, ...call.arguments);
@@ -2895,6 +2904,58 @@ function find_function_context_references(node, found) {
 	for (const child of child_nodes(node, node.type === 'PropertyDefinition' ? 'value' : undefined)) {
 		find_function_context_references(child, found);
 	}
+}
+
+/**
+ * `node` with each `arguments` it reads from the function a generated closure
+ * sits in renamed to the parameter the closure receives that object as. The
+ * same functions bind their own `arguments` as in
+ * `find_function_context_references`.
+ *
+ * @param {AST.Node} node
+ * @param {AST.Node | null} [parent]
+ * @returns {AST.Node}
+ */
+function rename_function_context_arguments(node, parent = null) {
+	if (node.type === 'Identifier') {
+		return node.name === 'arguments' && is_reference(node, parent)
+			? { ...node, name: ARGUMENTS_INTERNAL_NAME }
+			: node;
+	}
+	if (
+		node.type === 'FunctionExpression' ||
+		node.type === 'FunctionDeclaration' ||
+		node.type === 'StaticBlock'
+	) {
+		return node;
+	}
+
+	/** @type {AST.TraversableAstNode} */
+	let out = /** @type {AST.TraversableAstNode} */ (node);
+	for (const key of Object.keys(node)) {
+		if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
+		if (key === 'value' && node.type === 'PropertyDefinition') continue;
+		// A shorthand property's key can be its value node too
+		if (key === 'key' && node.type === 'Property' && !node.computed) continue;
+		const value = /** @type {AST.TraversableAstNode} */ (node)[key];
+		/** @type {unknown} */
+		let next = value;
+		if (Array.isArray(value)) {
+			const renamed = value.map((child) =>
+				is_ast_node(child) ? rename_function_context_arguments(child, node) : child,
+			);
+			if (renamed.some((child, index) => child !== value[index])) next = renamed;
+		} else if (is_ast_node(value)) {
+			next = rename_function_context_arguments(value, node);
+		}
+		if (next !== value) {
+			if (out === node) out = { ...out };
+			out[key] = next;
+		}
+	}
+	// `{ arguments }` keeps its key and reads the parameter
+	if (out !== node && node.type === 'Property') out.shorthand = false;
+	return /** @type {AST.Node} */ (out);
 }
 
 /**
@@ -5746,6 +5807,8 @@ function stamp_directive_origin(node, directive, keyword, transform_context) {
 
 export const MAP_ITERABLE_INTERNAL_NAME = '__map_iterable';
 export const MAP_ITERABLE_ASYNC_INTERNAL_NAME = '__map_iterable_async';
+/** The parameter a generated generator receives the enclosing `arguments` as. */
+const ARGUMENTS_INTERNAL_NAME = '__arguments';
 
 const HTML_REF_TAG_NAMES = new Set(
 	'a abbr address area article aside audio b base bdi bdo blockquote body br button canvas caption cite code col colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li link main map mark menu meta meter nav noscript object ol optgroup option output p picture pre progress q rp rt ruby s samp script search section select slot small source span strong style sub summary sup table tbody td template textarea tfoot th thead time title tr track u ul var video wbr'.split(

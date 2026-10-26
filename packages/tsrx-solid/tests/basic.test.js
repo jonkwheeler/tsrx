@@ -339,6 +339,38 @@ describe('@tsrx/solid basic', () => {
 			);
 		});
 
+		it('for-of keyed by its declared index computes keys with the index (#933)', () => {
+			const { code } = compile(
+				`function App({ items }: { items: string[] }) @{
+					@for (const item of items; index i; key i) {
+						<li>{item()}</li>
+					}
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain(
+				"import { for_keyed_rows as __for_keyed_rows } from '@tsrx/solid/iterable';",
+			);
+			expect(code).toContain('each={__for_keyed_rows(items, (item, i) => i)}');
+			expect(code).toContain('keyed={(_$_row) => _$_row.key}');
+			expect(code).toMatch(/\(_\$_row, i\) => \{\s*const item = \(\) => _\$_row\(\)\.item;/);
+		});
+
+		it('for-of keyed without its index keeps the item key', () => {
+			const { code } = compile(
+				`function App({ items }: { items: { i: string }[] }) @{
+					@for (const item of items; index i; key item.i) {
+						<li>{item().i}</li>
+					}
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).not.toContain('__for_keyed_rows');
+			expect(code).toMatch(/keyed=\{\(item\) =>\s*item\.i\}/);
+		});
+
 		it('try/catch → <Errored fallback={(err, reset) => ...}>', () => {
 			const { code } = compile(
 				`function App() @{

@@ -19,6 +19,7 @@
 import { walk } from 'zimmerframe';
 import {
 	DIAGNOSTIC_CODES,
+	IDENTIFIER_OBFUSCATION_PREFIX,
 	TSRX_ERRORS,
 	createJsxTransform,
 	createScriptBody as create_script_body,
@@ -1038,6 +1039,8 @@ function build_show_element(test, children, fallback) {
 }
 
 const FOR_ITEMS_INTERNAL_NAME = '__for_items';
+const FOR_KEYED_ROWS_INTERNAL_NAME = '__for_keyed_rows';
+const FOR_ROW_PARAM_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'row';
 
 /**
  * `for (const item of items; index i) { ... }` →
@@ -1053,7 +1056,14 @@ const FOR_ITEMS_INTERNAL_NAME = '__for_items';
  * the implicit mode with the user-provided key expression.
  *
  * `<For each>` takes an array, so `__for_items` walks any other iterable into
- * one.
+ * one. Solid's `keyed` callback receives the item alone, so a key that reads
+ * the declared index is computed with the item by `__for_keyed_rows`, and the
+ * child callback reads the item back from its row:
+ *
+ * `for (const item of items; index i; key i) { ... }` →
+ * `<For each={__for_keyed_rows(items, (item, i) => i)} keyed={(row) => row.key}>
+ *   {(row, i) => { const item = () => row().item; ... }}
+ * </For>`
  *
  * @param {AST.ForOfStatement} node
  * @param {TransformContext} transform_context
@@ -1065,6 +1075,7 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 	const loop_params = get_for_of_iteration_params(node.left, node.index);
 	const loop_body = node.body.type === 'BlockStatement' ? node.body.body : [node.body];
 	const uses_index_only_mode = !node.key && node.index;
+	const key_reads_index = !!node.key && !!node.index && reads_identifier(node.key, node.index);
 	validate_for_body_control_flow(loop_body, transform_context);
 
 	let arrow;
@@ -1080,8 +1091,23 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 		arrow = merge_branch_body_into_arrow(arrow, body_to_jsx_child(loop_body, transform_context));
 	}
 
-	transform_context.needs_for_items = true;
-	const each = b.call(create_generated_identifier(FOR_ITEMS_INTERNAL_NAME), node.right);
+	/** @type {AST.Expression} */
+	let each;
+	if (key_reads_index) {
+		transform_context.needs_for_keyed_rows = true;
+		each = b.call(
+			create_generated_identifier(FOR_KEYED_ROWS_INTERNAL_NAME),
+			node.right,
+			b.arrow(
+				[clone_ast_node(loop_params[0]), clone_ast_node(loop_params[1])],
+				/** @type {AST.Expression} */ (node.key),
+			),
+		);
+		arrow = read_item_from_row(arrow, loop_params[0]);
+	} else {
+		transform_context.needs_for_items = true;
+		each = b.call(create_generated_identifier(FOR_ITEMS_INTERNAL_NAME), node.right);
+	}
 
 	const attributes = [b.jsx_attribute(b.jsx_id('each'), to_jsx_expression_container(each))];
 	if (node.empty) {
@@ -1094,7 +1120,18 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 		);
 	}
 
-	if (node.key) {
+	if (key_reads_index) {
+		const row = create_generated_identifier(FOR_ROW_PARAM_NAME);
+		attributes.push(
+			b.jsx_attribute(
+				b.jsx_id('keyed'),
+				to_jsx_expression_container(
+					b.arrow([row], b.member(clone_ast_node(row), create_generated_identifier('key'))),
+					node.key,
+				),
+			),
+		);
+	} else if (node.key) {
 		const item_param = clone_ast_node(loop_params[0]);
 		const keyed_arrow = b.arrow([item_param], node.key);
 		attributes.push(
@@ -1105,6 +1142,64 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 	}
 
 	return create_jsx_element('For', attributes, [to_jsx_expression_container(arrow)]);
+}
+
+/**
+ * Whether `expression` reads the binding `name` names. Property names don't
+ * count; a nested function's parameter of the same name does, which only
+ * costs the loop the row form it would not have needed.
+ *
+ * @param {AST.Node} expression
+ * @param {AST.Identifier} name
+ * @returns {boolean}
+ */
+function reads_identifier(expression, name) {
+	let found = false;
+	walk(/** @type {AST.Node} */ (expression), null, {
+		Identifier(node, { path, next }) {
+			const parent = path.at(-1);
+			if (
+				node.name === name.name &&
+				!(parent?.type === 'MemberExpression' && parent.property === node && !parent.computed) &&
+				!(
+					parent?.type === 'Property' &&
+					parent.key === node &&
+					!parent.computed &&
+					!parent.shorthand
+				)
+			) {
+				found = true;
+			}
+			next();
+		},
+	});
+	return found;
+}
+
+/**
+ * The child callback of a `<For>` over `__for_keyed_rows` rows: it receives
+ * the row accessor in the item's place, and binds the item as the loop body
+ * expects it, an accessor for a name and the value for a pattern.
+ *
+ * @param {AST.ArrowFunctionExpression} arrow
+ * @param {AST.Pattern} item
+ * @returns {AST.ArrowFunctionExpression}
+ */
+function read_item_from_row(arrow, item) {
+	const row = create_generated_identifier(FOR_ROW_PARAM_NAME);
+	/** @type {AST.Expression} */
+	const row_item = b.member(b.call(clone_ast_node(row)), create_generated_identifier('item'));
+	const declaration = b.const(item, item.type === 'Identifier' ? b.arrow([], row_item) : row_item);
+	const body =
+		arrow.body.type === 'BlockStatement'
+			? [declaration, ...arrow.body.body]
+			: [declaration, b.return(/** @type {AST.Expression} */ (arrow.body))];
+	return {
+		...arrow,
+		params: [row, ...arrow.params.slice(1)],
+		body: b.block(body),
+		expression: false,
+	};
 }
 
 /**
@@ -1944,13 +2039,18 @@ function inject_solid_imports(program, transform_context) {
 	}
 
 	const iterable_source = transform_context.platform.imports.forOfIterableHelper;
-	if (transform_context.needs_for_items && iterable_source) {
-		program.body.unshift(
-			b.import_declaration(
-				[b.import_specifier('for_items', FOR_ITEMS_INTERNAL_NAME)],
-				iterable_source,
-			),
-		);
+	if (
+		(transform_context.needs_for_items || transform_context.needs_for_keyed_rows) &&
+		iterable_source
+	) {
+		const specifiers = [];
+		if (transform_context.needs_for_items) {
+			specifiers.push(b.import_specifier('for_items', FOR_ITEMS_INTERNAL_NAME));
+		}
+		if (transform_context.needs_for_keyed_rows) {
+			specifiers.push(b.import_specifier('for_keyed_rows', FOR_KEYED_ROWS_INTERNAL_NAME));
+		}
+		program.body.unshift(b.import_declaration(specifiers, iterable_source));
 	}
 
 	const needed = [];

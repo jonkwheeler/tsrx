@@ -49,6 +49,7 @@ export interface JsxTransformContext {
 	needs_errored: boolean;
 	needs_loading: boolean;
 	needs_for_items: boolean;
+	needs_for_keyed_rows: boolean;
 	needs_define_vapor_component: boolean;
 	needs_vapor_for: boolean;
 	stylesheets: AST.CSS.StyleSheet[];

@@ -526,6 +526,34 @@ function ForReactiveApp() @{
 	</>
 }
 
+function ForKeyedByIndexApp() @{
+	const [items, setItems] = createSignal(['a', 'b']);
+	<>
+		<ul>
+			@for (const item of items(); index i; key i) {
+				<li class="keyed-index-item">{`${i()}:${item()}`}</li>
+			}
+		</ul>
+		<button class="reverse" onClick={() => setItems(['b', 'a', 'c'])}>
+			{'reverse'}
+		</button>
+	</>
+}
+
+function ForKeyedByItemAndIndexApp() @{
+	const [items, setItems] = createSignal([{ id: 'a' }, { id: 'b' }]);
+	<>
+		<ul>
+			@for (const { id } of items(); index i; key `${id}-${i}`) {
+				<li class="keyed-pair-item">{id}</li>
+			}
+		</ul>
+		<button class="reverse" onClick={() => setItems([{ id: 'b' }, { id: 'a' }])}>
+			{'reverse'}
+		</button>
+	</>
+}
+
 function ForSetSignalApp() @{
 	const [tags, setTags] = createSignal(new Set(['x', 'y']));
 	<>
@@ -1343,6 +1371,26 @@ describe('tsrx-solid runtime', () => {
 		const after = container.querySelectorAll('.item');
 		expect(after.length).toBe(3);
 		expect(after[0].textContent).toBe('b');
+	});
+
+	it('updates a for-of loop keyed by its declared index (#933)', async () => {
+		await render(ForKeyedByIndexApp);
+		const rows = () =>
+			Array.from(container.querySelectorAll('.keyed-index-item'), (item) => item.textContent);
+		expect(rows()).toEqual(['0:a', '1:b']);
+
+		await click('.reverse');
+		expect(rows()).toEqual(['0:b', '1:a', '2:c']);
+	});
+
+	it('updates a for-of loop keyed by its item and declared index (#933)', async () => {
+		await render(ForKeyedByItemAndIndexApp);
+		const rows = () =>
+			Array.from(container.querySelectorAll('.keyed-pair-item'), (item) => item.textContent);
+		expect(rows()).toEqual(['a', 'b']);
+
+		await click('.reverse');
+		expect(rows()).toEqual(['b', 'a']);
 	});
 
 	it('renders and updates a for-of loop over a Set (#1070)', async () => {

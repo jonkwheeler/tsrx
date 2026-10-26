@@ -1,4 +1,4 @@
-/** @import { BunPlugin, Target, Transpiler } from 'bun' */
+/** @import { BunPlugin } from 'bun' */
 /** @import { Platform, RuntimeImportMode } from '@tsrx/preact' */
 
 import { readFile } from 'node:fs/promises';
@@ -64,28 +64,6 @@ function to_css_id(file_path) {
 }
 
 /**
- * @param {string} jsx_import_source
- * @param {Target | undefined} target
- * @returns {Transpiler | null}
- */
-function create_transpiler(jsx_import_source, target) {
-	const Transpiler = globalThis.Bun?.Transpiler;
-	if (typeof Transpiler !== 'function') return null;
-
-	return new Transpiler({
-		loader: 'tsx',
-		target,
-		autoImportJSX: true,
-		tsconfig: {
-			compilerOptions: {
-				jsx: 'react-jsx',
-				jsxImportSource: jsx_import_source,
-			},
-		},
-	});
-}
-
-/**
  * Bun plugin for `.tsrx` files that compiles them through `@tsrx/preact` and
  * then runs Bun's TSX transform so the final output calls Preact's automatic
  * JSX runtime. Component-local styles are exposed as virtual CSS modules.
@@ -127,7 +105,6 @@ export function tsrxPreact(options = {}) {
 					})
 				);
 			}
-			const transpiler = create_transpiler(jsx_import_source, build_config.target);
 
 			// Every instance sees every virtual CSS request. Leave the ones another
 			// instance compiled to that instance.
@@ -161,15 +138,10 @@ export function tsrxPreact(options = {}) {
 						css_cache.delete(css_id);
 					}
 
-					if (transpiler) {
-						return {
-							contents: transpiler.transformSync(output),
-							loader: 'js',
-						};
-					}
-
 					return {
-						contents: output,
+						// Bun's own TSX transform picks the development or production JSX
+						// runtime for the build. The pragma selects only the import source.
+						contents: `/** @jsxImportSource ${jsx_import_source} */\n${output}`,
 						loader: 'tsx',
 					};
 				},

@@ -35,3 +35,24 @@ test.each(['server', 'dom'] as const)('builds %s JavaScript and CSS with Bun', a
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+test('selects the production JSX runtime for production builds', async () => {
+	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
+	try {
+		const entry = join(dir, 'App.tsrx');
+		await writeFile(entry, 'export function App() @{ <p>{"hello"}</p> }');
+		const result = await Bun.build({
+			entrypoints: [entry],
+			target: 'browser',
+			external: ['hono/*', '@tsrx/*'],
+			define: { 'process.env.NODE_ENV': '"production"' },
+			plugins: [tsrxHono()],
+		});
+		expect(result.success).toBe(true);
+		const js = await result.outputs[0].text();
+		expect(js).toContain('hono/jsx/jsx-runtime');
+		expect(js).not.toContain('jsx-dev-runtime');
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});

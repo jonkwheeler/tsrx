@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { tsrxReact } from '../src/index.js';
 
 /**
@@ -10,53 +10,6 @@ import { tsrxReact } from '../src/index.js';
  * 	onLoad: Array<{ options: { filter: RegExp, namespace?: string }, callback: Function }>,
  * }} Hooks
  */
-
-const original_bun = Reflect.get(globalThis, 'Bun');
-
-afterEach(() => {
-	if (original_bun === undefined) {
-		Reflect.deleteProperty(globalThis, 'Bun');
-	} else {
-		Object.defineProperty(globalThis, 'Bun', {
-			value: original_bun,
-			writable: true,
-			configurable: true,
-		});
-	}
-});
-
-/**
- * @returns {{ options: unknown[] }}
- */
-function install_transpiler_stub() {
-	/** @type {unknown[]} */
-	const options = [];
-
-	class TranspilerStub {
-		/**
-		 * @param {unknown} transpiler_options
-		 */
-		constructor(transpiler_options) {
-			options.push(transpiler_options);
-		}
-
-		/**
-		 * @param {string} source
-		 * @returns {string}
-		 */
-		transformSync(source) {
-			return `// transformed\n${source}`;
-		}
-	}
-
-	Object.defineProperty(globalThis, 'Bun', {
-		value: { Transpiler: TranspilerStub },
-		writable: true,
-		configurable: true,
-	});
-
-	return { options };
-}
 
 /**
  * @param {import('../types/index.js').TsrxReactBunPluginOptions} [options]
@@ -135,7 +88,6 @@ async function dispatch(hooks, args) {
 
 describe('@tsrx/bun-plugin-react', () => {
 	it('compiles .tsrx files, transforms TSX, and serves emitted CSS', async () => {
-		const transpiler = install_transpiler_stub();
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-react-'));
 		try {
 			const file_path = path.join(dir, 'App.tsrx');
@@ -162,8 +114,9 @@ describe('@tsrx/bun-plugin-react', () => {
 			const css = load_css(hooks, css_id);
 
 			expect(transformed).toBeDefined();
-			expect(transformed?.loader).toBe('js');
-			expect(transformed?.contents).toContain('// transformed');
+			// Bun's own TSX transform selects the development or production runtime.
+			expect(transformed?.loader).toBe('tsx');
+			expect(transformed?.contents).toMatch(/^\/\*\* @jsxImportSource react \*\/\n/);
 			expect(transformed?.contents).toContain(css_id);
 			expect(String(transformed?.contents).indexOf('./reset.css')).toBeGreaterThan(-1);
 			expect(String(transformed?.contents).indexOf('./reset.css')).toBeLessThan(
@@ -172,57 +125,21 @@ describe('@tsrx/bun-plugin-react', () => {
 			expect(css.loader).toBe('css');
 			expect(css.contents).toContain('.div.');
 			expect(css.contents).toContain('color: red;');
-			expect(transpiler.options).toEqual([
-				expect.objectContaining({
-					loader: 'tsx',
-					target: 'browser',
-					autoImportJSX: true,
-					tsconfig: {
-						compilerOptions: {
-							jsx: 'react-jsx',
-							jsxImportSource: 'react',
-						},
-					},
-				}),
-			]);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
 	});
 
-	it('uses a custom jsx import source', () => {
-		const transpiler = install_transpiler_stub();
-		setup_plugin({ jsxImportSource: 'react-custom' }, { target: 'browser' });
-
-		expect(transpiler.options).toEqual([
-			expect.objectContaining({
-				tsconfig: {
-					compilerOptions: {
-						jsx: 'react-jsx',
-						jsxImportSource: 'react-custom',
-					},
-				},
-			}),
-		]);
-	});
-
-	it('falls back to TSX output when Bun.Transpiler is unavailable', async () => {
+	it('uses a custom jsx import source', async () => {
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-react-'));
 		try {
 			const file_path = path.join(dir, 'App.tsrx');
-			await writeFile(
-				file_path,
-				`export function App() @{
-					<div>{'Hello world'}</div>
-				}`,
-			);
+			await writeFile(file_path, `export function App() @{ <div>{'Hello world'}</div> }`);
 
-			const hooks = setup_plugin(undefined, { target: 'browser', root: dir });
+			const hooks = setup_plugin({ jsxImportSource: 'react-custom' }, { target: 'browser' });
 			const transformed = await load_tsrx(hooks, file_path);
 
-			expect(transformed).toBeDefined();
-			expect(transformed?.loader).toBe('tsx');
-			expect(transformed?.contents).not.toContain('?tsrx-css&lang.css');
+			expect(transformed?.contents).toMatch(/^\/\*\* @jsxImportSource react-custom \*\/\n/);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
@@ -254,7 +171,6 @@ describe('@tsrx/bun-plugin-react', () => {
 	});
 
 	it('serves each instance its own CSS when instances split the source files', async () => {
-		install_transpiler_stub();
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-react-instances-'));
 		try {
 			const hooks = setup_plugin({ include: /a\.tsrx$/ }, { target: 'browser', root: dir });

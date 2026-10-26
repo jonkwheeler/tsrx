@@ -33,6 +33,7 @@ import {
 } from '@tsrx/typescript-plugin/src/language.js';
 import { NODE_CONFIG_HOST } from '@tsrx/typescript-plugin/src/config-host.js';
 import {
+	createRestartScheduler,
 	getWorkspaceFilePatterns,
 	handleWorkspaceChanges,
 	trackTypeScriptConfigDependencies,
@@ -57,12 +58,6 @@ const TYPESCRIPT_SOURCES = {
 export const RESTART_NOTIFICATION = 'tsrx/restartServer';
 
 /**
- * How long package state must stay unchanged before the server restarts, so that
- * a package.json edit and the install that follows it restart the server once.
- */
-const RESTART_DELAY_MS = 1000;
-
-/**
  * @param {{ argv?: readonly string[] }} [options] `argv` defaults to the process
  *   arguments; it carries the `--typescript-backend=<classic|native>` flag.
  */
@@ -83,9 +78,6 @@ export function createTsrxLanguageServer(options = {}) {
 	const trackedTypeScriptConfigFiles = new Set();
 	/** @type {Set<Set<string>>} */
 	const compilerResolutionDependencySets = new Set();
-	/** @type {ReturnType<typeof setTimeout> | undefined} */
-	let restartTimer;
-	let restartScheduled = false;
 	let clientRestarts = false;
 	/** @type {import('./backend.js').TypeScriptBackend} */
 	let activeBackend = 'classic';
@@ -99,21 +91,12 @@ export function createTsrxLanguageServer(options = {}) {
 
 	/**
 	 * Restart the process so Node drops the complete ESM compiler graph, once
-	 * package state has stopped changing for `RESTART_DELAY_MS`. A client that
-	 * restarts the server itself stops sending first. When the server exits by
-	 * itself, the client's next message fails (VS Code showed "Cannot call write
-	 * after a stream was destroyed").
+	 * package state has settled (`createRestartScheduler`). A client that restarts
+	 * the server itself stops sending first. When the server exits by itself, the
+	 * client's next message fails (VS Code showed "Cannot call write after a stream
+	 * was destroyed").
 	 */
-	function restartLanguageServer() {
-		if (restartScheduled) {
-			return;
-		}
-		clearTimeout(restartTimer);
-		restartTimer = setTimeout(restartNow, RESTART_DELAY_MS);
-	}
-
-	function restartNow() {
-		restartScheduled = true;
+	const restartLanguageServer = createRestartScheduler(() => {
 		if (clientRestarts) {
 			log('Asking the client to restart the server after package state changed.');
 			void connection.sendNotification(RESTART_NOTIFICATION);
@@ -121,7 +104,7 @@ export function createTsrxLanguageServer(options = {}) {
 		}
 		log('Restarting after package state changed.');
 		setTimeout(() => process.exit(0), 50);
-	}
+	});
 
 	/**
 	 * Ensure TypeScript hosts always see TSRX compiler defaults.
@@ -319,6 +302,9 @@ export function createTsrxLanguageServer(options = {}) {
 						server.languageFeatures.requestRefresh(clearDiagnostics),
 				},
 				trackedTypeScriptConfigFiles,
+				server.workspaceFolders.all
+					.filter((folder) => folder.scheme === 'file')
+					.map((folder) => folder.fsPath),
 			);
 
 			if (effects.reloadProjects) {

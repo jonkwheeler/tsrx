@@ -119,6 +119,14 @@ describe('TSRX language server: restart after package state changed', () => {
 		expect(Date.now() - last_change).toBeGreaterThanOrEqual(900);
 	});
 
+	it('restarts after an install that leaves the lockfile alone', async () => {
+		// After `git pull` changed the lockfile, `pnpm install` writes only node_modules.
+		const client = await session({ restartNotification: true });
+		const restart = client.wait_for_notification('tsrx/restartServer');
+		client.watched_files_changed([['node_modules/.modules.yaml', 'changed']]);
+		await restart;
+	});
+
 	it('exits by itself for other clients', async () => {
 		const client = await session({});
 		client.watched_files_changed([['package.json', 'changed']]);

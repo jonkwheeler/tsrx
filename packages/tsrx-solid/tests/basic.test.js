@@ -284,7 +284,7 @@ describe('@tsrx/solid basic', () => {
 				}`,
 				'App.tsrx',
 			);
-			expect(code).toContain('<For each={items}');
+			expect(code).toContain('<For each={__for_items(items)}');
 			expect(code).toContain('keyed={false}');
 			expect(code).toMatch(/\(item, i\) =>/);
 			expect(code).toContain('<li>{i + item()}</li>');
@@ -300,7 +300,7 @@ describe('@tsrx/solid basic', () => {
 				}`,
 				'App.tsrx',
 			);
-			expect(code).toContain('<For each={items}>');
+			expect(code).toContain('<For each={__for_items(items)}>');
 			expect(code).not.toContain('keyed=');
 			expect(code).toContain('(item) => <li>{item}</li>');
 			expect(code).toContain("import { For } from 'solid-js'");
@@ -318,8 +318,25 @@ describe('@tsrx/solid basic', () => {
 			// `key item.id` lifts to `keyed={(item) => item.id}` — Solid 2.0's
 			// <For keyed> switches reconciliation from reference identity to
 			// the derived key.
-			expect(code).toContain('<For each={items}');
+			expect(code).toContain('<For each={__for_items(items)}');
 			expect(code).toMatch(/keyed=\{\(item\) =>\s*item\.id\}/);
+		});
+
+		it('for-of over any iterable imports the array helper (#1070)', () => {
+			const source = `function App({ tags }: { tags: Set<string> }) @{
+				@for (const tag of tags) {
+					<li>{tag}</li>
+				}
+			}`;
+
+			const { code } = compile(source, 'App.tsrx');
+			expect(code).toContain("import { for_items as __for_items } from '@tsrx/solid/iterable';");
+			expect(code).toContain('<For each={__for_items(tags)}>');
+
+			const direct = compile(source, 'App.tsrx', { runtimeImports: 'direct' }).code;
+			expect(direct).toContain(
+				"import { for_items as __for_items } from '@tsrx/solid-runtime/iterable';",
+			);
 		});
 
 		it('try/catch → <Errored fallback={(err, reset) => ...}>', () => {
@@ -464,7 +481,7 @@ describe('@tsrx/solid basic', () => {
 				'App.tsrx',
 			);
 
-			expect(code).toContain('<For each={items}');
+			expect(code).toContain('<For each={__for_items(items)}');
 			expect(code).not.toContain('keyed=');
 			expect(code).toContain('<Show when={cond}');
 			expect(code).toContain('setup();');
@@ -638,7 +655,7 @@ describe('@tsrx/solid basic', () => {
 				'App.tsrx',
 			);
 
-			expect(code).toContain('<For each={items}>');
+			expect(code).toContain('<For each={__for_items(items)}>');
 			expect(code).not.toContain('keyed=');
 			expect(code).toContain('(item) => <div>{item}</div>');
 			expect(code).not.toContain('for (const item of items)');
@@ -654,7 +671,7 @@ describe('@tsrx/solid basic', () => {
 				'App.tsrx',
 			);
 
-			expect(code).toContain('<For each={items}');
+			expect(code).toContain('<For each={__for_items(items)}');
 			expect(code).toMatch(/keyed=\{\(item\) =>\s*item\.id\}/);
 			expect(code).toContain('(item, i) => <div>{i() + item.name}</div>');
 		});

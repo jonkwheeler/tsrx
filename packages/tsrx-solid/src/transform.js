@@ -86,9 +86,12 @@ const solid_platform = {
 		dynamicFactory: { name: 'dynamic', source: '@solidjs/web' },
 		errorBoundary: 'solid-js',
 		refProp: '@tsrx/solid/ref',
+		// `<For each>` takes an array; `@for` takes any iterable.
+		forOfIterableHelper: '@tsrx/solid/iterable',
 	},
 	directRuntimeImports: {
 		refProp: '@tsrx/solid-runtime/ref',
+		forOfIterableHelper: '@tsrx/solid-runtime/iterable',
 	},
 	jsx: {
 		rewriteClassAttr: false,
@@ -1034,18 +1037,23 @@ function build_show_element(test, children, fallback) {
 	return create_jsx_element('Show', attributes, [jsx_child_wrap(to_function_child(children))]);
 }
 
+const FOR_ITEMS_INTERNAL_NAME = '__for_items';
+
 /**
  * `for (const item of items; index i) { ... }` →
- * `<For each={items} keyed={false}>{(item, i) => ...}</For>`
+ * `<For each={__for_items(items)} keyed={false}>{(item, i) => ...}</For>`
  *
  * `for (const item of items; key item.id) { ... }` →
- * `<For each={items} keyed={(item) => item.id}>{(item) => ...}</For>`
+ * `<For each={__for_items(items)} keyed={(item) => item.id}>{(item) => ...}</For>`
  *
  * Solid 2.0's `<For>` defaults to raw row values for the child callback. When
  * no explicit `key` is present, TSRX follows Solid's native callback shapes:
  * index loops use `keyed={false}` (accessor item, raw index), while loops
  * without an index use the default raw item. Explicit `key` clauses replace
  * the implicit mode with the user-provided key expression.
+ *
+ * `<For each>` takes an array, so `__for_items` walks any other iterable into
+ * one.
  *
  * @param {AST.ForOfStatement} node
  * @param {TransformContext} transform_context
@@ -1072,7 +1080,10 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 		arrow = merge_branch_body_into_arrow(arrow, body_to_jsx_child(loop_body, transform_context));
 	}
 
-	const attributes = [b.jsx_attribute(b.jsx_id('each'), to_jsx_expression_container(node.right))];
+	transform_context.needs_for_items = true;
+	const each = b.call(create_generated_identifier(FOR_ITEMS_INTERNAL_NAME), node.right);
+
+	const attributes = [b.jsx_attribute(b.jsx_id('each'), to_jsx_expression_container(each))];
 	if (node.empty) {
 		const empty_body = node.empty.type === 'BlockStatement' ? node.empty.body : [node.empty];
 		attributes.push(
@@ -1928,6 +1939,16 @@ function inject_solid_imports(program, transform_context) {
 					),
 				],
 				ref_prop_source,
+			),
+		);
+	}
+
+	const iterable_source = transform_context.platform.imports.forOfIterableHelper;
+	if (transform_context.needs_for_items && iterable_source) {
+		program.body.unshift(
+			b.import_declaration(
+				[b.import_specifier('for_items', FOR_ITEMS_INTERNAL_NAME)],
+				iterable_source,
 			),
 		);
 	}

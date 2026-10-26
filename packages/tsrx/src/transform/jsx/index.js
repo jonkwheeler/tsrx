@@ -571,6 +571,7 @@ export function createJsxTransform(platform) {
 			needs_match: false,
 			needs_errored: false,
 			needs_loading: false,
+			needs_for_items: false,
 			needs_define_vapor_component: false,
 			needs_vapor_for: false,
 			stylesheets,

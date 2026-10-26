@@ -1,7 +1,8 @@
 import type { MockInstance } from 'vitest';
 import type { JSX } from '@solidjs/web';
-import { createSignal, lazy } from 'solid-js';
+import { createSignal, createStore, lazy } from 'solid-js';
 import { runSwitchFallthroughRuntimeTests } from '@tsrx/core/test-harness/runtime/switch-fallthrough';
+import { runForOfSourcesRuntimeTests } from '@tsrx/core/test-harness/runtime/for-of-sources';
 import { runTsxExpressionTsrxRuntimeTests } from '@tsrx/core/test-harness/runtime/tsx-expression-tsrx';
 import { runJsxTextWhitespaceRuntimeTests } from '@tsrx/core/test-harness/runtime/jsx-text-whitespace';
 import { runScriptBodyRuntimeTests } from '@tsrx/core/test-harness/runtime/script-body';
@@ -521,6 +522,46 @@ function ForReactiveApp() @{
 		</button>
 		<button class="remove" onClick={() => setItems(items().slice(1))}>
 			{'remove'}
+		</button>
+	</>
+}
+
+function ForSetSignalApp() @{
+	const [tags, setTags] = createSignal(new Set(['x', 'y']));
+	<>
+		<ul>
+			@for (const tag of tags()) {
+				<li class="tag">{tag.toUpperCase()}</li>
+			} @empty {
+				<li class="tag">{'none'}</li>
+			}
+		</ul>
+		<button class="add" onClick={() => setTags(new Set([...tags(), 'z']))}>
+			{'add'}
+		</button>
+		<button class="clear" onClick={() => setTags(new Set<string>())}>
+			{'clear'}
+		</button>
+	</>
+}
+
+function ForStoreApp() @{
+	const [store, setStore] = createStore({ items: ['a', 'b'] });
+	<>
+		<ul>
+			@for (const item of store.items) {
+				<li class="store-item">{item}</li>
+			}
+		</ul>
+		<button
+			class="add"
+			onClick={() =>
+				setStore((draft) => {
+					draft.items.push('c');
+				})
+			}
+		>
+			{'add'}
 		</button>
 	</>
 }
@@ -1304,6 +1345,28 @@ describe('tsrx-solid runtime', () => {
 		expect(after[0].textContent).toBe('b');
 	});
 
+	it('renders and updates a for-of loop over a Set (#1070)', async () => {
+		await render(ForSetSignalApp);
+		const rows = () => Array.from(container.querySelectorAll('.tag'), (item) => item.textContent);
+		expect(rows()).toEqual(['X', 'Y']);
+
+		await click('.add');
+		expect(rows()).toEqual(['X', 'Y', 'Z']);
+
+		await click('.clear');
+		expect(rows()).toEqual(['none']);
+	});
+
+	it('tracks a store array a for-of loop walks', async () => {
+		await render(ForStoreApp);
+		const rows = () =>
+			Array.from(container.querySelectorAll('.store-item'), (item) => item.textContent);
+		expect(rows()).toEqual(['a', 'b']);
+
+		await click('.add');
+		expect(rows()).toEqual(['a', 'b', 'c']);
+	});
+
 	it('renders filtered for-of items', async () => {
 		await render(ForFilteredApp);
 		expect(
@@ -1675,6 +1738,7 @@ describe('tsrx-solid runtime', () => {
 });
 
 runSwitchFallthroughRuntimeTests();
+runForOfSourcesRuntimeTests();
 runTsxExpressionTsrxRuntimeTests();
 runJsxTextWhitespaceRuntimeTests({ nbsp: 'trimmed' });
 runScriptBodyRuntimeTests();

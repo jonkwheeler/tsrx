@@ -48,6 +48,7 @@ export interface JsxTransformContext {
 	needs_match: boolean;
 	needs_errored: boolean;
 	needs_loading: boolean;
+	needs_for_items: boolean;
 	needs_define_vapor_component: boolean;
 	needs_vapor_for: boolean;
 	stylesheets: AST.CSS.StyleSheet[];
@@ -393,7 +394,8 @@ export interface JsxPlatform {
 		 * use target-owned paths like `'@tsrx/react/runtime/iterable'` and
 		 * `'@tsrx/preact/runtime/iterable'`, which re-export from
 		 * `'@tsrx/core/runtime/iterable'`. Solid and Vue lower for-of via their
-		 * own iteration components and leave this unset.
+		 * own iteration components; Solid imports the helpers that give its
+		 * `<For>` an array from this module instead.
 		 */
 		forOfIterableHelper?: string;
 	};

@@ -3275,7 +3275,8 @@ break"}</p>
 
 		it('keeps the parentheses that keep a string statement from being a directive', () => {
 			const { code } = compile(
-				`'use client';
+				`'';
+				'use client';
 				export function run(value = 1) {
 					('use strict');
 					return value;
@@ -3289,7 +3290,7 @@ break"}</p>
 				'App.tsrx',
 			);
 
-			expect(code).toContain("'use client';");
+			expect(code).toContain("'';\n'use client';");
 			expect(code).toMatch(/run\(value = 1\) \{\n\t\('use strict'\);/);
 			expect(code).toMatch(/strict\(\) \{\n\t'use strict';\n\t'also';\n\trun\(\);\n\t\('later'\);/);
 		});

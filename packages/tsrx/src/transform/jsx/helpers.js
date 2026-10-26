@@ -242,7 +242,7 @@ export function tsx_with_ts_locations(
 		ExpressionStatement: (node, context) => {
 			const expression = node.expression;
 			if (
-				!('directive' in node && node.directive) &&
+				!('directive' in node && typeof node.directive === 'string') &&
 				expression.type === 'Literal' &&
 				typeof expression.value === 'string'
 			) {

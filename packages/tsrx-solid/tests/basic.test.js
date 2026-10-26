@@ -372,6 +372,27 @@ describe('@tsrx/solid basic', () => {
 			expect(code).toMatch(/<Match when=\{kind === 'b'\}>/);
 		});
 
+		it('switch reads a discriminant with a side effect once through a memo', () => {
+			const source = `function App() @{
+				@switch (queue.shift()) {
+					@case 'loading': { <p>{'Loading'}</p> }
+					@case 'ready': { <p>{'Ready'}</p> }
+				}
+			}`;
+			const { code } = compile(source, 'App.tsrx');
+			expect(code).toContain(
+				"import { Switch, Match, createMemo as __createMemo } from 'solid-js';",
+			);
+			expect(code).toContain('const __switch_value = __createMemo(() => queue.shift());');
+			expect(code).toContain("<Match when={__switch_value() === 'loading'}>");
+			expect(code).toContain("<Match when={__switch_value() === 'ready'}>");
+			expect(code.match(/queue\.shift\(\)/g)).toHaveLength(1);
+
+			const type_only = compile_to_volar_mappings(source, 'App.tsrx').code;
+			expect(type_only).toContain("<Match when={queue.shift() === 'loading'}>");
+			expect(type_only).not.toContain('createMemo');
+		});
+
 		it("lowers an element's @{ } child inside a control-flow body to its output", () => {
 			const { code } = compile(
 				`function App(props: { on: boolean }) @{

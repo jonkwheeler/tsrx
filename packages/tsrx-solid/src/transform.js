@@ -58,6 +58,9 @@ import {
 
 import { builders as b } from '@tsrx/core';
 
+/** Local name of the `createMemo` import that holds a `@switch` discriminant. */
+const SWITCH_MEMO_INTERNAL_NAME = '__createMemo';
+
 /**
  * Solid platform descriptor consumed by `createJsxTransform`. Everything
  * that diverges from React/Preact is plugged in via `hooks`:
@@ -116,6 +119,7 @@ const solid_platform = {
 			needs_match: false,
 			needs_errored: false,
 			needs_loading: false,
+			needs_switch_memo: false,
 			needs_normalize_spread_props: false,
 		}),
 		canHoistStaticNode(node) {
@@ -1120,6 +1124,15 @@ function switch_statement_to_jsx_child(node, transform_context) {
 	transform_context.needs_switch = true;
 	transform_context.needs_match = true;
 
+	// Each `<Match>` reads the discriminant, so one with a side effect (a call
+	// such as `queue.shift()`) would run once per case and each case would
+	// compare a different value. Read it once through a memo instead. The
+	// type-only output keeps the inline comparisons the editor maps.
+	const switch_value =
+		transform_context.typeOnly || is_reference_expression(node.discriminant)
+			? null
+			: create_generated_identifier('__switch_value');
+
 	/** @type {AST.Expression | null} */
 	let fallback = null;
 	/** @type {SolidMatchEntry[]} */
@@ -1145,7 +1158,7 @@ function switch_statement_to_jsx_child(node, transform_context) {
 		// for editor IntelliSense and don't clone it.
 		const test = b.binary(
 			'===',
-			clone_ast_node(node.discriminant),
+			switch_value ? b.call(clone_identifier(switch_value)) : clone_ast_node(node.discriminant),
 			/** @type {AST.Expression} */ (original_case.test),
 		);
 
@@ -1170,7 +1183,44 @@ function switch_statement_to_jsx_child(node, transform_context) {
 				]
 			: [];
 
-	return create_jsx_element('Switch', attributes, match_children);
+	const switch_element = create_jsx_element('Switch', attributes, match_children);
+	if (!switch_value) {
+		return switch_element;
+	}
+
+	transform_context.needs_switch_memo = true;
+	return to_jsx_expression_container(
+		b.call(
+			b.arrow(
+				[],
+				b.block([
+					b.const(switch_value, b.call(SWITCH_MEMO_INTERNAL_NAME, b.arrow([], node.discriminant))),
+					b.return(switch_element),
+				]),
+			),
+		),
+		node,
+	);
+}
+
+/**
+ * Whether reading `node` again gives the same value without side effects: an
+ * identifier, a literal, `this`, or a non-computed property chain of those.
+ *
+ * @param {AST.Node} node
+ * @returns {boolean}
+ */
+function is_reference_expression(node) {
+	switch (node.type) {
+		case 'Identifier':
+		case 'Literal':
+		case 'ThisExpression':
+			return true;
+		case 'MemberExpression':
+			return !node.computed && is_reference_expression(node.object);
+		default:
+			return false;
+	}
 }
 
 /**
@@ -1948,14 +1998,15 @@ function inject_solid_imports(program, transform_context) {
 	if (transform_context.needs_errored) needed.push('Errored');
 	if (transform_context.needs_loading) needed.push('Loading');
 
-	if (needed.length === 0) return;
+	/** @type {Array<[string, string]>} */
+	const specifiers = needed.map((name) => [name, name]);
+	if (transform_context.needs_switch_memo) {
+		specifiers.push(['createMemo', SWITCH_MEMO_INTERNAL_NAME]);
+	}
 
-	program.body.unshift(
-		b.imports(
-			needed.map((name) => [name, name]),
-			'solid-js',
-		),
-	);
+	if (specifiers.length === 0) return;
+
+	program.body.unshift(b.imports(specifiers, 'solid-js'));
 }
 
 // =====================================================================

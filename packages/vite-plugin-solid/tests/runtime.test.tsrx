@@ -1714,6 +1714,24 @@ function BlockChildControlFlowApp() @{
 	</div>
 }
 
+// ── Switch discriminant with a side effect ──
+
+const switch_queue: string[] = [];
+
+function SwitchQueueApp() @{
+	@switch (switch_queue.shift()) {
+		@case 'loading': {
+			<p class="queue-branch">{'Loading'}</p>
+		}
+		@case 'ready': {
+			<p class="queue-branch">{'Ready'}</p>
+		}
+		@default: {
+			<p class="queue-branch">{'Unknown'}</p>
+		}
+	}
+}
+
 describe('tsrx-solid control-flow bodies', () => {
 	it("renders an element's @{ } child inside @if, @for, @switch and @try bodies", async () => {
 		await render(BlockChildControlFlowApp);
@@ -1727,6 +1745,13 @@ describe('tsrx-solid control-flow bodies', () => {
 
 		await click('.show-if-block');
 		expect(container.querySelector('.if-block')?.innerHTML).toBe('<b>if</b>');
+	});
+
+	it('reads a @switch discriminant once for all cases', async () => {
+		switch_queue.splice(0, switch_queue.length, 'ready', 'loading');
+		await render(SwitchQueueApp);
+		expect(text('.queue-branch')).toBe('Ready');
+		expect(switch_queue).toEqual(['loading']);
 	});
 });
 

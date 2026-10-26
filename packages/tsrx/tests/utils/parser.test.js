@@ -7311,6 +7311,71 @@ namespace N {
 		expect(staticBlock?.innerComments?.map((comment) => comment.value)).toEqual([' static']);
 		expect(moduleBlock?.innerComments?.map((comment) => comment.value)).toEqual([' namespace']);
 	});
+
+	/**
+	 * Count the characters handed to the string scans that comment attachment
+	 * runs on the source between a node and the next comment. A regex anchored
+	 * at the start stops at the first character it can't match, so it doesn't
+	 * count.
+	 * @param {() => void} run
+	 * @returns {number}
+	 */
+	function count_scanned_characters(run) {
+		const { test } = RegExp.prototype;
+		const { includes, replace } = String.prototype;
+		let scanned = 0;
+		RegExp.prototype.test = function (/** @type {string} */ text) {
+			if (!this.source.startsWith('^') || this.multiline) scanned += String(text).length;
+			return test.call(this, text);
+		};
+		String.prototype.includes = function (/** @type {any[]} */ ...args) {
+			scanned += this.length;
+			return includes.apply(this, /** @type {any} */ (args));
+		};
+		String.prototype.replace = function (/** @type {any[]} */ ...args) {
+			scanned += this.length;
+			return replace.apply(this, /** @type {any} */ (args));
+		};
+		try {
+			run();
+		} finally {
+			RegExp.prototype.test = test;
+			String.prototype.includes = includes;
+			String.prototype.replace = replace;
+		}
+		return scanned;
+	}
+
+	it.each([
+		[
+			'functions',
+			(/** @type {number} */ i) => `export function f${i}(value) { return value + ${i}; }`,
+		],
+		['assignments without parentheses', (/** @type {number} */ i) => `x${i} = ${i};`],
+	])(
+		'scans the code before a distant comment once, not once per statement, after %s (#990)',
+		(_, statement) => {
+			/** @param {number} count */
+			const scan = (count) => {
+				const source =
+					Array.from({ length: count }, (_, i) => statement(i)).join('\n') +
+					'\n// A final comment\n';
+				/** @type {AST.Program | undefined} */
+				let ast;
+				const scanned = count_scanned_characters(() => {
+					ast = parseModule(source, 'App.ts');
+				});
+				expect(ast?.body.at(-1)?.trailingComments?.map((comment) => comment.value)).toEqual([
+					' A final comment',
+				]);
+				return scanned;
+			};
+
+			// Twice the statements is about twice the work; rescanning the rest of
+			// the file from every statement is four times the work
+			expect(scan(800)).toBeLessThan(3 * scan(400));
+		},
+	);
 });
 
 describe('comments in member lists', () => {

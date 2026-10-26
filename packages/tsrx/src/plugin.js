@@ -95,21 +95,15 @@ const CharCode = Object.freeze({
 	lineFeed: 10,
 	carriageReturn: 13,
 	space: 32,
-	exclamation: 33,
-	doubleQuote: 34,
 	numberSign: 35,
 	dollar: 36,
 	ampersand: 38,
-	singleQuote: 39,
 	openParen: 40,
 	closeParen: 41,
 	comma: 44,
 	asterisk: 42,
-	plus: 43,
-	dash: 45,
 	dot: 46,
 	slash: 47,
-	colon: 58,
 	semicolon: 59,
 	lessThan: 60,
 	equals: 61,
@@ -121,9 +115,7 @@ const CharCode = Object.freeze({
 	uppercaseZ: 90,
 	openBracket: 91,
 	closeBracket: 93,
-	backslash: 92,
 	underscore: 95,
-	backtick: 96,
 	lowercaseA: 97,
 	lowercaseZ: 122,
 	openBrace: 123,
@@ -140,24 +132,6 @@ const DECORATABLE_NODE_TYPES = new Set([
 	'ClassExpression',
 	'MethodDefinition',
 	'PropertyDefinition',
-]);
-// Reserved words after which a `/` opens a regular expression literal rather
-// than dividing, because they never end an operand. `of` is handled apart
-// since it is also a plain identifier.
-const REGEX_PRECEDING_KEYWORDS = new Set([
-	'await',
-	'case',
-	'delete',
-	'do',
-	'else',
-	'in',
-	'instanceof',
-	'new',
-	'return',
-	'throw',
-	'typeof',
-	'void',
-	'yield',
 ]);
 const regex_identifier = /[$_\p{ID_Start}][$_\u200c\u200d\p{ID_Continue}]*/uy;
 
@@ -829,148 +803,6 @@ function skip_whitespace_from(input, i) {
 }
 
 /**
- * Skip past a string literal opened at `i` with the given quote char code.
- * @param {string} input
- * @param {number} i
- * @param {number} quote
- */
-function skip_string_from(input, i, quote) {
-	i++;
-	while (i < input.length) {
-		const ch = input.charCodeAt(i);
-		i++;
-		if (ch === CharCode.backslash)
-			i++; // backslash escape
-		else if (ch === quote) return i;
-	}
-	return i;
-}
-
-/**
- * Skip past a regular expression literal opened at `i`. Returns the index after
- * its flags, or -1 when a line ends before the closing `/`.
- * @param {string} input
- * @param {number} i
- */
-function skip_regex_from(input, i) {
-	let in_class = false;
-	i++;
-	while (i < input.length) {
-		const ch = input.charCodeAt(i);
-		if (ch === CharCode.lineFeed || ch === CharCode.carriageReturn) return -1;
-		i++;
-		if (ch === CharCode.backslash) i++;
-		else if (ch === CharCode.openBracket) in_class = true;
-		else if (ch === CharCode.closeBracket) in_class = false;
-		else if (ch === CharCode.slash && !in_class) break;
-	}
-	const flags_end = scan_identifier_from(input, i);
-	return flags_end === -1 ? i : flags_end;
-}
-
-/**
- * Scan past a balanced pair starting at `i` (which must point at `open`).
- * Strings, comments, and regular expression literals are skipped so brackets
- * inside them do not count. A `/` divides when the previous token ends an
- * operand (an identifier, number, literal, or closing bracket, kept through
- * postfix `!`, `++`, `--`, and `.`) and opens a regex otherwise. Returns the
- * position after the matching close, or -1 if unbalanced.
- * @param {string} input
- * @param {number} i
- * @param {number} open
- * @param {number} close
- */
-function scan_balanced_from(input, i, open, close) {
-	let depth = 1;
-	let after_operand = false;
-	let after_dot = false;
-	i++;
-	while (i < input.length) {
-		const ch = input.charCodeAt(i);
-		if (
-			ch === CharCode.space ||
-			ch === CharCode.tab ||
-			ch === CharCode.lineFeed ||
-			ch === CharCode.carriageReturn
-		) {
-			i++;
-			continue;
-		}
-		if (ch === CharCode.doubleQuote || ch === CharCode.singleQuote || ch === CharCode.backtick) {
-			i = skip_string_from(input, i, ch);
-			after_operand = true;
-			after_dot = false;
-			continue;
-		}
-		if (ch === CharCode.slash) {
-			const after_comment = skip_space_and_comments_from(input, i);
-			if (after_comment === -1) return -1;
-			if (after_comment !== i) {
-				i = after_comment;
-				continue;
-			}
-			if (after_operand) {
-				after_operand = false;
-				i++;
-			} else {
-				i = skip_regex_from(input, i);
-				if (i === -1) return -1;
-				after_operand = true;
-			}
-			after_dot = false;
-			continue;
-		}
-		if (ch === open) depth++;
-		else if (ch === close && --depth === 0) return i + 1;
-
-		const name_end = scan_identifier_from(input, i);
-		if (name_end !== -1) {
-			const name = input.slice(i, name_end);
-			// A property name after `.` is always an operand. `of` is only the
-			// `for ... of` keyword when it follows an operand, and a reserved
-			// word never ends one.
-			if (after_dot) after_operand = true;
-			else if (name === 'of') after_operand = !after_operand;
-			else after_operand = !REGEX_PRECEDING_KEYWORDS.has(name);
-			after_dot = false;
-			i = name_end;
-			continue;
-		}
-		if (ch >= CharCode.digit0 && ch <= CharCode.digit9) {
-			after_operand = true;
-		} else if (
-			ch === CharCode.closeParen ||
-			ch === CharCode.closeBracket ||
-			ch === CharCode.closeBrace
-		) {
-			after_operand = true;
-		} else if ((ch === CharCode.plus || ch === CharCode.dash) && input.charCodeAt(i + 1) === ch) {
-			// Postfix `++`/`--` keeps the operand; the prefix forms follow a non-operand.
-			after_dot = false;
-			i += 2;
-			continue;
-		} else if (
-			ch === CharCode.dot &&
-			input.charCodeAt(i + 1) === CharCode.dot &&
-			input.charCodeAt(i + 2) === CharCode.dot
-		) {
-			// A spread or rest `...` precedes an operand rather than a property name.
-			after_operand = false;
-			after_dot = false;
-			i += 3;
-			continue;
-		} else if (ch !== CharCode.exclamation && ch !== CharCode.dot) {
-			// Postfix `!` and a number's trailing `.` keep the operand; the
-			// prefix `!` and a leading `.` already follow a non-operand.
-			after_operand = false;
-		}
-		after_dot = ch === CharCode.dot;
-		i++;
-	}
-	return -1;
-}
-
-/**
  * Skip whitespace and comments starting at `i`. Returns -1 when a block
  * comment is left open at the end of the input.
  * @param {string} input
@@ -1011,62 +843,6 @@ function scan_identifier_from(input, i) {
 	regex_identifier.lastIndex = i;
 	const match = regex_identifier.exec(input);
 	return match === null ? -1 : i + match[0].length;
-}
-
-/**
- * Scan a type starting at `i` and return the index of the character that ends
- * it: a `,`, `;`, `=`, `>`, `)`, `]`, or `}` outside any brackets the type
- * itself opened. Inside a type `>` only closes `<` and `=>` only belongs to a
- * function type, so neither is mistaken for the end of an enclosing type
- * parameter list. With `stop_at_arrow`, a `=>` outside brackets ends the type
- * instead, which is how an arrow's return type ends. Returns -1 when the input
- * runs out first, brackets do not match, or a character that cannot appear in
- * a type is found.
- * @param {string} input
- * @param {number} i
- * @param {boolean} stop_at_arrow
- */
-function scan_type_from(input, i, stop_at_arrow) {
-	/** @type {number[]} */
-	const closers = [];
-	while (i < input.length) {
-		const ch = input.charCodeAt(i);
-		if (ch === CharCode.doubleQuote || ch === CharCode.singleQuote || ch === CharCode.backtick) {
-			i = skip_string_from(input, i, ch);
-			continue;
-		}
-		if (ch === CharCode.slash) {
-			const after_comment = skip_space_and_comments_from(input, i);
-			if (after_comment === -1 || after_comment === i) return -1;
-			i = after_comment;
-			continue;
-		}
-		if (ch === CharCode.equals && input.charCodeAt(i + 1) === CharCode.greaterThan) {
-			if (stop_at_arrow && closers.length === 0) return i;
-			i += 2;
-			continue;
-		}
-		if (ch === CharCode.openParen) closers.push(CharCode.closeParen);
-		else if (ch === CharCode.openBracket) closers.push(CharCode.closeBracket);
-		else if (ch === CharCode.openBrace) closers.push(CharCode.closeBrace);
-		else if (ch === CharCode.lessThan) closers.push(CharCode.greaterThan);
-		else if (
-			ch === CharCode.closeParen ||
-			ch === CharCode.closeBracket ||
-			ch === CharCode.closeBrace ||
-			ch === CharCode.greaterThan
-		) {
-			if (closers.length === 0) return i;
-			if (closers.pop() !== ch) return -1;
-		} else if (
-			closers.length === 0 &&
-			(ch === CharCode.comma || ch === CharCode.semicolon || ch === CharCode.equals)
-		) {
-			return i;
-		}
-		i++;
-	}
-	return -1;
 }
 
 /**

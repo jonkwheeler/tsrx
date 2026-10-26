@@ -1034,6 +1034,15 @@ export function SpecificationPage() @{
 								ordinary TypeScript constructs. Hosts may choose which TSRX-producing functions are
 								considered components.
 							</p>
+							<p class="section-body muted">
+								As in a <code class="inline-code">.tsx</code> file, a{' '}
+								<code class="inline-code">{'<'}</code> where an expression starts begins a generic
+								arrow function only when its type parameter is followed by a comma, a default, or a
+								constraint (<code class="inline-code">{'<T,>'}</code>,{' '}
+								<code class="inline-code">{'<T = U>'}</code>,{' '}
+								<code class="inline-code">{'<T extends U>'}</code>). Anything else, including{' '}
+								<code class="inline-code">{'<T>(x) => x'}</code>, begins an element.
+							</p>
 						</section>
 
 						<section class="doc-section" id="templates">

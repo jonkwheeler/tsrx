@@ -557,6 +557,7 @@ export function createJsxTransform(platform) {
 			local_statement_component_index: 0,
 			needs_error_boundary: false,
 			needs_try_body: false,
+			try_site_index: 0,
 			needs_suspense: false,
 			needs_merge_refs: false,
 			needs_normalize_spread_props: false,
@@ -4772,6 +4773,21 @@ function apply_key_to_returned_value(statement, loop_key, transform_context) {
  */
 function apply_key_to_jsx_element(element, loop_key) {
 	const attributes = element.openingElement?.attributes || [];
+	const site_key = attributes.find(
+		/** @returns {attr is ESTreeJSX.JSXAttribute} */
+		(attr) => attr.type === 'JSXAttribute' && try_site_keys.has(attr),
+	);
+	if (site_key) {
+		return {
+			...element,
+			openingElement: {
+				...element.openingElement,
+				attributes: attributes.map((attr) =>
+					attr === site_key ? create_try_site_loop_key_attribute(site_key, loop_key) : attr,
+				),
+			},
+		};
+	}
 	if (attributes.some(is_key_attribute)) return element;
 
 	return {
@@ -4781,6 +4797,26 @@ function apply_key_to_jsx_element(element, loop_key) {
 			attributes: [...attributes, create_loop_key_attribute(loop_key)],
 		},
 	};
+}
+
+/**
+ * `key={'try1:' + loopKey}`: the loop key keeps rows apart and the site name
+ * keeps each row's `@try` sites apart.
+ *
+ * @param {ESTreeJSX.JSXAttribute} site_key
+ * @param {LoopKey} loop_key
+ * @returns {ESTreeJSX.JSXAttribute}
+ */
+function create_try_site_loop_key_attribute(site_key, loop_key) {
+	const loop_key_attribute = create_loop_key_attribute(loop_key);
+	const site = /** @type {AST.Literal} */ (site_key.value).value;
+	const loop_expression = /** @type {AST.Expression} */ (
+		/** @type {ESTreeJSX.JSXExpressionContainer} */ (loop_key_attribute.value).expression
+	);
+	return b.jsx_attribute(
+		b.jsx_id('key'),
+		to_jsx_expression_container(b.binary('+', b.literal(`${site}:`), loop_expression)),
+	);
 }
 
 /**
@@ -5028,6 +5064,9 @@ function try_statement_to_jsx_child(node, transform_context) {
 	// result is a JSXElement, but we need to return a JSXExpressionContainer
 	// for embedding in the parent component's render return
 	if (result.type === 'JSXElement') {
+		if (transform_context.platform.imports.tryBody && !transform_context.typeOnly) {
+			key_try_site(result, transform_context);
+		}
 		return to_jsx_expression_container(result);
 	}
 
@@ -5037,7 +5076,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 }
 
 /**
- * The `@try` body as the boundary's child. See `jsx.tryBodyComponent`.
+ * The `@try` body as the boundary's child. See `imports.tryBody`.
  *
  * @param {AST.Node[]} body_nodes
  * @param {TransformContext} transform_context
@@ -5045,7 +5084,7 @@ function try_statement_to_jsx_child(node, transform_context) {
  */
 function try_body_to_jsx_child(body_nodes, transform_context) {
 	if (
-		!transform_context.platform.jsx.tryBodyComponent ||
+		!transform_context.platform.imports.tryBody ||
 		transform_context.typeOnly ||
 		body_nodes.some(suspends_enclosing_function)
 	) {
@@ -5062,6 +5101,31 @@ function try_body_to_jsx_child(body_nodes, transform_context) {
 		[b.jsx_attribute(b.jsx_id('render'), to_jsx_expression_container(render_fn))],
 		[],
 	);
+}
+
+/**
+ * Key attributes `key_try_site` added, which a loop key extends.
+ *
+ * @type {WeakSet<ESTreeJSX.JSXAttribute>}
+ */
+const try_site_keys = new WeakSet();
+
+/**
+ * Keys the outermost element a `@try` produced with a name for its site.
+ * Every `@try` lowers to the same component types, so without it React would
+ * reuse one site's boundary state and body hooks for another `@try` rendered
+ * in the same slot, such as the other arm of an `@if`. A loop key placed on
+ * the element later is combined with it (see `apply_key_to_jsx_element`).
+ *
+ * @param {AST.TSRXJSXElement} element
+ * @param {TransformContext} transform_context
+ * @returns {void}
+ */
+function key_try_site(element, transform_context) {
+	transform_context.try_site_index += 1;
+	const key = b.jsx_attribute(b.jsx_id('key'), b.literal(`try${transform_context.try_site_index}`));
+	try_site_keys.add(key);
+	element.openingElement.attributes.push(key);
 }
 
 /**
@@ -5138,16 +5202,14 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 		imports.push(b.import_declaration(specifiers, platform.imports.forOfIterableHelper));
 	}
 
-	if (transform_context.needs_error_boundary || transform_context.needs_try_body) {
-		/** @type {[string, string][]} */
-		const specifiers = [];
-		if (transform_context.needs_error_boundary) {
-			specifiers.push(['TsrxErrorBoundary', 'TsrxErrorBoundary']);
-		}
-		if (transform_context.needs_try_body) {
-			specifiers.push(['TsrxTryBody', 'TsrxTryBody']);
-		}
-		imports.push(b.imports(specifiers, platform.imports.errorBoundary));
+	if (transform_context.needs_error_boundary) {
+		imports.push(
+			b.imports([['TsrxErrorBoundary', 'TsrxErrorBoundary']], platform.imports.errorBoundary),
+		);
+	}
+
+	if (transform_context.needs_try_body && platform.imports.tryBody) {
+		imports.push(b.imports([['TsrxTryBody', 'TsrxTryBody']], platform.imports.tryBody));
 	}
 
 	const merge_refs_source =

@@ -31,12 +31,14 @@ const preact_platform = {
 		// type-only transform keeps the `Dynamic` component shape (types only).
 		dynamicFactory: {},
 		errorBoundary: '@tsrx/preact/error-boundary',
+		tryBody: '@tsrx/preact/try-body',
 		mergeRefs: '@tsrx/preact/ref',
 		refProp: '@tsrx/preact/ref',
 		forOfIterableHelper: '@tsrx/preact/runtime/iterable',
 	},
 	directRuntimeImports: {
 		errorBoundary: '@tsrx/preact-runtime/error-boundary',
+		tryBody: '@tsrx/preact-runtime/try-body',
 		mergeRefs: '@tsrx/preact-runtime/ref',
 		refProp: '@tsrx/preact-runtime/ref',
 		forOfIterableHelper: '@tsrx/preact-runtime/iterable',
@@ -49,7 +51,6 @@ const preact_platform = {
 		// text; `dangerouslySetInnerHTML` renders the body as written on the
 		// client and the server.
 		scriptBody: 'dangerouslySetInnerHTML',
-		tryBodyComponent: true,
 	},
 	validation: {
 		requireUseServerForAwait: false,

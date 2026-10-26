@@ -1,5 +1,5 @@
 /** @import { ReactNode } from 'react' */
-/** @import { TsrxErrorBoundaryProps, TsrxErrorBoundaryState, TsrxTryBodyProps } from '../types/error-boundary' */
+/** @import { TsrxErrorBoundaryProps, TsrxErrorBoundaryState } from '../types/error-boundary' */
 
 import { Component } from 'react';
 
@@ -35,20 +35,8 @@ export class TsrxErrorBoundary extends Component {
 		const { hasError, error } = this.state;
 		if (hasError) {
 			const reset = () => this.setState({ hasError: false, error: null });
-			return this.props.fallback(error, reset);
+			return this.props.fallback(/** @type {Error} */ (error), reset);
 		}
 		return this.props.children;
 	}
-}
-
-/**
- * Renders a `@try` body as its own component, so a throw or suspend in the
- * body's setup statements reaches the enclosing `TsrxErrorBoundary` or
- * `Suspense` instead of escaping from the parent's render.
- *
- * @param {TsrxTryBodyProps} props
- * @returns {ReactNode}
- */
-export function TsrxTryBody(props) {
-	return props.render();
 }

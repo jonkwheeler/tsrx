@@ -589,6 +589,19 @@ it('reports a missing return on a primitive return type in .tsrx files', () => {
 	);
 });
 
+it('reports a superclass expression that is not a constructor in .tsrx files', () => {
+	const line =
+		'function createBase() { return {}; } export class Model extends createBase() {} export class Cast extends (Model as unknown as {}) {}';
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${line}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	for (const base of ['createBase()', '(Model as unknown as {})']) {
+		expect(result.output).toContain(
+			`layout.tsrx(4,${line.lastIndexOf(base) + 1}): error TS2507: Type '{}' is not a constructor function type.`,
+		);
+	}
+});
+
 it('reports a missing or unknown prop of a dynamic tag component in .tsrx files', () => {
 	const lines = [
 		'const Card = (props: { title: string }) => <div>{props.title}</div>;',
@@ -605,19 +618,6 @@ it('reports a missing or unknown prop of a dynamic tag component in .tsrx files'
 		`layout.tsrx(6,${lines[2].indexOf('{C}') + 1}): error TS2769`,
 	]);
 	expect(result.status).toBe(2);
-});
-
-it('reports a superclass expression that is not a constructor in .tsrx files', () => {
-	const line =
-		'function createBase() { return {}; } export class Model extends createBase() {} export class Cast extends (Model as unknown as {}) {}';
-	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${line}\n`);
-	const result = run_cli('native');
-	expect(result.status).toBe(2);
-	for (const base of ['createBase()', '(Model as unknown as {})']) {
-		expect(result.output).toContain(
-			`layout.tsrx(4,${line.lastIndexOf(base) + 1}): error TS2507: Type '{}' is not a constructor function type.`,
-		);
-	}
 });
 
 it('reports errors on a whole call or parenthesized expression in .tsrx files', () => {

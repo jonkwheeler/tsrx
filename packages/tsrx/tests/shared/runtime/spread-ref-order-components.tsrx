@@ -74,3 +74,25 @@ export function SpreadGetterOwnRefApp() @{
 	const [counter, bag] = getter_bag({ ref: capture });
 	<input class="spread-getter-own-ref" {...bag} data-reads={String(counter.reads)} />
 }
+
+export function RefBeforeSpreadApp() @{
+	let ready = false;
+	function init_ref() {
+		ready = true;
+		return capture;
+	}
+	<div
+		class="ref-before-spread"
+		ref={init_ref()}
+		{...{ 'data-ready': String(ready), ref: capture }}
+	/>
+}
+
+export function RefBeforeAttributeApp() @{
+	let ready = false;
+	function init_ref() {
+		ready = true;
+		return capture;
+	}
+	<div class="ref-before-attribute" {...{}} ref={init_ref()} data-ready={String(ready)} />
+}

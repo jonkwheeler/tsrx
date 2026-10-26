@@ -456,7 +456,10 @@ export interface JsxPlatform {
 		 * With `'in-place'`, core's import injection also gives the platform
 		 * `copy_spread_props` and `copy_spread_props_for_ref_attr`, which return
 		 * their copy of each bag rather than the bag itself, so a runtime that
-		 * copies the spread reads each getter once.
+		 * copies the spread reads each getter once. With `multiRefStrategy:
+		 * 'merge-refs'` as well, the merged `ref` stays where the element's own
+		 * `ref` is written and reads the ref of a bag spread after it when it is
+		 * applied.
 		 */
 		hostSpreadRefBinding?: 'in-place';
 		/**

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
 	NestedSpreadRefOrderApp,
+	RefBeforeAttributeApp,
+	RefBeforeSpreadApp,
 	SpreadGetterApp,
 	SpreadGetterOwnRefApp,
 	SpreadGetterRefApp,
@@ -12,7 +14,8 @@ import {
 /**
  * Shared runtime suite for host spreads beside a `ref`. A spread's props bag is
  * evaluated between the attributes around it, as in native JSX, so adding a
- * ref does not reorder attribute side effects. Its getters are read once. Only targets whose JSX
+ * ref does not reorder attribute side effects. Its getters are read once, and
+ * a `ref` expression is evaluated where it is written. Only targets whose JSX
  * evaluates attributes left to right run it; Solid and Vue compile JSX into
  * setup and effect code with their own evaluation order.
  */
@@ -62,6 +65,19 @@ export function runSpreadRefOrderRuntimeTests() {
 				const element = globalThis.container.querySelector(selector);
 				expect(element?.getAttribute('title')).toBe('1');
 				expect(element?.getAttribute('data-reads')).toBe('1');
+				expect(spread_ref_order_nodes).toEqual(Array(ref_calls).fill(element));
+			});
+		}
+
+		for (const [label, Component, selector, ref_calls] of /** @type {const} */ ([
+			['a spread', RefBeforeSpreadApp, '.ref-before-spread', 2],
+			['a later attribute', RefBeforeAttributeApp, '.ref-before-attribute', 1],
+		])) {
+			it(`evaluates a ref before ${label} in authored order`, async () => {
+				await mount(Component);
+
+				const element = globalThis.container.querySelector(selector);
+				expect(element?.getAttribute('data-ready')).toBe('true');
 				expect(spread_ref_order_nodes).toEqual(Array(ref_calls).fill(element));
 			});
 		}

@@ -9,6 +9,8 @@ import {
 } from '@tsrx/core/test-harness/runtime/nullish-spread-ref-components.tsrx';
 import {
 	NestedSpreadRefOrderApp,
+	RefBeforeAttributeApp,
+	RefBeforeSpreadApp,
 	SpreadGetterApp,
 	SpreadGetterOwnRefApp,
 	SpreadGetterRefApp,
@@ -352,6 +354,20 @@ describe('@tsrx/vite-plugin-hono DOM runtime', () => {
 			const element = container.querySelector(selector);
 			expect(element?.getAttribute('title')).toBe('1');
 			expect(element?.getAttribute('data-reads')).toBe('1');
+			expect(spread_ref_order_nodes).toEqual(Array(refCalls).fill(element));
+		});
+	}
+
+	for (const [label, App, selector, refCalls] of [
+		['a spread', RefBeforeSpreadApp, '.ref-before-spread', 2],
+		['a later attribute', RefBeforeAttributeApp, '.ref-before-attribute', 1],
+	] as const) {
+		it(`evaluates a ref before ${label} in authored order`, () => {
+			spread_ref_order_nodes.length = 0;
+			render(<App />, container);
+
+			const element = container.querySelector(selector);
+			expect(element?.getAttribute('data-ready')).toBe('true');
 			expect(spread_ref_order_nodes).toEqual(Array(refCalls).fill(element));
 		});
 	}

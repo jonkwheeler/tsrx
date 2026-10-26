@@ -1198,7 +1198,7 @@ export function TSRXPlugin(config) {
 			#loose = false;
 			// Set while `parseVarStatement` or `parseVar` lets `const` declarators omit
 			// the initializer (see `#parseConstWithoutInitializer`).
-			#collectingConstWithoutInitializer = false;
+			#readingConstWithoutInitializer = false;
 			/** @type {import('../types/index').CompileError[] | undefined} */
 			#errors = undefined;
 			/** @type {string | null} */
@@ -1374,7 +1374,7 @@ export function TSRXPlugin(config) {
 				const finished = super.finishNode(node, type);
 				// See `semicolon`.
 				if (type === 'VariableDeclarator') this.#declaratorEnd = this.lastTokEnd;
-				if (this.#collect) this.#reportAwaitInNamespace(finished);
+				this.#reportAwaitInNamespace(finished);
 				if (DECORATABLE_NODE_TYPES.has(type)) {
 					// acorn-typescript sets `decorators` only when there is one. Give every
 					// class and class member the array ESTree specifies; a member's
@@ -4490,7 +4490,8 @@ export function TSRXPlugin(config) {
 			 * A private name outside any class, which TypeScript reports as TS18016.
 			 * A strict parse throws it where acorn raises its own error. When
 			 * collecting, private-field checks are off (see the constructor), and it
-			 * is recorded.
+			 * is recorded. One inside a class is noted for `exitClassBody`, as acorn
+			 * notes it with the checks on.
 			 * @type {Parse.Parser['parsePrivateIdent']}
 			 */
 			parsePrivateIdent() {
@@ -4505,8 +4506,41 @@ export function TSRXPlugin(config) {
 						/** @type {number} */ (node.end),
 						TS_ERRORS.PRIVATE_IDENTIFIER_OUTSIDE_CLASS,
 					);
+				} else if (this.#collect) {
+					const { used } = this.privateNameStack[this.privateNameStack.length - 1];
+					this.parseEffects?.willAppend(used);
+					used.push(node);
 				}
 				return node;
+			}
+
+			/**
+			 * A private name that no class around it declares, which acorn reports
+			 * with its private-field checks on, a strict parse throws as TS1111 (for
+			 * TypeScript's checker error TS2339 on the property, whose message names
+			 * the object's type). When collecting, those checks are off (see the
+			 * constructor): record it the same way, at the name (#883).
+			 * @type {Parse.Parser['exitClassBody']}
+			 */
+			exitClassBody() {
+				const scope = this.privateNameStack[this.privateNameStack.length - 1];
+				const parent = this.privateNameStack.at(-2);
+				super.exitClassBody();
+				if (!this.#collect) return;
+				for (const used of scope.used) {
+					const name = /** @type {AST.PrivateIdentifier} */ (used);
+					if (Object.hasOwn(scope.declared, name.name)) continue;
+					if (parent) {
+						// acorn-typescript's `exitClassBody` notes the append.
+						parent.used.push(name);
+					} else {
+						this.#recordCheckerLevelError(
+							/** @type {number} */ (name.start),
+							/** @type {number} */ (name.end),
+							to_diagnostic(`Private field '#${name.name}' must be declared in an enclosing class`),
+						);
+					}
+				}
 			}
 
 			/**
@@ -4706,9 +4740,10 @@ export function TSRXPlugin(config) {
 			/**
 			 * acorn throws `Unexpected token` for a `const` without an initializer
 			 * outside an ambient context. TypeScript parses it and reports TS1155 from
-			 * the checker. When collecting, `parseVarStatement` and `parseVar` (a `for`
-			 * head) let `const` declarators omit the initializer, and `parseVarId`
-			 * records the error for a name, or throws acorn's error for a pattern.
+			 * the checker. `parseVarStatement` and `parseVar` (a `for` head) let
+			 * `const` declarators omit the initializer, and `parseVarId` reports the
+			 * error for a name, which a strict parse throws and a collecting one
+			 * records (#963), or throws acorn's error for a pattern.
 			 * @template T
 			 * @param {string} kind
 			 * @param {boolean | undefined} allowMissingInitializer
@@ -4716,13 +4751,13 @@ export function TSRXPlugin(config) {
 			 * @returns {T}
 			 */
 			#parseConstWithoutInitializer(kind, allowMissingInitializer, parse) {
-				const outer = this.#collectingConstWithoutInitializer;
-				this.#collectingConstWithoutInitializer =
-					this.#collect && kind === 'const' && !allowMissingInitializer && !this.isAmbientContext;
+				const outer = this.#readingConstWithoutInitializer;
+				this.#readingConstWithoutInitializer =
+					kind === 'const' && !allowMissingInitializer && !this.isAmbientContext;
 				try {
-					return parse(!!allowMissingInitializer || this.#collectingConstWithoutInitializer);
+					return parse(!!allowMissingInitializer || this.#readingConstWithoutInitializer);
 				} finally {
-					this.#collectingConstWithoutInitializer = outer;
+					this.#readingConstWithoutInitializer = outer;
 				}
 			}
 
@@ -4735,11 +4770,7 @@ export function TSRXPlugin(config) {
 			 * @param {boolean} [allowMissingInitializer]
 			 */
 			parseVarStatement(node, kind, allowMissingInitializer) {
-				if (
-					this.#collect &&
-					(kind === 'const' || kind === 'var') &&
-					this.#isEmptyDeclarationList()
-				) {
+				if ((kind === 'const' || kind === 'var') && this.#isEmptyDeclarationList()) {
 					return this.#parseEmptyVarStatement(node, kind);
 				}
 				return this.#parseConstWithoutInitializer(kind, allowMissingInitializer, (allow) =>
@@ -4794,8 +4825,9 @@ export function TSRXPlugin(config) {
 			 * acorn reads a declarator right after `const` or `var`, and throws
 			 * `Unexpected token` when none follows, as while a declaration is being
 			 * typed. TypeScript parses an empty declaration list and reports TS1123
-			 * from the checker. When collecting, finish the declaration with no
-			 * declarators, as acorn-typescript's `parseVarStatement` would.
+			 * from the checker. Finish the declaration with no declarators, as
+			 * acorn-typescript's `parseVarStatement` would, and report TS1123, which a
+			 * strict parse throws and a collecting one records (#963).
 			 * @param {AST.VariableDeclaration} node
 			 * @param {'const' | 'var'} kind
 			 */
@@ -4806,8 +4838,9 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
-			 * Read the keyword of a declaration that has no declarators, and record
-			 * TS1123 right after it, where TypeScript reports it.
+			 * Read the keyword of a declaration that has no declarators, and report
+			 * TS1123 right after it, where TypeScript reports it (see
+			 * `#recordCheckerLevelError`, which throws it in a strict parse).
 			 * @param {AST.VariableDeclaration} node
 			 * @param {AST.VariableDeclaration['kind']} kind
 			 */
@@ -4848,7 +4881,7 @@ export function TSRXPlugin(config) {
 				}
 				// acorn's check in `parseVar`, which reads the initializer next.
 				if (
-					!this.#collectingConstWithoutInitializer ||
+					!this.#readingConstWithoutInitializer ||
 					this.type === tt.eq ||
 					this.type === tt._in ||
 					this.isContextual('of')
@@ -4870,16 +4903,15 @@ export function TSRXPlugin(config) {
 			 * @type {Parse.Parser['parseBindingList']}
 			 */
 			parseBindingList(close, allowEmpty, allowTrailingComma, allowModifiers) {
-				if (this.#collect && close === tt.parenR && allowModifiers === undefined) {
+				if (close === tt.parenR && allowModifiers === undefined) {
 					// UPSTREAM(sveltejs/acorn-typescript#136): remove once a release includes the fix
 					// A function's parameters, which acorn's `parseFunctionParams` reads
 					// with no `allowModifiers` (a method's pass `true`). TypeScript's
 					// parser reads parameter property modifiers before them too, and its
-					// checker reports them (TS2369). When collecting, pass `false`, so
-					// that acorn-typescript reads the modifiers and raises TS2369, which
-					// `raise` records, instead of failing at them. A strict parse still
-					// fails: `public` is a reserved word, and a name after `readonly` is
-					// unexpected.
+					// checker reports them (TS2369). Pass `false`, so that
+					// acorn-typescript reads the modifiers and raises TS2369, which `raise`
+					// records when collecting, instead of failing at them: `public` as a
+					// reserved word, or the name after `readonly` (#963).
 					allowModifiers = false;
 				}
 				const outer = this.#bindingListClose;
@@ -5018,13 +5050,14 @@ export function TSRXPlugin(config) {
 			 * flag, so acorn reads `await` there as an identifier and throws `Cannot use
 			 * await in class static initialization block`. TypeScript parses an `await`
 			 * expression, `for await` loop, or `await using` declaration there and
-			 * reports it from the checker (TS1308, TS1103, TS2852). When collecting,
-			 * look through namespaces as TypeScript does; `finishNode` records the error.
+			 * reports it from the checker (TS1308, TS1103, TS2852). Look through
+			 * namespaces as TypeScript does; `finishNode` reports the error, which a
+			 * strict parse throws and a collecting one records (#963).
 			 * UPSTREAM(sveltejs/acorn-typescript#89)
 			 */
 			get canAwait() {
 				const can_await = super.canAwait;
-				if (can_await || !this.#collect) return can_await;
+				if (can_await) return can_await;
 				return this.#awaitContext() === 'namespace';
 			}
 
@@ -5053,7 +5086,7 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
-			 * Record TypeScript's error for an `await` that only parses because
+			 * Report TypeScript's error for an `await` that only parses because
 			 * `canAwait` looks through namespaces.
 			 * @param {AST.Node} node
 			 */
@@ -5073,6 +5106,7 @@ export function TSRXPlugin(config) {
 					node.type === 'ForOfStatement'
 						? skip_space_and_comments_from(this.input, /** @type {number} */ (node.start) + 3)
 						: /** @type {number} */ (node.start);
+				if (!this.#collect) this.#throwError(start, error);
 				this.#recordCheckerLevelError(start, start + 'await'.length, error);
 			}
 
@@ -5082,26 +5116,39 @@ export function TSRXPlugin(config) {
 			 * because it can't disambiguate from JSX. However, the parser still parses it correctly
 			 * using tryParse - it just throws afterwards. By overriding this to do nothing, we allow
 			 * the valid parse to succeed.
+			 *
+			 * A collecting parse still records TS7060 for one, where a `.tsx` file
+			 * would read it as an element. TypeScript reports TS7060 in a `.mts` or
+			 * `.cts` file, where a strict parse throws it too, and nothing in a `.ts`
+			 * file, where neither does (#880).
 			 * @param {AST.TSTypeParameterDeclaration} node
 			 */
 			reportReservedArrowTypeParam(node) {
+				const filename = this.#filename ?? '';
+				const reserved = /\.[cm]ts$/.test(filename);
+				if (!reserved && (!this.#collect || filename.endsWith('.ts'))) return;
 				// Constraints and defaults already disambiguate a generic arrow from JSX.
 				if (
-					this.#collect &&
 					node.params.length === 1 &&
 					node.extra?.trailingComma === undefined &&
 					!node.params[0].constraint &&
 					!node.params[0].default
 				) {
-					error(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER, this.#filename, node, this.#errors);
+					// At the type parameter, as TypeScript reports it.
+					error(
+						TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER,
+						this.#filename,
+						node.params[0],
+						this.#collect ? this.#errors : undefined,
+					);
 				}
 			}
 
 			/**
-			 * Override to allow `readonly` type modifier on any type when collecting.
-			 * By default, @sveltejs/acorn-typescript throws an error for `readonly { ... }`
-			 * because TypeScript only permits `readonly` on array and tuple types.
-			 * Suppress the error in the strict mode as ts is compiled away.
+			 * `readonly` on a type other than an array or a tuple type is TypeScript's
+			 * checker error TS1354, at the operator: a strict parse throws it, and a
+			 * collecting one records it and keeps the type (#963). acorn-typescript
+			 * throws it at the type in every mode.
 			 * @param {AST.TSTypeOperator} node
 			 */
 			tsCheckTypeAnnotationForReadOnly(node) {
@@ -5110,10 +5157,10 @@ export function TSRXPlugin(config) {
 					// Valid readonly usage, no error needed
 					return;
 				}
-
-				if (this.#collect) {
-					error(TS_ERRORS.READONLY_TYPE_MODIFIER, this.#filename, typeAnnotation, this.#errors);
-				}
+				this.#raiseCheckerError(
+					/** @type {number} */ (node.start),
+					TS_ERRORS.READONLY_TYPE_MODIFIER,
+				);
 			}
 
 			/**
@@ -7171,9 +7218,7 @@ export function TSRXPlugin(config) {
 			#parseAssignableListItem(allowModifiers) {
 				this.#assignableListItemStart = this.start;
 				const item = /** @type {AST.Node} */ (
-					(this.#collect &&
-						allowModifiers !== undefined &&
-						this.#parseRestParameterProperty(allowModifiers)) ||
+					(allowModifiers !== undefined && this.#parseRestParameterProperty(allowModifiers)) ||
 						super.parseAssignableListItem(allowModifiers)
 				);
 				if (
@@ -7191,11 +7236,11 @@ export function TSRXPlugin(config) {
 			 * TypeScript's parser reads parameter property modifiers before a rest
 			 * parameter too (`constructor(public ...rest: T[]) {}`), and its checker
 			 * reports TS1317. acorn-typescript reads the modifiers and then a name or
-			 * a pattern, and fails at the `...`. When collecting, read the rest
-			 * element after the modifiers, record TS1317 at them, and keep the rest
-			 * element as the parameter, without them: typescript-estree rejects a rest
-			 * parameter property, so there is no node to mirror. A strict parse still
-			 * fails at the `...`. Returns `null`, having read nothing, when no rest
+			 * a pattern, and fails at the `...`. Read the rest element after the
+			 * modifiers, report TS1317 at them, which a strict parse throws (#963),
+			 * and when collecting keep the rest element as the parameter, without
+			 * them: typescript-estree rejects a rest parameter property, so there is
+			 * no node to mirror. Returns `null`, having read nothing, when no rest
 			 * element follows the modifiers. On a function's parameter
 			 * (`allowModifiers` is `false`), the modifiers are TS2369 too.
 			 * UPSTREAM(sveltejs/acorn-typescript#89)
@@ -9047,13 +9092,23 @@ export function TSRXPlugin(config) {
 
 				// @ts-ignore — acorn internal: isLet accepts 0 args at runtime
 				let isLet = this.isLet();
-				if (this.type === tt._var || this.type === tt._const || isLet) {
+				// TypeScript's parser reads `let` as a declaration list wherever it
+				// starts a `for` head, where acorn reads `let.a` or `let;` as an
+				// expression.
+				const bare_let = !isLet && this.isContextual('let');
+				if (this.type === tt._var || this.type === tt._const || isLet || bare_let) {
 					let init = /** @type {AST.VariableDeclaration} */ (this.startNode()),
-						kind = isLet ? 'let' : /** @type {AST.VariableDeclaration['kind']} */ (this.value);
-					if (this.#collect && this.#isEmptyForDeclarationList()) {
+						kind =
+							isLet || bare_let
+								? 'let'
+								: /** @type {AST.VariableDeclaration['kind']} */ (this.value);
+					if (this.#isEmptyForDeclarationList()) {
 						// As `parseVarStatement` does for a statement (TS1123). The loop takes
 						// the empty list as its one declaration.
 						this.#parseEmptyDeclarationList(init, kind);
+					} else if (bare_let) {
+						// TypeScript's parser error where no declarator follows (#963).
+						this.raise(this.lookahead().start, TS_ERRORS.VARIABLE_DECLARATION_EXPECTED);
 					} else {
 						this.next();
 						this.parseVar(init, true, kind);
@@ -9067,8 +9122,7 @@ export function TSRXPlugin(config) {
 				}
 
 				// Handle other cases like using declarations if they exist
-				let startsWithLet = this.isContextual('let'),
-					isForOf = false;
+				let isForOf = false;
 				let usingKind =
 					this.isUsing && this.isUsing(true)
 						? 'using'
@@ -9141,8 +9195,6 @@ export function TSRXPlugin(config) {
 						else if (this.options.ecmaVersion >= 9)
 							/** @type {AST.ForOfStatement} */ (node).await = false;
 					}
-					if (startsWithLet && isForOf)
-						this.raise(/** @type {AST.NodeWithLocation} */ (init_expr).start, TS_ERRORS.FOR_OF_LET);
 					// Keep a type assertion, and the parentheses around it, as for an
 					// assignment target (see `toAssignable`).
 					const init = this.toAssignable(init_expr, false, refDestructuringErrors, true);

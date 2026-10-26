@@ -2461,6 +2461,9 @@ export function convert_source_map_to_mappings(
 					visit(node.typeParameter);
 				}
 				if (node.nameType) {
+					// TypeScript reports a key type that is not a property key (TS2322) on
+					// the whole remapping type, which can have no mapped token, as `{}`.
+					push_verify_only_span_mapping(node.nameType);
 					visit(node.nameType);
 				}
 				if (node.typeAnnotation) {

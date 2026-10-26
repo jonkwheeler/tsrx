@@ -8,4 +8,4 @@
 - A whole import type, so an ES module used as a type without `typeof` (`type M = import('./store')`) reports TS1340 (#594).
 - The options of `import(source, options)` and `import.defer(source, options)` (#599).
 - The parameter types of a `declare function` and of an overload signature (#935).
-- The key remapping (`as`) clause of a mapped type (#939).
+- The key remapping (`as`) clause of a mapped type, including a key type that is not a property key, as `as {}` or `as T[K]` (#939).

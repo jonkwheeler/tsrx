@@ -464,6 +464,9 @@ it('reports errors in import types, import options, declared signatures and key 
 		'export function overload(options: MissingF): void; export function overload(options: unknown) {}',
 		'export type Keys<T> = { [K in keyof T as MissingG]: T[K] };',
 		'export type Named<T> = { [K in keyof T as Capitalize<number>]: T[K] };',
+		'export type Indexed<T> = { [K in keyof T as T[K]]: 1 };',
+		'export type Literal<T> = { [K in keyof T as {}]: 1 };',
+		'export type Tuple<T> = { [K in keyof T as [K]]: 1 };',
 	];
 	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
 	const result = run_cli('native');
@@ -489,6 +492,15 @@ it('reports errors in import types, import options, declared signatures and key 
 	expect(result.output).toContain(
 		`${at(8, 'number')}: error TS2344: Type 'number' does not satisfy the constraint 'string'.`,
 	);
+	for (const [index, type] of /** @type {const} */ ([
+		[9, 'T[K]'],
+		[10, '{}'],
+		[11, '[K]'],
+	])) {
+		expect(result.output).toContain(
+			`${at(index, type)}: error TS2322: Type '${type}' is not assignable to type 'string | number | symbol'.`,
+		);
+	}
 });
 
 it('reports a failed satisfies check on its keyword in .tsrx files', () => {

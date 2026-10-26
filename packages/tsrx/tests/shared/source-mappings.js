@@ -1836,6 +1836,35 @@ export function App() @{
 			const start = source.indexOf('import(');
 			expect(is_mapped(result, start, source.slice(start, -1))).toBe(true);
 		});
+
+		it.each(['T[K]', '{}', '[K]', '() => void'])(
+			'maps the whole key remapping type `as %s`',
+			(type) => {
+				// TypeScript reports a key type that is not a property key (TS2322) on
+				// the whole remapping type.
+				const source = `export type M<T> = { [K in keyof T as ${type}]: 1 };`;
+				const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+				expect(result.errors).toEqual([]);
+				const start = source.indexOf(`as ${type}`) + 'as '.length;
+				// The printer writes an empty type literal as `{  }`.
+				const generated = result.mappings
+					.filter(
+						(mapping) =>
+							mapping.sourceOffsets[0] === start &&
+							mapping.lengths[0] === type.length &&
+							mapping.data.verification,
+					)
+					.map((mapping) =>
+						result.code
+							.slice(
+								mapping.generatedOffsets[0],
+								mapping.generatedOffsets[0] + (mapping.generatedLengths?.[0] ?? mapping.lengths[0]),
+							)
+							.replace(/\s+/g, ''),
+					);
+				expect(generated).toContain(type.replace(/\s+/g, ''));
+			},
+		);
 	});
 
 	describe(`[${name}] submodule import mappings`, () => {

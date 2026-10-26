@@ -49,6 +49,7 @@ const preact_platform = {
 		// text; `dangerouslySetInnerHTML` renders the body as written on the
 		// client and the server.
 		scriptBody: 'dangerouslySetInnerHTML',
+		tryBodyComponent: true,
 	},
 	validation: {
 		requireUseServerForAwait: false,

@@ -33,6 +33,7 @@ export interface JsxTransformContext {
 	platform: JsxPlatform;
 	local_statement_component_index: number;
 	needs_error_boundary: boolean;
+	needs_try_body: boolean;
 	needs_suspense: boolean;
 	needs_merge_refs: boolean;
 	needs_normalize_spread_props: boolean;
@@ -470,6 +471,17 @@ export interface JsxPlatform {
 		 *   writes a string `innerHTML` into its HTML template as an attribute.
 		 */
 		scriptBody?: 'children' | 'dangerouslySetInnerHTML' | 'innerHTML' | 'v-html';
+		/**
+		 * Render a `@try` body as `<TsrxTryBody render={() => …} />`, imported
+		 * from `imports.errorBoundary`, instead of an expression the parent
+		 * evaluates while rendering. For runtimes whose boundaries (React-style
+		 * error boundaries and `Suspense`) only catch what their descendant
+		 * components throw: the body's setup statements then run inside the
+		 * boundary. A body that awaits or yields stays inline, since the
+		 * enclosing function has to settle it. Runtime output only; the
+		 * type-only output keeps the inline body.
+		 */
+		tryBodyComponent?: boolean;
 	};
 
 	validation: {

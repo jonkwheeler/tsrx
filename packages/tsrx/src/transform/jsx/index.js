@@ -556,6 +556,7 @@ export function createJsxTransform(platform) {
 			platform: effective_platform,
 			local_statement_component_index: 0,
 			needs_error_boundary: false,
+			needs_try_body: false,
 			needs_suspense: false,
 			needs_merge_refs: false,
 			needs_normalize_spread_props: false,
@@ -4878,7 +4879,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 
 	// Build the try body content as JSX children
 	const try_body_nodes = node.block.body || [];
-	const try_content = statement_body_to_jsx_child(try_body_nodes, transform_context);
+	const try_content = try_body_to_jsx_child(try_body_nodes, transform_context);
 
 	/** @type {ESTreeJSX.JSXRenderNode} */
 	let result = try_content;
@@ -5036,6 +5037,54 @@ function try_statement_to_jsx_child(node, transform_context) {
 }
 
 /**
+ * The `@try` body as the boundary's child. See `jsx.tryBodyComponent`.
+ *
+ * @param {AST.Node[]} body_nodes
+ * @param {TransformContext} transform_context
+ * @returns {ESTreeJSX.JSXRenderNode}
+ */
+function try_body_to_jsx_child(body_nodes, transform_context) {
+	if (
+		!transform_context.platform.jsx.tryBodyComponent ||
+		transform_context.typeOnly ||
+		body_nodes.some(suspends_enclosing_function)
+	) {
+		return statement_body_to_jsx_child(body_nodes, transform_context);
+	}
+
+	transform_context.needs_try_body = true;
+	const render_fn = b.arrow(
+		[],
+		b.block(build_render_statements(body_nodes, true, transform_context)),
+	);
+	return create_jsx_element(
+		'TsrxTryBody',
+		[b.jsx_attribute(b.jsx_id('render'), to_jsx_expression_container(render_fn))],
+		[],
+	);
+}
+
+/**
+ * Whether `node` holds an `await` or `yield` that belongs to the function
+ * enclosing it.
+ *
+ * @param {AST.Node} node
+ * @returns {boolean}
+ */
+function suspends_enclosing_function(node) {
+	if (is_function_node(node)) return false;
+	if (
+		node.type === 'AwaitExpression' ||
+		node.type === 'YieldExpression' ||
+		(node.type === 'ForOfStatement' && node.await) ||
+		(node.type === 'JSXForExpression' && node.statementType === 'ForOfStatement' && node.await)
+	) {
+		return true;
+	}
+	return child_nodes(node).some(suspends_enclosing_function);
+}
+
+/**
  * Create a simple JSX element AST node.
  *
  * @param {string} tag_name
@@ -5089,10 +5138,16 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 		imports.push(b.import_declaration(specifiers, platform.imports.forOfIterableHelper));
 	}
 
-	if (transform_context.needs_error_boundary) {
-		imports.push(
-			b.imports([['TsrxErrorBoundary', 'TsrxErrorBoundary']], platform.imports.errorBoundary),
-		);
+	if (transform_context.needs_error_boundary || transform_context.needs_try_body) {
+		/** @type {[string, string][]} */
+		const specifiers = [];
+		if (transform_context.needs_error_boundary) {
+			specifiers.push(['TsrxErrorBoundary', 'TsrxErrorBoundary']);
+		}
+		if (transform_context.needs_try_body) {
+			specifiers.push(['TsrxTryBody', 'TsrxTryBody']);
+		}
+		imports.push(b.imports(specifiers, platform.imports.errorBoundary));
 	}
 
 	const merge_refs_source =

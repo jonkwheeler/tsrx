@@ -1296,8 +1296,44 @@ describe('@tsrx/react basic', () => {
 			'App.tsrx',
 		);
 
-		expect(code).toContain('Suspense');
-		expect(code).toContain('use(fetchData())');
+		expect(code).toContain("import { TsrxTryBody } from '@tsrx/react/error-boundary';");
+		// The body renders as a child of <Suspense>, so `use()` suspends to it.
+		expect(code).toMatch(
+			/<Suspense fallback=[\s\S]*><TsrxTryBody render=\{\(\) => \{\s*const data = use\(fetchData\(\)\);/,
+		);
+	});
+
+	it('keeps the try body inline in type-only output', () => {
+		const { code } = compile_to_volar_mappings(
+			`export function App() @{
+				@try {
+					const data = load();
+					<div>{data}</div>
+				} @catch (err) {
+					<p>{'error'}</p>
+				}
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).not.toContain('TsrxTryBody');
+	});
+
+	it('keeps a try body that awaits inline', () => {
+		const { code } = compile(
+			`export async function App() @{
+				@try {
+					const data = await fetchData();
+					<div>{data}</div>
+				} @catch (err) {
+					<p>{'error'}</p>
+				}
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).not.toContain('TsrxTryBody');
+		expect(code).toContain('await (async () => {');
 	});
 
 	it('applies scoped CSS hashes inside try blocks', () => {

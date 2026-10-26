@@ -16,6 +16,7 @@ const EXPECTED_ERROR_LOG_SNIPPETS = [
 	'async fail',
 	'rejected',
 	'inner error',
+	'body boom',
 	'The above error occurred in the <',
 	'React will try to recreate this component tree from scratch using the error boundary you provided',
 ];
@@ -1004,6 +1005,41 @@ function ForInsideTryApp() @{
 	</>
 }
 
+// ── Setup statements inside the try body ──
+
+function InlineUseApp(props: { promise: Promise<string> }) @{
+	@try {
+		const data = use(props.promise);
+		<p className="resolved">{data}</p>
+	} @pending {
+		<p className="pending">{'loading...'}</p>
+	}
+}
+
+function loadOrThrow(fail: boolean) {
+	if (fail) throw new Error('body boom');
+	return 'loaded';
+}
+
+function BodyThrowApp() @{
+	const [fail, setFail] = useState(true);
+
+	@try {
+		const result = loadOrThrow(fail);
+		<p className="ok">{result}</p>
+	} @catch (err: Error, reset: () => void) {
+		<button
+			className="reset"
+			onClick={() => {
+				setFail(false);
+				reset();
+			}}
+		>
+			{err.message}
+		</button>
+	}
+}
+
 // ── Try/catch with a thrown non-Error value ──
 
 function ValueThrower(props: { value: unknown }): never {
@@ -1722,6 +1758,33 @@ describe('tsrx-react runtime', () => {
 		await click('.add');
 		expect(container.querySelectorAll('.try-item').length).toBe(3);
 		expect(container.querySelectorAll('.try-item')[2].textContent).toBe('z');
+	});
+
+	// ── Setup statements inside the try body ──
+
+	it('shows pending fallback for use() called in the try body', async () => {
+		let resolve_fn: (value: string) => void;
+		const promise = new Promise<string>((r) => {
+			resolve_fn = r;
+		});
+
+		await render(InlineUseApp, { promise });
+		expect(text('.pending')).toBe('loading...');
+
+		await act(async () => {
+			resolve_fn('inline');
+		});
+		expect(text('.resolved')).toBe('inline');
+		expect(container.querySelector('.pending')).toBeNull();
+	});
+
+	it('catches a synchronous throw from a try body setup statement', async () => {
+		await render(BodyThrowApp);
+		expect(text('.reset')).toBe('body boom');
+
+		await click('.reset');
+		expect(text('.ok')).toBe('loaded');
+		expect(container.querySelector('.reset')).toBeNull();
 	});
 
 	// ── Try/catch with a thrown non-Error value ──

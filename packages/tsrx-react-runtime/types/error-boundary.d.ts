@@ -14,3 +14,9 @@ export class TsrxErrorBoundary extends Component<TsrxErrorBoundaryProps, TsrxErr
 	static getDerivedStateFromError(error: Error): TsrxErrorBoundaryState;
 	render(): ReactNode;
 }
+
+export interface TsrxTryBodyProps {
+	render: () => ReactNode;
+}
+
+export function TsrxTryBody(props: TsrxTryBodyProps): ReactNode;

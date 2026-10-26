@@ -2472,7 +2472,9 @@ function hoist_static_render_nodes(render_nodes, transform_context) {
 		const name = create_helper_name(transform_context.helper_state, 'static');
 		const id = create_generated_identifier(name);
 
-		transform_context.helper_state.statics.push(b.const(id, node));
+		transform_context.helper_state.statics.push(
+			b.const(id, lower_static_script_bodies(node, transform_context)),
+		);
 
 		render_nodes[i] = to_jsx_expression_container(clone_identifier(id), node);
 	}
@@ -2537,6 +2539,47 @@ function reads_uninitialized_tag(node, module_binding_ends) {
 		return !!node.value && reads_uninitialized_tag(node.value, module_binding_ends);
 	}
 	return child_nodes(node).some((child) => reads_uninitialized_tag(child, module_binding_ends));
+}
+
+/**
+ * A static with its raw `<script>` bodies lowered. The walk lowers the
+ * elements an expression container or attribute value holds in the render
+ * output it returns, which a static has already left.
+ *
+ * @template {AST.Node} T
+ * @param {T} node
+ * @param {TransformContext} transform_context
+ * @returns {T}
+ */
+function lower_static_script_bodies(node, transform_context) {
+	if (is_raw_script_element(node)) {
+		const hook = transform_context.platform.hooks?.transformElement;
+		return /** @type {T} */ (
+			hook ? hook(node, transform_context, []) : to_jsx_element(node, transform_context)
+		);
+	}
+
+	/** @type {AST.TraversableAstNode} */
+	let out = /** @type {AST.TraversableAstNode} */ (node);
+	for (const key of Object.keys(node)) {
+		if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
+		const value = /** @type {AST.TraversableAstNode} */ (node)[key];
+		/** @type {unknown} */
+		let next = value;
+		if (Array.isArray(value)) {
+			const lowered = value.map((child) =>
+				is_ast_node(child) ? lower_static_script_bodies(child, transform_context) : child,
+			);
+			if (lowered.some((child, index) => child !== value[index])) next = lowered;
+		} else if (is_ast_node(value)) {
+			next = lower_static_script_bodies(value, transform_context);
+		}
+		if (next !== value) {
+			if (out === node) out = { ...out };
+			out[key] = next;
+		}
+	}
+	return /** @type {T} */ (out);
 }
 
 /**

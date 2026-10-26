@@ -4365,6 +4365,20 @@ export function App() @{
 			const { code } = compile(source, 'App.tsrx');
 			expect(code).toContain('const App__static1 = <div><Tag>hello</Tag></div>;');
 		});
+
+		it.each([
+			[
+				'an expression container',
+				'export function App() @{\n\t<div>{<script type="application/json">{"a":1}</script>}</div>\n}',
+			],
+			[
+				'a component prop',
+				'function Slot({ content }: { content: unknown }) {\n\treturn content;\n}\nexport function App() @{\n\t<Slot content={<script type="application/json">{"a":1}</script>} />\n}',
+			],
+		])('keeps the body of a raw script in %s of static JSX (#845)', (_case, source) => {
+			const { code } = compile(source, 'App.tsrx');
+			expect(code).toContain(`'{"a":1}'`);
+		});
 	});
 
 	describe(`[${name}] native raw HTML props`, () => {

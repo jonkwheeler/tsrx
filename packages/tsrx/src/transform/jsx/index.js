@@ -577,6 +577,7 @@ export function createJsxTransform(platform) {
 			type_only_style_anchors,
 			helper_state: null,
 			available_bindings: new Map(),
+			module_binding_ends: collect_module_binding_ends(ast),
 			filename: filename ?? null,
 			source,
 			collect,
@@ -2466,6 +2467,7 @@ function hoist_static_render_nodes(render_nodes, transform_context) {
 			continue;
 		}
 		if (references_scope_bindings(node, transform_context.available_bindings)) continue;
+		if (reads_uninitialized_tag(node, transform_context.module_binding_ends)) continue;
 
 		const name = create_helper_name(transform_context.helper_state, 'static');
 		const id = create_generated_identifier(name);
@@ -2474,6 +2476,67 @@ function hoist_static_render_nodes(render_nodes, transform_context) {
 
 		render_nodes[i] = to_jsx_expression_container(clone_identifier(id), node);
 	}
+}
+
+/**
+ * For each name a top-level statement binds to a value the module body
+ * initializes in order, which is anything but a function declaration or an
+ * import, the end of the first statement that binds it.
+ *
+ * @param {AST.Program} program
+ * @returns {Map<string, number>}
+ */
+function collect_module_binding_ends(program) {
+	/** @type {Map<string, number>} */
+	const ends = new Map();
+	for (const statement of program.body) {
+		// Typed loosely: the TypeScript declarations are not in the estree types
+		/** @type {any} */
+		const declaration =
+			statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration'
+				? statement.declaration
+				: statement;
+		if (!declaration || declaration.declare) continue;
+		/** @type {Map<string, AST.Identifier>} */
+		const bindings = new Map();
+		if (declaration.type === 'VariableDeclaration' || declaration.type === 'ClassDeclaration') {
+			collect_statement_bindings(declaration, bindings);
+		} else if (
+			(declaration.type === 'TSEnumDeclaration' || declaration.type === 'TSModuleDeclaration') &&
+			declaration.id.type === 'Identifier'
+		) {
+			bindings.set(declaration.id.name, declaration.id);
+		}
+		for (const name of bindings.keys()) {
+			if (!ends.has(name) && typeof statement.end === 'number') ends.set(name, statement.end);
+		}
+	}
+	return ends;
+}
+
+/**
+ * Whether a static would read a tag the module has not initialized yet. A
+ * static runs before the top-level statement it was hoisted out of, so a tag
+ * can't read a name bound there or later (`<Screen.Tag>` in a method of
+ * `class Screen`), or `this`.
+ *
+ * @param {AST.Node} node
+ * @param {Map<string, number>} module_binding_ends
+ * @returns {boolean}
+ */
+function reads_uninitialized_tag(node, module_binding_ends) {
+	if (node.type === 'JSXIdentifier') {
+		if (node.name === 'this') return true;
+		const end = module_binding_ends.get(node.name);
+		return end !== undefined && !(typeof node.start === 'number' && end <= node.start);
+	}
+	if (node.type === 'JSXMemberExpression') {
+		return reads_uninitialized_tag(node.object, module_binding_ends);
+	}
+	if (node.type === 'JSXAttribute') {
+		return !!node.value && reads_uninitialized_tag(node.value, module_binding_ends);
+	}
+	return child_nodes(node).some((child) => reads_uninitialized_tag(child, module_binding_ends));
 }
 
 /**

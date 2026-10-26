@@ -54,6 +54,13 @@ export interface JsxTransformContext {
 	type_only_style_anchors: AST.Statement[];
 	helper_state: JsxHelperState | null;
 	available_bindings: Map<string, AST.Identifier>;
+	/**
+	 * For each name a top-level statement binds to a value the module body
+	 * initializes in order (anything but a function declaration or an import),
+	 * the end of the first statement that binds it. A static hoisted out of a
+	 * component can't read these names from that statement on.
+	 */
+	module_binding_ends: Map<string, number>;
 	inside_element_child?: boolean;
 	/** Full source text for source-aware diagnostics. */
 	source: string;

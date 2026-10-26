@@ -4322,6 +4322,51 @@ export function App() @{
 		);
 	});
 
+	describe(`[${name}] static JSX hoisting`, () => {
+		it.each([
+			[
+				'the class it is in',
+				"class Screen {\n\tstatic Tag = 'div';\n\trender() {\n\t\treturn <Screen.Tag>hello</Screen.Tag>;\n\t}\n}\nexport const view = new Screen().render();",
+				'<Screen.Tag>hello</Screen.Tag>',
+			],
+			[
+				'this',
+				"export class Screen {\n\tTag = 'div';\n\trender() {\n\t\treturn <this.Tag>hello</this.Tag>;\n\t}\n}",
+				'<this.Tag>hello</this.Tag>',
+			],
+			[
+				'a const declared after it',
+				"export function App() @{\n\t<div><Tag>hello</Tag></div>\n}\nconst Tag = 'section';",
+				'<div><Tag>hello</Tag></div>',
+			],
+		])(
+			'leaves JSX whose tag reads %s in place, since the module has not initialized it (#204)',
+			(_case, source, element) => {
+				const { code } = compile(source, 'App.tsrx');
+				expect(code).not.toContain('__static');
+				expect(code).toContain(`return ${element};`);
+			},
+		);
+
+		it.runIf(['react', 'preact', 'hono'].includes(name)).each([
+			[
+				'a const declared before it',
+				"const Tag = 'section';\nexport function App() @{\n\t<div><Tag>hello</Tag></div>\n}",
+			],
+			[
+				'a function declared after it',
+				'export function App() @{\n\t<div><Tag>hello</Tag></div>\n}\nfunction Tag() {\n\treturn null;\n}',
+			],
+			[
+				'an import',
+				"import { Tag } from './tag';\nexport function App() @{\n\t<div><Tag>hello</Tag></div>\n}",
+			],
+		])('hoists JSX whose tag reads %s', (_case, source) => {
+			const { code } = compile(source, 'App.tsrx');
+			expect(code).toContain('const App__static1 = <div><Tag>hello</Tag></div>;');
+		});
+	});
+
 	describe(`[${name}] native raw HTML props`, () => {
 		it('uses the target framework raw HTML prop directly', () => {
 			const html_attribute =

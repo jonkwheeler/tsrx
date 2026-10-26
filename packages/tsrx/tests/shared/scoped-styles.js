@@ -260,6 +260,8 @@ export function runSharedScopedStyleTests({
 							[dir="RTL"] { margin: 0; }
 							[data-kind="TEXT"] { padding: 0; }
 							input[type="TEXT" s] { border: 0; }
+							input[type="TEXT" S] { outline: 0; }
+							[data-kind="TEXT" I] { float: left; }
 						</style>
 						<input type="text" dir="rtl" data-kind="text" />
 					</>
@@ -272,6 +274,8 @@ export function runSharedScopedStyleTests({
 			expect(css).toContain(`[dir="RTL"].${hash} {`);
 			expect(css).toContain('/* (unused) [data-kind="TEXT"] { padding: 0; }*/');
 			expect(css).toContain('/* (unused) input[type="TEXT" s] { border: 0; }*/');
+			expect(css).toContain('/* (unused) input[type="TEXT" S] { outline: 0; }*/');
+			expect(css).toContain(`[data-kind="TEXT" I].${hash} {`);
 		});
 
 		it('splits class attributes on ASCII whitespace only, so a no-break space stays inside its class', () => {
@@ -652,18 +656,85 @@ export function runSharedScopedStyleTests({
 				`@if (show) { ${a} }${b}`,
 				`@if (show) { <span /> } @else { ${a} }${b}`,
 				`${a}@if (show) { ${b} }`,
+				`@if (show) { <u /> } @else if (more) { ${a} }${b}`,
+				`@if (show) { <u /> } @else if (more) { <span /> } @else { ${a} }${b}`,
+				`${a}@if (show) { <u /> } @else if (more) { ${b} }`,
+				`${a}@if (show) { <u /> } @else if (more) { <span /> } @else { ${b} }`,
 				`@for (const item of items) { ${a} }${b}`,
 				`@for (const item of items) { <>${b}{item}${a}</> }`,
+				`@for (const item of items) { <span /> } @empty { ${a} }${b}`,
 				`@switch (show) { @case true: { <>${a}</> } }${b}`,
+				`@switch (show) { @case true: { <span /> } @default: { ${a} } }${b}`,
 				`@try { ${a} } @catch (error) { <span /> }${b}`,
+				`@try { <span /> } @pending { ${a} }${b}`,
 				`@{ const label = 'a'; <>{label}${a}</> }${b}`,
 			];
 
 			for (const body of bodies) {
 				const { css } = compile(
-					`export function App({ show, items }: { show: boolean, items: string[] }) @{
+					`export function App({ show, more, items }: { show: boolean, more: boolean, items: string[] }) @{
 						<>
 							<style>.a + .b { color: red; } .a ~ .b { margin: 0; }</style>
+							${body}
+						</>
+					}`,
+					'App.tsrx',
+				);
+
+				expect(css, body).not.toContain('(unused)');
+			}
+		});
+
+		it('keeps sibling rules when what renders between or around the siblings is not known', () => {
+			const a = `<i ${attr}="a" />`;
+			const b = `<b ${attr}="b">{'b'}</b>`;
+			const bodies = [
+				// React hoists these into <head>
+				`${a}<title>{'t'}</title>${b}`,
+				`${a}<><meta name="x" /></>${b}`,
+				`${a}<link rel="x" />${b}`,
+				// An expression renders the elements it holds in its place
+				`{show && ${a}}${b}`,
+				`{show ? ${a} : null}${b}`,
+				`${a}{show && ${b}}`,
+				// A component may render the elements passed to it in its place
+				`${a}<Comp />${b}`,
+				`<Comp>${a}</Comp>${b}`,
+				`<Comp render={${a}} />${b}`,
+				`${a}<Comp>${b}</Comp>`,
+				// A dynamic class may hold `a`
+				`<u ${attr}={cls} />${b}`,
+			];
+
+			for (const body of bodies) {
+				const { css } = compile(
+					`export function App({ show, cls }: { show: boolean, cls: string }) @{
+						<>
+							<style>.a + .b { color: red; } .a ~ .b { margin: 0; }</style>
+							${body}
+						</>
+					}`,
+					'App.tsrx',
+				);
+
+				expect(css, body).not.toContain('(unused)');
+				expect(css, body).toMatch(/\.a\.tsrx-[0-9a-f]+ \+ \.b/);
+			}
+		});
+
+		it('keeps a sibling chain through a global selector after a component', () => {
+			for (const [rule, body] of [
+				['.a:has(+ :global(.x) + .b)', `<div ${attr}="a" /><Comp />\n<b ${attr}="b" />`],
+				[
+					'.a:has(+ :global(.x) + .b)',
+					`<div ${attr}="a" /><Comp />@if (show) { <b ${attr}="b" /> }`,
+				],
+				['.a:has(~ :global(.x) ~ .b)', `<div ${attr}="a" /><Comp /><><b ${attr}="b" /></>`],
+			]) {
+				const { css } = compile(
+					`export function App({ show }: { show: boolean }) @{
+						<>
+							<style>${rule} { color: red; }</style>
 							${body}
 						</>
 					}`,
@@ -685,11 +756,13 @@ export function runSharedScopedStyleTests({
 				[`<div>${a}</div>${b}`, ['.a + .b', '.a ~ .b']],
 				[`${b}<>${a}</>`, ['.a + .b', '.a ~ .b']],
 				[`@if (show) { ${a} } @else { ${b} }`, ['.a + .b', '.a ~ .b']],
+				[`@if (show) { ${a} } @else if (more) { ${b} }`, ['.a + .b', '.a ~ .b']],
+				[`${a}<title>{'t'}</title><u />${b}`, ['.a + .b']],
 			];
 
 			for (const [body, pruned] of cases) {
 				const { css } = compile(
-					`export function App({ show }: { show: boolean }) @{
+					`export function App({ show, more }: { show: boolean, more: boolean }) @{
 						<>
 							<style>.a + .b { color: red; } .a ~ .b { margin: 0; }</style>
 							${body}

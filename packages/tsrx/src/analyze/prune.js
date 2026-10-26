@@ -3,7 +3,7 @@
 /** @import { CssPruneDirection, Visitors, TopScopedClasses, StyleClasses } from '../../types/index' */
 
 import { walk } from 'zimmerframe';
-import { node_children } from '../utils/ast.js';
+import { child_nodes, is_function_node, node_children } from '../utils/ast.js';
 import { unescape_css } from '../parse/style.js';
 import { regex_whitespaces_strict } from '../utils/patterns.js';
 
@@ -433,38 +433,23 @@ function get_descendant_elements(node, adjacent_only) {
 }
 
 /**
- * Check if an element can render dynamic content that might affect CSS matching
+ * Whether an element is a component or a dynamic element, which may render
+ * nothing, elements of its own, or the elements passed to it.
  * @param {AST.TSRXElementNode} element
- * @param {boolean} check_classes - Whether to check for dynamic class attributes
  * @returns {boolean}
  */
-function can_render_dynamic_content(element, check_classes = false) {
-	if (is_dynamic_element(element)) {
-		return true;
-	}
-
-	if (!is_element_dom_element(element)) {
-		return true;
-	}
-
-	// Check for dynamic class attributes if requested (for class-based selectors)
-	if (check_classes) {
-		for (const attr of get_element_attributes(element)) {
-			if (attr.type === 'JSXAttribute' && get_attribute_name(attr) === 'class') {
-				const value = get_attribute_value(attr);
-				// Check if class value is an expression (not a static string)
-				if (value && typeof value === 'object') {
-					// If it's a CallExpression or other dynamic value, it's dynamic
-					if (value.type !== 'Literal') {
-						return true;
-					}
-				}
-			}
-		}
-	}
-
-	return false;
+function can_render_dynamic_content(element) {
+	return is_dynamic_element(element) || !is_element_dom_element(element);
 }
+
+// React 19 hoists these into `<head>`, so they may not stay between siblings
+const hoisted_element_names = new Set(['title', 'meta', 'link']);
+
+/**
+ * The elements a sibling search found, and whether it met something whose
+ * place among the siblings it cannot know, so that any sibling may match.
+ * @typedef {{ siblings: Set<AST.TSRXJSXElement>, uncertain: boolean }} SiblingSearch
+ */
 
 /**
  * The nodes a fragment, `@{ … }` block, control-flow body, or `@case` renders
@@ -490,6 +475,7 @@ function get_rendered_list(node) {
 
 /**
  * The branches a control-flow directive may render, or `null` for other nodes.
+ * An `@else if` is an `IfStatement` in the alternate of its `@if`.
  *
  * @param {AST.Node} node
  * @returns {Array<AST.Node | null | undefined> | null}
@@ -497,6 +483,7 @@ function get_rendered_list(node) {
 function get_control_flow_branches(node) {
 	switch (node.type) {
 		case 'JSXIfExpression':
+		case 'IfStatement':
 			return [node.consequent, node.alternate];
 		case 'JSXForExpression':
 			return [node.body, node.empty];
@@ -518,13 +505,13 @@ function get_control_flow_branches(node) {
  * @param {number} index
  * @param {CssPruneDirection} direction
  * @param {boolean} adjacent_only
- * @param {Map<AST.TSRXJSXElement, boolean>} siblings
+ * @param {SiblingSearch} search
  * @returns {boolean} whether a `+` search found its sibling and can stop
  */
-function add_list_siblings(list, index, direction, adjacent_only, siblings) {
+function add_list_siblings(list, index, direction, adjacent_only, search) {
 	const step = direction === FORWARD ? 1 : -1;
 	for (let i = index; i >= 0 && i < list.length; i += step) {
-		if (add_edge_siblings(list[i], direction, adjacent_only, siblings) && adjacent_only) {
+		if (add_edge_siblings(list[i], direction, adjacent_only, search) && adjacent_only) {
 			return true;
 		}
 	}
@@ -538,44 +525,99 @@ function add_list_siblings(list, index, direction, adjacent_only, siblings) {
  * @param {AST.Node | null | undefined} node
  * @param {CssPruneDirection} direction
  * @param {boolean} adjacent_only
- * @param {Map<AST.TSRXJSXElement, boolean>} siblings
+ * @param {SiblingSearch} search
  * @returns {boolean} whether `node` always renders an element at that edge
  */
-function add_edge_siblings(node, direction, adjacent_only, siblings) {
+function add_edge_siblings(node, direction, adjacent_only, search) {
 	if (!node) return false;
 
 	if (is_native_jsx_element(node)) {
-		siblings.set(node, true);
-		// Components and dynamic elements may render nothing
-		return !can_render_dynamic_content(node, false);
+		search.siblings.add(node);
+		if (can_render_dynamic_content(node)) {
+			add_passed_elements(node, search);
+			return false;
+		}
+		const name = get_element_name(node);
+		return !(
+			(name.type === 'JSXIdentifier' || name.type === 'Identifier') &&
+			hoisted_element_names.has(name.name)
+		);
+	}
+
+	if (node.type === 'JSXExpressionContainer') {
+		add_expression_siblings(node.expression, direction, adjacent_only, search);
+		return false;
 	}
 
 	const list = get_rendered_list(node);
 	if (list) {
 		const start = direction === FORWARD ? 0 : list.length - 1;
-		return add_list_siblings(list, start, direction, adjacent_only, siblings);
+		return add_list_siblings(list, start, direction, adjacent_only, search);
 	}
 
 	// Any branch may render, and a directive may render none of them
 	for (const branch of get_control_flow_branches(node) ?? []) {
-		add_edge_siblings(branch, direction, adjacent_only, siblings);
+		add_edge_siblings(branch, direction, adjacent_only, search);
 	}
 	return false;
 }
 
 /**
+ * Add the template nodes an expression holds, which render in its place
+ * when it returns them.
+ *
+ * @param {AST.Node} node
+ * @param {CssPruneDirection} direction
+ * @param {boolean} adjacent_only
+ * @param {SiblingSearch} search
+ * @returns {void}
+ */
+function add_expression_siblings(node, direction, adjacent_only, search) {
+	if (is_function_node(node)) return;
+	if (is_native_jsx_element(node) || get_rendered_list(node) || get_control_flow_branches(node)) {
+		add_edge_siblings(node, direction, adjacent_only, search);
+		return;
+	}
+	for (const child of child_nodes(node)) {
+		add_expression_siblings(child, direction, adjacent_only, search);
+	}
+}
+
+/**
+ * Add the elements passed to a component, as children or in its attributes,
+ * which it may render in its own place in any order.
+ *
+ * @param {AST.Node} node
+ * @param {SiblingSearch} search
+ * @returns {void}
+ */
+function add_passed_elements(node, search) {
+	for (const child of child_nodes(node)) {
+		if (is_function_node(child) || child.type === 'JSXStyleElement') continue;
+		if (is_native_jsx_element(child)) {
+			search.siblings.add(child);
+			if (can_render_dynamic_content(child)) add_passed_elements(child, search);
+		} else {
+			add_passed_elements(child, search);
+		}
+	}
+}
+
+/**
  * The elements that may render as the siblings of `node` in `direction`, up to
  * its parent element. Fragments, `@{ … }` blocks, and control flow render their
- * contents in place, so siblings are looked for inside and around them.
+ * contents in place, so siblings are looked for inside and around them. An
+ * element inside a component's children, an expression, or an attribute may
+ * render anywhere, which makes the search uncertain.
  *
  * @param {AST.TSRXElementNode} node
  * @param {CssPruneDirection} direction
  * @param {boolean} adjacent_only
- * @returns {Map<AST.TSRXJSXElement, boolean>}
+ * @returns {SiblingSearch}
  */
 function get_possible_element_siblings(node, direction, adjacent_only) {
-	/** @type {Map<AST.TSRXJSXElement, boolean>} */
-	const siblings = new Map();
+	/** @type {SiblingSearch} */
+	const search = { siblings: new Set(), uncertain: false };
 	const path = node.metadata?.path ?? [];
 	const step = direction === FORWARD ? 1 : -1;
 	/** @type {AST.Node} */
@@ -586,22 +628,28 @@ function get_possible_element_siblings(node, direction, adjacent_only) {
 		const is_element = is_native_jsx_element(parent);
 		const list = is_element ? node_children(parent) : get_rendered_list(parent);
 
+		if ((is_element && can_render_dynamic_content(parent)) || (list && !list.includes(current))) {
+			search.uncertain = true;
+			break;
+		}
+
 		if (list) {
-			const index = list.indexOf(current);
-			if (index === -1) break;
-			if (add_list_siblings(list, index + step, direction, adjacent_only, siblings)) break;
+			if (add_list_siblings(list, list.indexOf(current) + step, direction, adjacent_only, search)) {
+				break;
+			}
 			if (is_element) break;
 		} else if (parent.type === 'JSXForExpression' && current === parent.body) {
 			// Another iteration renders the body again on either side
-			add_edge_siblings(parent.body, direction, adjacent_only, siblings);
+			add_edge_siblings(parent.body, direction, adjacent_only, search);
 		} else if (!get_control_flow_branches(parent) && parent.type !== 'CatchClause') {
+			search.uncertain = true;
 			break;
 		}
 
 		current = parent;
 	}
 
-	return siblings;
+	return search;
 }
 
 /**
@@ -643,60 +691,40 @@ function apply_combinator(relative_selector, rest_selectors, rule, node, directi
 
 		case '+':
 		case '~': {
-			const siblings = get_possible_element_siblings(node, direction, combinator.name === '+');
+			const adjacent_only = combinator.name === '+';
+			const { siblings, uncertain } = get_possible_element_siblings(node, direction, adjacent_only);
 
-			let sibling_matched = false;
+			// Siblings the search cannot know may match the rest of the selector
+			let sibling_matched = uncertain;
+			if (uncertain) {
+				for (const selector of rest_selectors) {
+					if (!is_outer_global(selector)) selector.metadata.scoped = true;
+				}
+			}
 
-			for (const possible_sibling of siblings.keys()) {
-				// Check if this sibling can render dynamic content
-				// For class selectors, also check if element has dynamic classes
-				const has_class_selector = rest_selectors.some((sel) =>
-					sel.selectors?.some((s) => s.type === 'ClassSelector'),
-				);
-				const is_dynamic = can_render_dynamic_content(possible_sibling, has_class_selector);
-
-				if (is_dynamic) {
-					if (rest_selectors.length > 0) {
-						// Check if the first selector in the rest is global
-						const first_rest_selector = rest_selectors[0];
-						if (is_global(first_rest_selector, rule)) {
-							// Global selector followed by possibly more selectors
-							// Check if remaining selectors could match elements after this component
-							const remaining = rest_selectors.slice(1);
-							if (remaining.length === 0) {
-								// Just a global selector, mark as matched
-								sibling_matched = true;
-							} else {
-								// Check if there are any elements after this component that could match the remaining selectors
-								const container = get_sibling_container(possible_sibling);
-								if (container !== null) {
-									const component_index = container.indexOf(possible_sibling);
-
-									// For adjacent combinator, only check immediate next element
-									// For general sibling, check all following elements
-									const search_start = component_index + 1;
-									const search_end = combinator.name === '+' ? search_start + 1 : container.length;
-
-									for (let i = search_start; i < search_end; i++) {
-										const subsequent = container[i];
-										if (is_native_jsx_element(subsequent)) {
-											if (apply_selector(remaining, rule, subsequent, direction)) {
-												sibling_matched = true;
-												break;
-											}
-											if (combinator.name === '+') break; // For adjacent, only check first element
-										}
-									}
-								}
-							}
-						}
+			for (const possible_sibling of siblings) {
+				if (!can_render_dynamic_content(possible_sibling)) {
+					if (apply_selector(rest_selectors, rule, possible_sibling, direction)) {
+						sibling_matched = true;
 					}
-					// Don't apply_selector for dynamic elements - they won't match regular element selectors
-				} else if (
-					is_native_jsx_element(possible_sibling) &&
-					apply_selector(rest_selectors, rule, possible_sibling, direction)
-				) {
+					continue;
+				}
+
+				// A component's own elements carry no scope hash, so only a global
+				// selector can match them
+				if (rest_selectors.length === 0 || !is_global(rest_selectors[0], rule)) continue;
+				const remaining = rest_selectors.slice(1);
+				if (remaining.length === 0) {
 					sibling_matched = true;
+					continue;
+				}
+				// Check whether the elements after the component match the rest
+				const after = get_possible_element_siblings(possible_sibling, FORWARD, adjacent_only);
+				if (after.uncertain) sibling_matched = true;
+				for (const subsequent of after.siblings) {
+					if (apply_selector(remaining, rule, subsequent, direction)) {
+						sibling_matched = true;
+					}
 				}
 			}
 
@@ -712,38 +740,6 @@ function apply_combinator(relative_selector, rest_selectors, rule, node, directi
 			// TODO other combinators
 			return true;
 	}
-}
-/**
- * The children list an element sits in — that of the nearest ancestor on its
- * path whose children include it, which is its parent element, a fragment
- * (an authored `<>…</>`, a control-flow branch's output, or the synthetic
- * root of a style scope), or `null` when the element has no container.
- *
- * Sibling combinators (`+`, `~`) find their siblings with
- * {@link get_possible_element_siblings}, which also looks through fragments
- * and control flow. Ancestor combinators keep using {@link get_element_parent}:
- * a fragment is not an element, and a scope's root fragment stands for the
- * container that a scoped block never styles.
- *
- * @param {AST.TSRXElementNode} node
- * @returns {AST.Node[] | null}
- */
-function get_sibling_container(node) {
-	const path = node.metadata?.path;
-	if (!path || !path.length) {
-		return null;
-	}
-
-	let i = path.length;
-
-	while (i--) {
-		const children = node_children(path[i]);
-		if (children.includes(node)) {
-			return children;
-		}
-	}
-
-	return null;
 }
 
 /**

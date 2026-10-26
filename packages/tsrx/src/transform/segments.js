@@ -778,11 +778,20 @@ export function convert_source_map_to_mappings(
 	}
 
 	/**
+	 * A literal that starts a sequence expression shares its source start with
+	 * the generated `(` before it, as `0` does in `(0, plain)`, so map from where
+	 * the literal's own text is printed when the printer kept it as written.
 	 * @param {AST.Literal} node
 	 */
 	function handle_literal(node) {
 		if (has_location(node)) {
 			const mapping = get_mapping_from_node(node, src_to_gen_map, gen_line_offsets);
+			const raw = source.slice(node.start, node.end);
+			const start = generated_offset_for_text(node.loc.start, raw);
+			if (start !== undefined && start !== mapping.generatedOffsets[0]) {
+				mapping.generatedOffsets = [start];
+				mapping.generatedLengths = [raw.length];
+			}
 			mappings.push(mapping);
 		}
 	}

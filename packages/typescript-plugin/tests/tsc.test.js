@@ -469,6 +469,30 @@ it('reports a failed satisfies check on its keyword in .tsrx files', () => {
 	}
 });
 
+it('reports an error on a literal that starts a sequence expression in .tsrx files', () => {
+	const lines = [
+		'declare const plain: {};',
+		'export function run() { return (0, plain); }',
+		"export const text = ('s', plain);",
+		'export const sum = (1 + 2, plain);',
+		'export const name = (plain, plain);',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	const ts2695 = 'error TS2695: Left side of comma operator is unused and has no side effects.';
+	for (const [index, operand] of /** @type {const} */ ([
+		[1, '0,'],
+		[2, "'s'"],
+		[3, '1 + 2'],
+		[4, 'plain,'],
+	])) {
+		expect(result.output).toContain(
+			`layout.tsrx(${index + 4},${lines[index].indexOf(operand) + 1}): ${ts2695}`,
+		);
+	}
+});
+
 it('reports errors on private class fields in .tsrx files', () => {
 	const line = 'export class Model { #value: number = "bad"; #missing: number; }';
 	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${line}\n`);

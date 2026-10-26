@@ -58,10 +58,24 @@ const rule: Rule.RuleModule = {
 
 						break;
 					case 'UnaryExpression':
+					case 'AwaitExpression':
+					case 'SpreadElement':
 						traverse(node.argument);
 
 						break;
+					case 'ChainExpression':
+					case 'TSNonNullExpression':
+					case 'TSAsExpression':
+					case 'TSSatisfiesExpression':
+						traverse(node.expression);
+
+						break;
+					case 'SequenceExpression':
+						node.expressions.forEach(traverse);
+
+						break;
 					case 'CallExpression':
+					case 'NewExpression':
 						traverse(node.callee);
 						node.arguments.forEach(traverse);
 

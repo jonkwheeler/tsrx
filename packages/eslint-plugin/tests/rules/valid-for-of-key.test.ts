@@ -111,5 +111,103 @@ ruleTester.run('valid-for-of-key', rule, {
 				},
 			],
 		},
+		// Invalid: undefined variable in `missing?.id`
+		{
+			code: `
+				function App() {
+					const items = [{id: 1}, {id: 2}];
+					return <>
+						@for (const item of items; key missing?.id) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `missing!`
+		{
+			code: `
+				function App() {
+					const items = [{id: 1}, {id: 2}];
+					return <>
+						@for (const item of items; key missing!) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `missing as string`
+		{
+			code: `
+				function App() {
+					const items = [{id: 1}, {id: 2}];
+					return <>
+						@for (const item of items; key missing as string) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `missing satisfies string`
+		{
+			code: `
+				function App() {
+					const items = [{id: 1}, {id: 2}];
+					return <>
+						@for (const item of items; key missing satisfies string) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `[...missing]`
+		{
+			code: `
+				function App() {
+					const items = [{id: 1}, {id: 2}];
+					return <>
+						@for (const item of items; key [...missing]) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `(missing, item.id)`
+		{
+			code: `
+				function App() {
+					const items = [{id: 1}, {id: 2}];
+					return <>
+						@for (const item of items; key (missing, item.id)) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `new Key(item.id)`
+		{
+			code: `
+				function App() {
+					const items = [{id: 1}, {id: 2}];
+					return <>
+						@for (const item of items; key new Key(item.id)) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'Key' } }],
+		},
 	],
 });

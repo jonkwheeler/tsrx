@@ -93,6 +93,20 @@ ruleTester.run('valid-for-of-key', rule, {
 				}
 			`,
 		},
+		// Valid: @for keys with a type name and a nested function parameter
+		{
+			code: `
+				interface Id {}
+				function App() {
+					const items = [{id: 1}, {id: 2}];
+					return <>
+						@for (const item of items; key ((x) => x.id as Id)(item)) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+		},
 	],
 	invalid: [
 		// Invalid: key uses undefined variable
@@ -234,6 +248,102 @@ ruleTester.run('valid-for-of-key', rule, {
 				}
 			`,
 			errors: [{ messageId: 'undefinedVariable', data: { name: 'Key' } }],
+		},
+		// Invalid: undefined variable in `tag\`\${missing}\``
+		{
+			code: `
+				async function App() {
+					const items = [{id: 1}, {id: 2}];
+					const tag = (strings) => strings[0];
+					let t;
+					return <>
+						@for (const item of items; key tag\`\${missing}\`) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `missing++`
+		{
+			code: `
+				async function App() {
+					const items = [{id: 1}, {id: 2}];
+					const tag = (strings) => strings[0];
+					let t;
+					return <>
+						@for (const item of items; key missing++) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `(t = missing)`
+		{
+			code: `
+				async function App() {
+					const items = [{id: 1}, {id: 2}];
+					const tag = (strings) => strings[0];
+					let t;
+					return <>
+						@for (const item of items; key (t = missing)) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `import(missing)`
+		{
+			code: `
+				async function App() {
+					const items = [{id: 1}, {id: 2}];
+					const tag = (strings) => strings[0];
+					let t;
+					return <>
+						@for (const item of items; key import(missing)) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `((x) => missing)(item)`
+		{
+			code: `
+				async function App() {
+					const items = [{id: 1}, {id: 2}];
+					const tag = (strings) => strings[0];
+					let t;
+					return <>
+						@for (const item of items; key ((x) => missing)(item)) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
+		},
+		// Invalid: undefined variable in `await missing`
+		{
+			code: `
+				async function App() {
+					const items = [{id: 1}, {id: 2}];
+					const tag = (strings) => strings[0];
+					let t;
+					return <>
+						@for (const item of items; key await missing) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+			errors: [{ messageId: 'undefinedVariable', data: { name: 'missing' } }],
 		},
 	],
 });

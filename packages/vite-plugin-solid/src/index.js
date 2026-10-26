@@ -183,10 +183,16 @@ export function tsrxSolid(options = {}) {
 			// a `.tsrx` file.
 			if (source.startsWith('\0') || source.includes('?')) return null;
 			const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
-			if (resolved && is_tsrx_source(resolved.id)) {
+			if (
+				resolved &&
+				!resolved.id.startsWith('\0') &&
+				!resolved.id.includes('?') &&
+				is_tsrx_source(resolved.id)
+			) {
 				return { ...resolved, id: resolved.id + VIRTUAL_TSX_SUFFIX };
 			}
-			return null;
+			// Hand the resolution over, so Vite does not resolve the import again.
+			return resolved;
 		},
 
 		async load(id) {

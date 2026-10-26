@@ -44,9 +44,18 @@ describe('@tsrx/vite-plugin-vue module resolution', () => {
 		expect(/** @type {any} */ (result).id).toBe('/abs/node_modules/fixture-lib/App.tsrx.tsx');
 	});
 
-	it('leaves a specifier that resolves to another file to vite', async () => {
+	it('passes the resolution of a specifier for another file through unchanged', async () => {
 		const resolve = async () => ({ id: '/abs/node_modules/vue/index.js' });
-		expect(await call_resolve_id(get_main_plugin(), 'vue', resolve)).toBeNull();
+		expect(await call_resolve_id(get_main_plugin(), 'vue', resolve)).toEqual({
+			id: '/abs/node_modules/vue/index.js',
+		});
+	});
+
+	it('leaves a virtual or query-suffixed resolution of a `.tsrx` path alone', async () => {
+		for (const id of ['\0virtual:App.tsrx', '/abs/path/App.tsrx?inline']) {
+			const resolve = async () => ({ id });
+			expect(await call_resolve_id(get_main_plugin(), 'virtual-app', resolve)).toEqual({ id });
+		}
 	});
 });
 

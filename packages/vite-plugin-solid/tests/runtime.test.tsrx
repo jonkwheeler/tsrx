@@ -653,6 +653,23 @@ function DestructuredErrorApp() @{
 	}
 }
 
+function ReassignedErrorApp() @{
+	@try {
+		<ThrowingChild />
+	} @catch (err) {
+		err = 'reassigned: ' + (err as Error).message;
+		<p class="caught">{err as string}</p>
+	}
+}
+
+function AccessorNamedErrorApp() @{
+	@try {
+		<ThrowingChild />
+	} @catch (_tsrx_error) {
+		<p class="caught">{(_tsrx_error as Error).message}</p>
+	}
+}
+
 function StringThrower(): JSX.Element @{
 	throw 'string boom';
 	<p>{'unreachable'}</p>
@@ -1403,6 +1420,16 @@ describe('tsrx-solid runtime', () => {
 
 	it('binds a destructured @catch pattern to the thrown value', async () => {
 		await render(DestructuredErrorApp);
+		expect(text('.caught')).toBe('sync boom');
+	});
+
+	it('lets the @catch body reassign its binding', async () => {
+		await render(ReassignedErrorApp);
+		expect(text('.caught')).toBe('reassigned: sync boom');
+	});
+
+	it('binds a @catch parameter named like the generated accessor', async () => {
+		await render(AccessorNamedErrorApp);
 		expect(text('.caught')).toBe('sync boom');
 	});
 

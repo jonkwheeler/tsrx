@@ -335,7 +335,7 @@ describe('@tsrx/solid basic', () => {
 			);
 			// `<Errored>` passes an accessor; `err` is the value it returns.
 			expect(code).toContain('<Errored fallback={(_tsrx_error, reset) => {');
-			expect(code).toContain('const err = _tsrx_error();');
+			expect(code).toContain('let err = _tsrx_error();');
 			expect(code).toContain('<div>{err.message}</div>');
 			expect(code).toContain("import { Errored } from 'solid-js'");
 		});

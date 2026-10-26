@@ -1227,7 +1227,9 @@ function try_statement_to_jsx_child(node, transform_context) {
 
 		// `<Errored>` passes the error as an accessor; the `@catch` binding is the
 		// thrown value itself, as on every other target.
-		const error_accessor = create_generated_identifier(handler.param ? '_tsrx_error' : '_error');
+		const error_accessor = create_generated_identifier(
+			handler.param ? unused_catch_name(handler) : '_error',
+		);
 		/** @type {AST.Pattern[]} */
 		const catch_params = [error_accessor];
 		if (handler.resetParam) catch_params.push(handler.resetParam);
@@ -1235,7 +1237,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 
 		const catch_body_nodes = handler.param
 			? [
-					b.const(handler.param, b.call(clone_identifier(error_accessor))),
+					b.let(handler.param, b.call(clone_identifier(error_accessor))),
 					...(handler.body.body || []),
 				]
 			: handler.body.body || [];
@@ -1254,6 +1256,46 @@ function try_statement_to_jsx_child(node, transform_context) {
 	}
 
 	return result;
+}
+
+/**
+ * A name for the `<Errored>` error accessor that no identifier in the catch
+ * clause uses, so the accessor neither shadows nor is shadowed by one.
+ *
+ * @param {AST.CatchClause} handler
+ * @returns {string}
+ */
+function unused_catch_name(handler) {
+	/** @type {Set<string>} */
+	const names = new Set();
+	collect_identifier_names(handler, names);
+	let name = '_tsrx_error';
+	for (let i = 1; names.has(name); i++) name = `_tsrx_error${i}`;
+	return name;
+}
+
+/**
+ * @param {unknown} node
+ * @param {Set<string>} names
+ * @returns {void}
+ */
+function collect_identifier_names(node, names) {
+	if (Array.isArray(node)) {
+		for (const child of node) collect_identifier_names(child, names);
+		return;
+	}
+	if (!node || typeof node !== 'object') return;
+	const record = /** @type {Record<string, unknown>} */ (node);
+	if (
+		(record.type === 'Identifier' || record.type === 'JSXIdentifier') &&
+		typeof record.name === 'string'
+	) {
+		names.add(record.name);
+	}
+	for (const key of Object.keys(record)) {
+		if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
+		collect_identifier_names(record[key], names);
+	}
 }
 
 /**

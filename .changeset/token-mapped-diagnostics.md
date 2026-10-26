@@ -10,3 +10,5 @@ Report more TypeScript errors where they are written in `.tsrx` files, using the
 - A superclass with a non-null assertion, such as `extends maybe!`, reports TS2507 (#230).
 - A computed key's bracket span maps whatever spaces, comments or line breaks sit inside the brackets.
 - The `class` keyword maps correctly after a decorator, `abstract` or `declare` (#193).
+
+A target that builds editor output from a parse without `keywordTokens` still gets these mappings: the tokens are read from a second parse of the source when the AST does not carry them.

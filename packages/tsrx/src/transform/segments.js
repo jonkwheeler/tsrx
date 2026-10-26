@@ -42,6 +42,7 @@ import {
 } from '../comment-utils.js';
 import { has_location, is_organized_import } from '../utils/ast.js';
 import { regex_whitespaces_strict } from '../utils/patterns.js';
+import { get_source_tokens } from '../parse/source-tokens.js';
 import { regex_jsx_text_escaped } from './jsx/helpers.js';
 
 const RETURN_KEYWORD = 'return';
@@ -443,7 +444,7 @@ export function convert_source_map_to_mappings(
 
 	/** @type {MappingToken[]} */
 	const tokens = [];
-	const source_tokens = ast_from_source.tsrx_tokens;
+	const source_tokens = get_source_tokens(ast_from_source, source);
 	/** @type {CssSourceRegion[]} */
 	const css_regions = [];
 	/** @type {CssElementInfo} */

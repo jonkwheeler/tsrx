@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -79,6 +79,43 @@ describe('@tsrx/bun-plugin-hono', () => {
 			expect(hooks.config.define['import.meta.env.platform.android']).toBe('true');
 			expect(result.contents).toContain('selected_android');
 			expect(result.contents).not.toContain('selected_other');
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('reads the platform from the tsconfig nearest the entrypoints when root is omitted', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-root-'));
+		try {
+			await mkdir(path.join(dir, 'src/pages'), { recursive: true });
+			await mkdir(path.join(dir, 'src/widgets'), { recursive: true });
+			for (const [config_dir, platform] of [
+				['', 'web'],
+				['src', 'ios'],
+				['src/pages', 'android'],
+			]) {
+				await writeFile(
+					path.join(dir, config_dir, 'tsconfig.json'),
+					JSON.stringify({ tsrx: { platform } }),
+				);
+			}
+			const file_path = path.join(dir, 'src/widgets/Platform.tsrx');
+			await writeFile(
+				file_path,
+				`if (import.meta.env.platform.ios) {
+					const selected_ios = 'selected_ios';
+				} else {
+					const selected_other = 'selected_other';
+				}`,
+			);
+			// Bun's default root is the entrypoints' common ancestor, here src/.
+			const hooks = setup_plugin(undefined, {
+				entrypoints: [path.join(dir, 'src/pages/Page.tsrx'), file_path],
+			});
+			const result = await load_tsrx(hooks, file_path);
+
+			expect(result?.contents).toContain('selected_ios');
+			expect(result?.contents).not.toContain('selected_other');
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}

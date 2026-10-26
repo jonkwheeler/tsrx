@@ -2,6 +2,7 @@
 /** @import { Platform, RuntimeImportMode } from '@tsrx/hono' */
 
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { mergePlatformDefinitions, validatePlatform } from '@tsrx/core';
 import { compile as compileServer } from '@tsrx/hono';
 import { compile as compileDom } from '@tsrx/hono/dom';
@@ -23,6 +24,34 @@ const CSS_NAMESPACE = '@tsrx/bun-plugin-hono-css';
  *   platform?: Platform,
  * }} TsrxHonoBunPluginOptions
  */
+
+/**
+ * Directory the tsconfig lookup starts from. Without `root`, Bun builds from
+ * the common ancestor directory of the entrypoints, so the nearest tsconfig is
+ * searched from there. A relative `tsconfig` option resolves from the working
+ * directory.
+ *
+ * @param {{ root?: string, tsconfig?: unknown, entrypoints?: unknown[] }} build_config
+ * @returns {string}
+ */
+function get_tsconfig_base(build_config) {
+	if (build_config.root) return build_config.root;
+	const entrypoints = (build_config.entrypoints ?? []).filter(
+		(entrypoint) => typeof entrypoint === 'string',
+	);
+	if (typeof build_config.tsconfig === 'string' || entrypoints.length === 0) {
+		return process.cwd();
+	}
+
+	let base = path.dirname(path.resolve(entrypoints[0]));
+	for (const entrypoint of entrypoints) {
+		const file_path = path.resolve(entrypoint);
+		while (/^\.\.(?:[/\\]|$)/.test(path.relative(base, file_path))) {
+			base = path.dirname(base);
+		}
+	}
+	return base;
+}
 
 /**
  * Compile `.tsrx` files and pass the resulting TSX through Bun's automatic
@@ -62,7 +91,7 @@ export function tsrxHono(options = {}) {
 		setup(build) {
 			const build_config = build.config ?? {};
 			const platform = resolveBuildPlatform({
-				root: build_config.root ?? process.cwd(),
+				root: get_tsconfig_base(build_config),
 				tsconfig: typeof build_config.tsconfig === 'string' ? build_config.tsconfig : undefined,
 				platform: explicit_platform,
 				integration: '@tsrx/bun-plugin-hono',

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { tsrxHono } from '../src/index.js';
 
 function setup_plugin(options, config = {}) {
@@ -138,6 +138,38 @@ describe('@tsrx/bun-plugin-hono', () => {
 			expect(result?.contents).toMatch(/\[\s*false,\s*true,\s*false\s*\]/);
 			expect(result?.contents).not.toContain('import.meta.env.platform');
 		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('reads the platform from the working directory when every entrypoint is an in-memory file', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-files-'));
+		const cwd = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+		try {
+			await writeFile(
+				path.join(dir, 'tsconfig.json'),
+				JSON.stringify({ tsrx: { platform: 'ios' } }),
+			);
+			const file_path = path.join(dir, 'Platform.tsrx');
+			await writeFile(
+				file_path,
+				`if (import.meta.env.platform.ios) {
+					const selected_ios = 'selected_ios';
+				} else {
+					const selected_other = 'selected_other';
+				}`,
+			);
+			// Bun builds from the working directory when every entrypoint is a `files` key.
+			const hooks = setup_plugin(undefined, {
+				entrypoints: ['/virtual/main.ts'],
+				files: { '/virtual/main.ts': `import ${JSON.stringify(file_path)};` },
+			});
+			const result = await load_tsrx(hooks, file_path);
+
+			expect(result?.contents).toContain('selected_ios');
+			expect(result?.contents).not.toContain('selected_other');
+		} finally {
+			cwd.mockRestore();
 			await rm(dir, { recursive: true, force: true });
 		}
 	});

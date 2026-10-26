@@ -65,11 +65,12 @@ function to_css_id(file_path) {
 
 /**
  * Directory the tsconfig lookup starts from. Without `root`, Bun builds from
- * the common ancestor directory of the entrypoints, so the nearest tsconfig is
- * searched from there. A relative `tsconfig` option resolves from the working
- * directory.
+ * the common ancestor directory of the entrypoints, or from the working
+ * directory when every entrypoint is an in-memory `files` entry. The nearest
+ * tsconfig is searched from there. A relative `tsconfig` option resolves from
+ * the working directory.
  *
- * @param {{ root?: string, tsconfig?: unknown, entrypoints?: unknown[] }} build_config
+ * @param {{ root?: string, tsconfig?: unknown, entrypoints?: unknown[], files?: object }} build_config
  * @returns {string}
  */
 function get_tsconfig_base(build_config) {
@@ -77,7 +78,13 @@ function get_tsconfig_base(build_config) {
 	const entrypoints = (build_config.entrypoints ?? []).filter(
 		(entrypoint) => typeof entrypoint === 'string',
 	);
-	if (typeof build_config.tsconfig === 'string' || entrypoints.length === 0) {
+	const virtual_files = new Set(
+		Object.keys(build_config.files ?? {}).map((file) => path.resolve(file)),
+	);
+	if (
+		typeof build_config.tsconfig === 'string' ||
+		entrypoints.every((entrypoint) => virtual_files.has(path.resolve(entrypoint)))
+	) {
 		return process.cwd();
 	}
 

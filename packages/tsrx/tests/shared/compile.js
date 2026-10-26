@@ -3171,6 +3171,15 @@ break"}</p>
 			expect(code).toContain('export const query = sql<Row>`select 1`;');
 		});
 
+		it('prints the type annotation of a binding pattern parameter once', () => {
+			const { code } = compile(
+				'function f([a]: A, { b }: B, [c]: C = [], ...[d]: D) {}',
+				'App.tsrx',
+			);
+
+			expect(code).toContain('function f([a]: A, { b }: B, [c]: C = [], ...[d]: D) {}');
+		});
+
 		it('preserves optional markers in tuple members and function parameters', () => {
 			const { code } = compile(
 				`export type OptionalTuple = [bar: string, baz?: string];

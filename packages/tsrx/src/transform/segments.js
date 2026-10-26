@@ -612,25 +612,18 @@ export function convert_source_map_to_mappings(
 
 	/**
 	 * The generated offset after the `;` that ends an import. The printer records
-	 * the import's end after the `;`. A printer that records the position of the
-	 * last source character before it writes the `;` is supported too. Without a
-	 * `;` in the source, the end of the module string also maps to the generated
-	 * position before the `;`.
+	 * the import's end after the `;`. Without a `;` in the source, the end of the
+	 * module string maps to the generated position before the `;`.
 	 * @param {(AST.ImportDeclaration | AST.TSRXImportDeclaration) & AST.NodeWithLocation} node
 	 * @param {number} generated_start
 	 * @returns {number | undefined}
 	 */
 	function generated_import_end(node, generated_start) {
 		const { line, column } = node.loc.end;
-		for (const [key, text] of [
-			[`${line}:${column}`, ''],
-			[`${line}:${column - 1}`, ';'],
-		]) {
-			for (const generated of src_to_gen_map.get(key) ?? []) {
-				const end = loc_to_offset(generated.line, generated.column, gen_line_offsets);
-				if (end <= generated_start || !generated_code.startsWith(text, end)) continue;
-				return generated_code[end] === ';' ? end + 1 : end;
-			}
+		for (const generated of src_to_gen_map.get(`${line}:${column}`) ?? []) {
+			const end = loc_to_offset(generated.line, generated.column, gen_line_offsets);
+			if (end <= generated_start) continue;
+			return generated_code[end] === ';' ? end + 1 : end;
 		}
 	}
 

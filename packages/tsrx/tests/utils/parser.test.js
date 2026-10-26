@@ -7319,35 +7319,78 @@ namespace N {
 	});
 
 	/**
-	 * Count the characters handed to the string scans that comment attachment
-	 * runs on the source between a node and the next comment. A regex anchored
-	 * at the start stops at the first character it can't match, so it doesn't
-	 * count.
+	 * Count the characters that string scans examine while `run` runs. It
+	 * covers `RegExp#exec`, which `test`, `match`, `matchAll`, `replace`,
+	 * `replaceAll`, `search` and `split` call once it is replaced, and
+	 * `String#includes`, `indexOf` and `lastIndexOf`. A scan is charged from
+	 * where it starts to the end of its match, or to the end of the input when
+	 * it fails. A failing regex that can match only where it starts (`^`
+	 * without `m`, or sticky) is charged the rest of the input as well, unless
+	 * it is one repeated character class, as in `/^\s*$/`, which stops at the
+	 * first character outside the class. Loops written by hand are not counted.
 	 * @param {() => void} run
 	 * @returns {number}
 	 */
 	function count_scanned_characters(run) {
-		const { test } = RegExp.prototype;
-		const { includes, replace } = String.prototype;
+		const { exec } = RegExp.prototype;
+		const { includes, indexOf, lastIndexOf } = String.prototype;
+		const one_class_run = /^\^(\\[sSdDwW]|\[(?:\\.|[^\]\\])*\])[*+]\$?$/;
 		let scanned = 0;
-		RegExp.prototype.test = function (/** @type {string} */ text) {
-			if (!this.source.startsWith('^') || this.multiline) scanned += String(text).length;
-			return test.call(this, text);
+		RegExp.prototype.exec = function (/** @type {string} */ input) {
+			const text = String(input);
+			const start = this.global || this.sticky ? this.lastIndex : 0;
+			const match = exec.call(this, text);
+			if (match) {
+				scanned += match.index + match[0].length - start;
+			} else if ((this.source.startsWith('^') && !this.multiline) || this.sticky) {
+				const one_class = exec.call(one_class_run, this.source);
+				const run = one_class
+					? exec.call(
+							new RegExp(
+								`^${one_class[1]}*`,
+								[...this.flags].filter((flag) => flag !== 'g' && flag !== 'y').join(''),
+							),
+							text.slice(start),
+						)
+					: null;
+				scanned += run ? Math.min(run[0].length + 1, text.length - start) : text.length - start;
+			} else {
+				scanned += text.length - start;
+			}
+			return match;
 		};
-		String.prototype.includes = function (/** @type {any[]} */ ...args) {
-			scanned += this.length;
-			return includes.apply(this, /** @type {any} */ (args));
+		/**
+		 * @param {string} text
+		 * @param {string} search
+		 * @param {number} from
+		 * @param {number} found
+		 */
+		const charge = (text, search, from, found) => {
+			scanned += found < 0 ? text.length - from : found + search.length - from;
 		};
-		String.prototype.replace = function (/** @type {any[]} */ ...args) {
-			scanned += this.length;
-			return replace.apply(this, /** @type {any} */ (args));
+		String.prototype.includes = function (/** @type {string} */ search, position = 0) {
+			const found = indexOf.call(this, search, position);
+			charge(String(this), search, position, found);
+			return found >= 0;
+		};
+		String.prototype.indexOf = function (/** @type {string} */ search, position = 0) {
+			const found = indexOf.call(this, search, position);
+			charge(String(this), search, position, found);
+			return found;
+		};
+		String.prototype.lastIndexOf = function (/** @type {string} */ search, position = Infinity) {
+			const found = lastIndexOf.call(this, search, position);
+			const from = Math.min(position, this.length);
+			scanned += found < 0 ? from : from - found;
+			return found;
 		};
 		try {
 			run();
 		} finally {
-			RegExp.prototype.test = test;
+			RegExp.prototype.exec = exec;
 			String.prototype.includes = includes;
-			String.prototype.replace = replace;
+			String.prototype.indexOf = indexOf;
+			String.prototype.lastIndexOf = lastIndexOf;
 		}
 		return scanned;
 	}

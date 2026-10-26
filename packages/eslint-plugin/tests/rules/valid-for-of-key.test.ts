@@ -67,6 +67,32 @@ ruleTester.run('valid-for-of-key', rule, {
 				}
 			`,
 		},
+		// Valid: @for with the declared index as the key
+		{
+			code: `
+				function App() {
+					const items = ['a', 'b'];
+					return <>
+						@for (const item of items; index i; key i) {
+							<p>{i}: {item}</p>
+						}
+					</>;
+				}
+			`,
+		},
+		// Valid: @for with an optional-chain key on the loop variable
+		{
+			code: `
+				function App() {
+					const items = [{id: 1}, {id: 2}];
+					return <>
+						@for (const item of items; index i; key item?.id ?? \`\${i}\`) {
+							<div>{item.id}</div>
+						}
+					</>;
+				}
+			`,
+		},
 	],
 	invalid: [
 		// Invalid: key uses undefined variable

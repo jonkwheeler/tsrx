@@ -21,6 +21,11 @@ const rule: Rule.RuleModule = {
 			}
 
 			const checkIdentifier = (identifier: AST.Identifier) => {
+				// ESLint's scope analysis does not know the loop's `index` binding.
+				if (identifier.name === node.index?.name) {
+					return;
+				}
+
 				const scope = context.sourceCode.getScope(node);
 				const variable = findVariable(scope, identifier.name);
 

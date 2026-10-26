@@ -685,29 +685,24 @@ export function convert_source_map_to_mappings(
 	/**
 	 * Needed for a mapping that includes the computed brackets for diagnostics.
 	 * @param {AST.MethodDefinition | AST.PropertyDefinition | AST.Property} node
-	 * @param {CodeMapping[]} mappings
 	 * @returns {void}
 	 */
-	function set_bracket_computed_mapping(node, mappings) {
+	function set_bracket_computed_mapping(node) {
 		if (!has_location(node.key)) return;
 		const open = find_source_token(source_tokens, '[', node.key.start, 'before');
 		const close = find_source_token(source_tokens, ']', node.key.end, 'after');
 		if (!open?.loc || !close?.loc) return;
-		const span = /** @type {AST.NodeWithLocation} */ ({
+		push_verify_only_span_mapping({
 			start: open.start,
 			end: close.end,
 			loc: { start: open.loc.start, end: close.loc.end },
 		});
-		if (!has_source_map_boundaries(span, src_to_gen_map)) return;
-		mappings.push(
-			get_mapping_from_node(span, src_to_gen_map, gen_line_offsets, mapping_data_verify_only),
-		);
 	}
 
 	/**
 	 * A verify-only mapping over a node's whole span, for a diagnostic
 	 * TypeScript reports on all of it.
-	 * @param {AST.Node | null | undefined} node
+	 * @param {AST.Node | AST.NodeWithLocation | null | undefined} node
 	 * @returns {void}
 	 */
 	function push_verify_only_span_mapping(node) {
@@ -1748,7 +1743,7 @@ export function convert_source_map_to_mappings(
 					}
 				} else {
 					if (node.computed) {
-						set_bracket_computed_mapping(node, mappings);
+						set_bracket_computed_mapping(node);
 					}
 
 					if (node.key.type === 'Literal') {
@@ -1953,7 +1948,7 @@ export function convert_source_map_to_mappings(
 				}
 
 				if (node.computed) {
-					set_bracket_computed_mapping(node, mappings);
+					set_bracket_computed_mapping(node);
 				}
 
 				if (node.key.type === 'Literal') {
@@ -2116,7 +2111,7 @@ export function convert_source_map_to_mappings(
 					}
 				}
 				if (node.computed) {
-					set_bracket_computed_mapping(node, mappings);
+					set_bracket_computed_mapping(node);
 				}
 				if (node.key) {
 					visit(node.key);

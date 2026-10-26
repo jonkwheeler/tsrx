@@ -62,7 +62,7 @@ if (missing.length > 0) {
 	}
 	console.error('');
 	console.error(
-		"Zed's queries must match the grammar at its rev. Leave packages/zed-plugin/languages/tsrx as it is until the rev moves, or run pnpm sync-zed-grammar-rev after committing grammar changes, which moves the rev and copies the queries together.",
+		"Zed's queries must match the grammar at its rev. Leave packages/zed-plugin/languages/tsrx as it is: Version Packages moves the rev and copies the queries together.",
 	);
 	process.exit(1);
 }

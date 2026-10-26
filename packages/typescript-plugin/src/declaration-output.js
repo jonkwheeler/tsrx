@@ -11,36 +11,25 @@
 const DECLARATION_FILE = /\.d\.[cm]?ts$/;
 
 /**
- * Matches the generated block by shape: a `declare global` holding only
- * `ImportMetaEnv` with a `platform` member and `ImportMeta` with one index
- * signature.
- *
+ * The generated block with every whitespace character removed, for each flag
+ * value type it can print: `boolean` without a platform, else `true`/`false`.
+ * Only this exact block is editor-only; an authored augmentation of the same
+ * interfaces, which a library may ship on purpose, never matches.
+ */
+const PLATFORM_GLOBALS =
+	/^declareglobal\{interfaceImportMetaEnv\{readonlyplatform:string&\{readonlyweb:(?:true|false|boolean);readonlyios:(?:true|false|boolean);readonlyandroid:(?:true|false|boolean);\};\}interfaceImportMeta\{readonly\[key:`env\$\{string\}`\]:ImportMetaEnv;\}\}$/;
+
+/**
  * @param {typeof import('typescript')} ts
+ * @param {string} text
  * @param {import('typescript').Statement} statement
  */
-function is_platform_globals(ts, statement) {
-	if (
-		!ts.isModuleDeclaration(statement) ||
-		!ts.isIdentifier(statement.name) ||
-		ts.idText(statement.name) !== 'global' ||
-		!statement.body ||
-		!ts.isModuleBlock(statement.body) ||
-		statement.body.statements.length !== 2
-	) {
-		return false;
-	}
-	const [env, meta] = statement.body.statements;
+function is_platform_globals(ts, text, statement) {
 	return (
-		ts.isInterfaceDeclaration(env) &&
-		ts.idText(env.name) === 'ImportMetaEnv' &&
-		env.members.length === 1 &&
-		ts.isPropertySignature(env.members[0]) &&
-		ts.isIdentifier(env.members[0].name) &&
-		ts.idText(env.members[0].name) === 'platform' &&
-		ts.isInterfaceDeclaration(meta) &&
-		ts.idText(meta.name) === 'ImportMeta' &&
-		meta.members.length === 1 &&
-		ts.isIndexSignatureDeclaration(meta.members[0])
+		ts.isModuleDeclaration(statement) &&
+		ts.isIdentifier(statement.name) &&
+		ts.idText(statement.name) === 'global' &&
+		PLATFORM_GLOBALS.test(text.slice(statement.pos, statement.end).replace(/\s+/g, ''))
 	);
 }
 
@@ -57,7 +46,7 @@ export function strip_platform_globals(ts, text) {
 	const source = ts.createSourceFile('output.d.ts', text, 99);
 	let result = text;
 	for (const statement of [...source.statements].reverse()) {
-		if (is_platform_globals(ts, statement)) {
+		if (is_platform_globals(ts, text, statement)) {
 			result = result.slice(0, statement.pos) + result.slice(statement.end);
 		}
 	}

@@ -3,11 +3,12 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve as path_resolve, isAbsolute } from 'node:path';
+import { parseSync } from 'vite';
 import { compile } from '@tsrx/solid';
 import { mergePlatformDefinitions, validatePlatform } from '@tsrx/core';
 import { resolveBuildPlatform } from '@tsrx/core/config';
 import { createDepScanLoadPlugin } from '@tsrx/core/vite/dep-scan';
-import { restartOnPlatformChange } from '@tsrx/core/vite/platform';
+import { findUnconfiguredPlatformFlag, restartOnPlatformChange } from '@tsrx/core/vite/platform';
 import { createWorkerEntryMiddleware, stripWorkerEntryQuery } from '@tsrx/core/vite/worker';
 
 const DEFAULT_TSRX_PATTERN = /\.tsrx$/;
@@ -213,6 +214,13 @@ export function tsrxSolid(options = {}) {
 			}
 
 			return { code, map };
+		},
+
+		transform(code, id) {
+			if (platform !== undefined) return null;
+			const flag = findUnconfiguredPlatformFlag(code, id, parseSync);
+			if (flag) this.error(flag, flag.pos);
+			return null;
 		},
 
 		handleHotUpdate(ctx) {

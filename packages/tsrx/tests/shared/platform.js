@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer } from 'vite';
+import { build, createServer } from 'vite';
 
 const RESTART_TIMEOUT_MS = 10_000;
 
@@ -83,6 +83,39 @@ export async function servePlatformChangeFixture({ root, plugins }) {
 	} finally {
 		await server?.close();
 		rmSync(cache_dir, { recursive: true, force: true });
+		rmSync(root, { recursive: true, force: true });
+	}
+}
+
+/**
+ * Build `source` as an ordinary `.ts` server entry of a project that
+ * configures no platform, and return the built code or the build error.
+ *
+ * @param {{ root: string, plugins: import('vite').PluginOption[], source: string }} options
+ * @returns {Promise<{ code: string } | { error: string }>}
+ */
+export async function buildWithoutPlatformFixture({ root, plugins, source }) {
+	mkdirSync(root, { recursive: true });
+	writeFileSync(join(root, 'tsconfig.json'), '{}');
+	writeFileSync(join(root, 'helper.ts'), source);
+
+	try {
+		const result = await build({
+			root,
+			configFile: false,
+			logLevel: 'silent',
+			plugins,
+			build: { ssr: join(root, 'helper.ts'), write: false, minify: false },
+		});
+		const outputs = (Array.isArray(result) ? result : [result]).flatMap((entry) =>
+			'output' in entry ? entry.output : [],
+		);
+		return {
+			code: outputs.map((output) => (output.type === 'chunk' ? output.code : '')).join('\n'),
+		};
+	} catch (error) {
+		return { error: error instanceof Error ? error.message : String(error) };
+	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
 }

@@ -39,12 +39,12 @@
  * }} TsrxReactPlugin
  */
 
-import { transformWithOxc } from 'vite';
+import { parseSync, transformWithOxc } from 'vite';
 import { compile } from '@tsrx/react';
 import { mergePlatformDefinitions, validatePlatform } from '@tsrx/core';
 import { resolveBuildPlatform } from '@tsrx/core/config';
 import { createDepScanTransformPlugin } from '@tsrx/core/vite/dep-scan';
-import { restartOnPlatformChange } from '@tsrx/core/vite/platform';
+import { findUnconfiguredPlatformFlag, restartOnPlatformChange } from '@tsrx/core/vite/platform';
 import { createWorkerEntryMiddleware, stripWorkerEntryQuery } from '@tsrx/core/vite/worker';
 
 const TSRX_EXTENSION_PATTERN = /\.tsrx$/;
@@ -158,11 +158,17 @@ export function tsrxReact(options = {}) {
 			return css ?? '';
 		},
 
+		/** @this {import('vite').Rollup.TransformPluginContext} */
 		async transform(/** @type {string} */ code, /** @type {string} */ id) {
 			// A dev worker entry arrives as `<path>?worker_file&type=<type>`.
 			// Compile it under its file path, as a plain import would be.
 			const file = stripWorkerEntryQuery(id);
-			if (!TSRX_EXTENSION_PATTERN.test(file)) return null;
+			if (!TSRX_EXTENSION_PATTERN.test(file)) {
+				const flag =
+					platform === undefined ? findUnconfiguredPlatformFlag(code, id, parseSync) : null;
+				if (flag) this.error(flag, flag.pos);
+				return null;
+			}
 
 			let { code: tsx_code, css, map } = compile(code, file, compile_options);
 

@@ -2,13 +2,13 @@
 /** @import { DepScanTransformPlugin } from '@tsrx/core/types/vite/dep-scan' */
 /** @import { Platform, RuntimeImportMode } from '@tsrx/hono' */
 
-import { perEnvironmentState, transformWithOxc } from 'vite';
+import { parseSync, perEnvironmentState, transformWithOxc } from 'vite';
 import { mergePlatformDefinitions, validatePlatform } from '@tsrx/core';
 import { compile as compileServer } from '@tsrx/hono';
 import { compile as compileDom } from '@tsrx/hono/dom';
 import { resolveBuildPlatform } from '@tsrx/core/config';
 import { createDepScanTransformPlugin } from '@tsrx/core/vite/dep-scan';
-import { restartOnPlatformChange } from '@tsrx/core/vite/platform';
+import { findUnconfiguredPlatformFlag, restartOnPlatformChange } from '@tsrx/core/vite/platform';
 import { createWorkerEntryMiddleware, stripWorkerEntryQuery } from '@tsrx/core/vite/worker';
 
 const TSRX_EXTENSION_PATTERN = /\.tsrx$/;
@@ -183,7 +183,12 @@ export function tsrxHono(options = {}) {
 			// A dev worker entry arrives as `<path>?worker_file&type=<type>`.
 			// Compile it under its file path, as a plain import would be.
 			const file = stripWorkerEntryQuery(id);
-			if (!TSRX_EXTENSION_PATTERN.test(file)) return null;
+			if (!TSRX_EXTENSION_PATTERN.test(file)) {
+				const flag =
+					platform === undefined ? findUnconfiguredPlatformFlag(code, id, parseSync) : null;
+				if (flag) this.error(flag, flag.pos);
+				return null;
+			}
 
 			const result = compile(code, file, compile_options);
 			const source = append_css_import(css_cache_for(this), result.code, file, result.css);

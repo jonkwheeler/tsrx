@@ -106,8 +106,23 @@ export function should_preserve_jsx_tooling_comment(comment) {
 		should_preserve_comment(comment) ||
 		is_jsdoc_comment(comment) ||
 		(comment.type === 'Line' && comment.value.trimStart().startsWith('@')) ||
-		(comment.type === 'Block' && /^[\s*]*@ts-(?:expect-error|ignore)\b/.test(comment.value))
+		(comment.type === 'Block' && is_ts_suppression_directive(comment))
 	);
+}
+
+/**
+ * Whether TypeScript reads a comment as a `@ts-expect-error` or `@ts-ignore`
+ * directive: a line comment that starts with one, or a block comment whose
+ * last line does, after any `/` and `*` (TypeScript's `commentDirectiveRegEx`).
+ * @param {AST.CommentWithLocation} comment
+ * @returns {boolean}
+ */
+export function is_ts_suppression_directive(comment) {
+	if (comment.type === 'Line') {
+		return /^\/?\s*@ts-(?:expect-error|ignore)/.test(comment.value);
+	}
+	const last_line = `/*${comment.value}`.split(regex_line_terminator_global).at(-1) ?? '';
+	return /^[/*]*\s*@ts-(?:expect-error|ignore)/.test(last_line);
 }
 
 /**
@@ -126,6 +141,7 @@ export function is_file_level_pragma(comment) {
 }
 
 const regex_line_terminator = /[\n\r\u2028\u2029]/;
+const regex_line_terminator_global = /[\n\r\u2028\u2029]/g;
 
 /**
  * The comments after a statement on the line where it ends, when only spaces

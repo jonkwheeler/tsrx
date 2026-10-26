@@ -6,6 +6,7 @@ import {
 	format_comment,
 	get_line_comments_after,
 	is_file_level_pragma,
+	is_ts_suppression_directive,
 	should_preserve_comment,
 	should_preserve_jsx_tooling_comment,
 } from '../../comment-utils.js';
@@ -118,14 +119,18 @@ export function tsx_with_ts_locations(
 	 * @param {AST.CommentWithLocation} comment
 	 * @param {ESRap.Context} context
 	 * @param {boolean} [inline] Follow the comment with a space, not a line break.
+	 * @param {boolean} [kept] The caller keeps a comment the policy would drop.
 	 */
-	const write_preserved_comment = (comment, context, inline = false) => {
+	const write_preserved_comment = (comment, context, inline = false, kept = false) => {
 		if (
 			!emitted_comments ||
 			(hashbang !== null && comment.start === 0) ||
-			!(preserve_owner_comments
-				? should_preserve_jsx_tooling_comment(comment)
-				: should_preserve_comment(comment))
+			!(
+				kept ||
+				(preserve_owner_comments
+					? should_preserve_jsx_tooling_comment(comment)
+					: should_preserve_comment(comment))
+			)
 		) {
 			return;
 		}
@@ -174,18 +179,34 @@ export function tsx_with_ts_locations(
 	};
 
 	/**
+	 * Write the leading comments the type view keeps so that each TypeScript
+	 * directive covers the same code as in the source. TypeScript applies a
+	 * directive to the first line after the one where it ends that is neither
+	 * blank nor a line comment. So comments that share a line stay on one line,
+	 * a block comment after a directive stays, since it ends the directive's
+	 * reach, and a directive on the line where the node starts is left out: it
+	 * covers the source line after it, which the printer may split or join.
 	 * @param {AST.Node} node
 	 * @param {ESRap.Context} context
 	 */
 	const write_leading_comments = (node, context) => {
-		if (!node.leadingComments || !is_comment_owner(node)) return;
+		if (!node.leadingComments || !is_comment_owner(node) || !node.loc) return;
+		const start_line = node.loc.start.line;
+		/** @type {Array<{ comment: AST.CommentWithLocation, kept: boolean }>} */
+		const written = [];
+		let after_directive = false;
 		for (const comment of node.leadingComments) {
 			if (!has_location(comment)) continue;
-			// A block comment that ends on the line where the node starts stays on
-			// that line. TypeScript applies a `/* @ts-expect-error */` to the line
-			// after the one where it ends, so it would otherwise cover the node.
-			const inline = comment.type === 'Block' && comment.loc.end.line === node.loc?.start.line;
-			write_preserved_comment(comment, context, inline);
+			const directive = is_ts_suppression_directive(comment);
+			if (directive && comment.loc.end.line === start_line) continue;
+			const kept = after_directive && comment.type === 'Block';
+			if (kept || should_preserve_jsx_tooling_comment(comment)) written.push({ comment, kept });
+			after_directive ||= directive;
+		}
+		for (let i = 0; i < written.length; i++) {
+			const { comment, kept } = written[i];
+			const next_line = written[i + 1]?.comment.loc.start.line ?? start_line;
+			write_preserved_comment(comment, context, comment.loc.end.line === next_line, kept);
 		}
 	};
 

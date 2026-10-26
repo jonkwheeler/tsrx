@@ -198,17 +198,47 @@ export const c = 1;
 			}
 		});
 
-		it('keeps a block comment on the line where its statement starts', () => {
-			// TypeScript applies a directive to the line after the one it ends on, so
-			// this one covers nothing, as in TypeScript, and is reported as unused.
-			const source = `/* @ts-expect-error */ export const a: number = 'bad';
-/** Docs. */ export const b = 1;
+		it('keeps the comments around a directive on the lines where they are written', () => {
+			// TypeScript applies a directive to the first line after it that is not
+			// blank or a line comment, so a block comment after one ends its reach.
+			const source = `declare const bad: string;
+/* @ts-expect-error */
+/* plain */
+export const a: number = bad;
+// @ts-expect-error
+/* plain */
+export const b: number = bad;
+/* @ts-expect-error */ /** docs */
+export const c: number = bad;
+/* explanation
+@ts-expect-error */
+export const d: number = bad;
+/** Docs. */ export const e = 1;
 `;
 			const { code, errors } = compile_to_volar_mappings(source, 'App.tsrx');
 
 			expect(errors).toEqual([]);
-			expect(code).toContain("/* @ts-expect-error */ export const a: number = 'bad';");
-			expect(code).toContain('/** Docs. */ export const b = 1;');
+			expect(code).toContain('/* @ts-expect-error */\n/* plain */\nexport const a');
+			expect(code).toContain('// @ts-expect-error\n/* plain */\nexport const b');
+			expect(code).toContain('/* @ts-expect-error */ /** docs */\nexport const c');
+			expect(code).toContain('/* explanation\n@ts-expect-error */\nexport const d');
+			expect(code).toContain('/** Docs. */ export const e = 1;');
+		});
+
+		it('leaves out a directive on the line where its statement starts', () => {
+			// It covers the source line after it, which the printed statement does
+			// not keep: here the printer splits the statement over several lines.
+			const source = `export function f(x: number) {
+	/* @ts-ignore */ if (x) { const y: number = 'bad'; return y; }
+	return 0;
+}
+/* @ts-expect-error */ export const o = { a: missing, b: 'a long string to make the printer wrap', c: 'and another long string' };
+`;
+			const { code, errors } = compile_to_volar_mappings(source, 'App.tsrx');
+
+			expect(errors).toEqual([]);
+			expect(code).not.toContain('@ts-ignore');
+			expect(code).not.toContain('@ts-expect-error');
 		});
 
 		it('maps an object literal getter or setter with type parameters', () => {

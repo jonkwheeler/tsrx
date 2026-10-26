@@ -372,6 +372,46 @@ describe('@tsrx/solid basic', () => {
 			expect(code).toMatch(/<Match when=\{kind === 'b'\}>/);
 		});
 
+		it("lowers an element's @{ } child inside a control-flow body to its output", () => {
+			const { code } = compile(
+				`function App(props: { on: boolean }) @{
+					<div>
+						@if (props.on) {
+							<p>@{
+								const v = 1;
+								<b>{v}</b>
+							}</p>
+						}
+					</div>
+				}`,
+				'App.tsrx',
+			);
+			expect(code).toMatch(
+				/<p>\{\(\(\) => \{\s*const v = 1;\s*return <b>\{v\}<\/b>;\s*\}\)\(\)\}<\/p>/,
+			);
+			expect(code).not.toContain('return null');
+		});
+
+		it('lowers a @{ } block that is a whole control-flow body to its output', () => {
+			const { code } = compile(
+				`function App(props: { on: boolean }) @{
+					<div>
+						@if (props.on) {
+							@{
+								const v = 1;
+								<b>{v}</b>
+							}
+						}
+					</div>
+				}`,
+				'App.tsrx',
+			);
+			expect(code).toMatch(
+				/<Show when=\{props\.on\}>\{\(\(\) => \{\s*const v = 1;\s*return <b>\{v\}<\/b>;\s*\}\)\(\)\}<\/Show>/,
+			);
+			expect(code).not.toContain('return null');
+		});
+
 		it('element children mixing JSX and statements wrap in an IIFE', () => {
 			// Regression: plain statements (VariableDeclaration, ExpressionStatement,
 			// DebuggerStatement) interleaved with JSX children must execute as JS

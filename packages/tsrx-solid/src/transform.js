@@ -216,6 +216,11 @@ function get_await_keyword_start(await_node, source) {
 function to_jsx_child(node, transform_context) {
 	if (!node) return node;
 	switch (node.type) {
+		case 'JSXCodeBlock':
+			// Rendered as an expression child: the walker later lowers the block
+			// to an IIFE that returns its output. As a statement, that value
+			// would be dropped.
+			return to_jsx_expression_container(node, node);
 		case 'JSXFragment':
 			if (node.metadata?.native_tsrx) {
 				return tsrx_node_to_jsx_expression(node, transform_context, true);
@@ -478,6 +483,9 @@ function is_solid_render_control(node) {
  * @returns {node is SolidRenderSource}
  */
 function is_solid_render_child(node) {
+	if (node?.type === 'JSXCodeBlock') {
+		return true;
+	}
 	if (!node || !is_jsx_child(node)) {
 		return false;
 	}

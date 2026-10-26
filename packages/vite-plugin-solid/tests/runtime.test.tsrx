@@ -1674,6 +1674,62 @@ describe('tsrx-solid runtime', () => {
 	});
 });
 
+// ── Element `@{ }` children inside control-flow bodies ──
+
+function BlockChildControlFlowApp() @{
+	const [on, setOn] = createSignal(false);
+	const kind = 'a';
+	<div>
+		@if (on()) {
+			<p class="if-block">@{
+				const v = 'if';
+				<b>{v}</b>
+			}</p>
+		}
+		@for (const item of ['x', 'y']) {
+			<p class="for-block">@{
+				const v = `for-${item}`;
+				<b>{v}</b>
+			}</p>
+		}
+		@switch (kind) {
+			@case 'a': {
+				<p class="switch-block">@{
+					const v = 'switch';
+					<b>{v}</b>
+				}</p>
+			}
+		}
+		@try {
+			<p class="try-block">@{
+				const v = 'try';
+				<b>{v}</b>
+			}</p>
+		} @catch (error) {
+			<p>{'failed'}</p>
+		}
+		<button class="show-if-block" onClick={() => setOn(true)}>
+			{'show'}
+		</button>
+	</div>
+}
+
+describe('tsrx-solid control-flow bodies', () => {
+	it("renders an element's @{ } child inside @if, @for, @switch and @try bodies", async () => {
+		await render(BlockChildControlFlowApp);
+		expect(Array.from(container.querySelectorAll('.for-block'), (node) => node.innerHTML)).toEqual([
+			'<b>for-x</b>',
+			'<b>for-y</b>',
+		]);
+		expect(text('.switch-block')).toBe('switch');
+		expect(text('.try-block')).toBe('try');
+		expect(container.querySelector('.if-block')).toBeNull();
+
+		await click('.show-if-block');
+		expect(container.querySelector('.if-block')?.innerHTML).toBe('<b>if</b>');
+	});
+});
+
 runSwitchFallthroughRuntimeTests();
 runTsxExpressionTsrxRuntimeTests();
 runJsxTextWhitespaceRuntimeTests({ nbsp: 'trimmed' });

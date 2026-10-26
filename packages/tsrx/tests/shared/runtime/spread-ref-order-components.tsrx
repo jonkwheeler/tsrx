@@ -70,6 +70,10 @@ export function SpreadGetterRefApp() @{
 	<input class="spread-getter-ref" {...bag} data-reads={String(counter.reads)} ref={capture} />
 }
 
+export function SpreadClearsRefApp() @{
+	<div class="spread-clears-ref" {...{ ref: capture }} {...{ ref: undefined }} />
+}
+
 export function SpreadGetterOwnRefApp() @{
 	const [counter, bag] = getter_bag({ ref: capture });
 	<input class="spread-getter-own-ref" {...bag} data-reads={String(counter.reads)} />

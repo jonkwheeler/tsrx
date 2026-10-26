@@ -3,6 +3,7 @@ import {
 	NestedSpreadRefOrderApp,
 	RefBeforeAttributeApp,
 	RefBeforeSpreadApp,
+	SpreadClearsRefApp,
 	SpreadGetterApp,
 	SpreadGetterOwnRefApp,
 	SpreadGetterRefApp,
@@ -68,6 +69,13 @@ export function runSpreadRefOrderRuntimeTests() {
 				expect(spread_ref_order_nodes).toEqual(Array(ref_calls).fill(element));
 			});
 		}
+
+		it("lets a later spread's `ref: undefined` clear an earlier spread's ref", async () => {
+			await mount(SpreadClearsRefApp);
+
+			expect(globalThis.container.querySelector('.spread-clears-ref')).not.toBeNull();
+			expect(spread_ref_order_nodes).toEqual([]);
+		});
 
 		for (const [label, Component, selector, ref_calls] of /** @type {const} */ ([
 			['a spread', RefBeforeSpreadApp, '.ref-before-spread', 2],

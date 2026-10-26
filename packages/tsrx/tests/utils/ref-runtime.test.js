@@ -1306,6 +1306,14 @@ describe('spread ref normalization', () => {
 		expect(copy_spread_props(false)).toBe(false);
 	});
 
+	it('keeps an explicit `ref: undefined` in a copied spread', () => {
+		const copied = /** @type {Record<string, unknown>} */ (
+			copy_spread_props({ title: 'Title', ref: undefined })
+		);
+		expect(Object.keys(copied)).toEqual(['title', 'ref']);
+		expect(copied.ref).toBeUndefined();
+	});
+
 	it('preserves explicit ordinary-ref reads, source state, and the selected ref value', () => {
 		/** @type {string[]} */
 		const events = [];

@@ -11,6 +11,7 @@ import {
 	NestedSpreadRefOrderApp,
 	RefBeforeAttributeApp,
 	RefBeforeSpreadApp,
+	SpreadClearsRefApp,
 	SpreadGetterApp,
 	SpreadGetterOwnRefApp,
 	SpreadGetterRefApp,
@@ -357,6 +358,14 @@ describe('@tsrx/vite-plugin-hono DOM runtime', () => {
 			expect(spread_ref_order_nodes).toEqual(Array(refCalls).fill(element));
 		});
 	}
+
+	it("lets a later spread's `ref: undefined` clear an earlier spread's ref", () => {
+		spread_ref_order_nodes.length = 0;
+		render(<SpreadClearsRefApp />, container);
+
+		expect(container.querySelector('.spread-clears-ref')).not.toBeNull();
+		expect(spread_ref_order_nodes).toEqual([]);
+	});
 
 	for (const [label, App, selector, refCalls] of [
 		['a spread', RefBeforeSpreadApp, '.ref-before-spread', 2],

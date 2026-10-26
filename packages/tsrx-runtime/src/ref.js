@@ -452,6 +452,7 @@ function normalize_spread(props, outer_refs, copy) {
 	/** @type {SpreadProps} */
 	const next = {};
 	let existing_ref;
+	let has_existing_ref = false;
 
 	const keys = Reflect.ownKeys(source);
 	for (let i = 0; i < keys.length; i++) {
@@ -471,6 +472,7 @@ function normalize_spread(props, outer_refs, copy) {
 				}
 			} else {
 				existing_ref = /** @type {RefValue<Element>} */ (value);
+				has_existing_ref = true;
 			}
 			continue;
 		}
@@ -491,7 +493,9 @@ function normalize_spread(props, outer_refs, copy) {
 		if (!copy) {
 			return source;
 		}
-		if (existing_ref !== undefined) {
+		// Even `ref: undefined` is kept: a later spread's own `ref` key replaces
+		// an earlier spread's ref, as in native JSX.
+		if (has_existing_ref) {
 			next.ref = existing_ref;
 		}
 		return next;

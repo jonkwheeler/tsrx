@@ -124,14 +124,18 @@ export function tsrxReact(options = {}) {
 			}
 			const transpiler = create_transpiler(jsx_import_source, build_config.target);
 
-			build.onResolve({ filter: CSS_QUERY_PATTERN }, (args) => ({
-				path: args.path,
-			}));
+			// Every instance sees every virtual CSS request. Leave the ones another
+			// instance compiled to that instance.
+			build.onResolve({ filter: CSS_QUERY_PATTERN }, (args) => {
+				if (!css_cache.has(args.path)) return undefined;
+				return { path: args.path };
+			});
 
-			build.onLoad({ filter: CSS_QUERY_PATTERN }, (args) => ({
-				contents: css_cache.get(args.path) ?? '',
-				loader: 'css',
-			}));
+			build.onLoad({ filter: CSS_QUERY_PATTERN }, (args) => {
+				const css = css_cache.get(args.path);
+				if (css === undefined) return undefined;
+				return { contents: css, loader: 'css' };
+			});
 
 			build.onLoad(
 				{ filter: options.include ?? DEFAULT_INCLUDE, namespace: 'file' },

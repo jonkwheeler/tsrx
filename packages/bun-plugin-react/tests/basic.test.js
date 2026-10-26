@@ -61,10 +61,9 @@ function install_transpiler_stub() {
 /**
  * @param {import('../types/index.js').TsrxReactBunPluginOptions} [options]
  * @param {{ target?: import('bun').Target, root?: string }} [config]
+ * @param {Hooks} [hooks] hooks shared with other instances in the same build
  */
-function setup_plugin(options, config = {}) {
-	/** @type {Hooks} */
-	const hooks = { onResolve: [], onLoad: [] };
+function setup_plugin(options, config = {}, hooks = { onResolve: [], onLoad: [] }) {
 	const plugin = tsrxReact(options);
 	const build = {
 		config: {
@@ -115,6 +114,23 @@ function load_css(hooks, id) {
 	const load_hook = hooks.onLoad.find(({ options }) => options.namespace === resolved.namespace);
 	if (!load_hook) throw new Error('missing CSS onLoad hook');
 	return load_hook.callback({ path: resolved.path, namespace: resolved.namespace });
+}
+
+/**
+ * Run hooks the way Bun does: the first one whose namespace and filter match
+ * and that returns a result handles the request.
+ *
+ * @param {Hooks['onLoad']} hooks
+ * @param {{ path: string, namespace: string }} args
+ */
+async function dispatch(hooks, args) {
+	for (const { options, callback } of hooks) {
+		if (options.namespace !== undefined && options.namespace !== args.namespace) continue;
+		if (!options.filter.test(args.path)) continue;
+		const result = await callback({ importer: '', kind: 'import-statement', ...args });
+		if (result !== undefined) return result;
+	}
+	return undefined;
 }
 
 describe('@tsrx/bun-plugin-react', () => {
@@ -235,5 +251,34 @@ describe('@tsrx/bun-plugin-react', () => {
 		const hooks = setup_plugin({ exclude: /ignored\.tsrx$/ }, { target: 'browser' });
 		const transformed = await load_tsrx(hooks, '/project/ignored.tsrx');
 		expect(transformed).toBeUndefined();
+	});
+
+	it('serves each instance its own CSS when instances split the source files', async () => {
+		install_transpiler_stub();
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-react-instances-'));
+		try {
+			const hooks = setup_plugin({ include: /a\.tsrx$/ }, { target: 'browser', root: dir });
+			setup_plugin({ include: /b\.tsrx$/ }, { target: 'browser', root: dir }, hooks);
+			for (const name of ['a', 'b']) {
+				const file_path = path.join(dir, `${name}.tsrx`);
+				await writeFile(
+					file_path,
+					`export function App() @{ <><style>div { --marker-${name}: 1; }</style><div /></> }`,
+				);
+				expect(await dispatch(hooks.onLoad, { path: file_path, namespace: 'file' })).toBeDefined();
+			}
+
+			for (const name of ['a', 'b']) {
+				const css_id = `${path.join(dir, `${name}.tsrx`)}?tsrx-css&lang.css`;
+				const resolved = await dispatch(hooks.onResolve, { path: css_id, namespace: 'file' });
+				const css = await dispatch(hooks.onLoad, {
+					path: resolved.path,
+					namespace: resolved.namespace ?? 'file',
+				});
+				expect(css?.contents).toContain(`--marker-${name}`);
+			}
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 });

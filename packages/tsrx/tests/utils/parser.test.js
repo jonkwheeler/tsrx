@@ -3988,7 +3988,7 @@ foo();`;
 
 	it('treats a generic arrow function in the setup section as script', () => {
 		const returned = getReturned(`function App() { return <div>@{
-			const id = <T>(x: T) => x
+			const id = <T,>(x: T) => x
 			<>{id}</>
 		}</div>; }`);
 
@@ -9752,6 +9752,146 @@ describe('`<` operators beside type-argument lookahead', () => {
 	});
 });
 
+// A `<` starts a generic arrow function by TypeScript's rule for `.tsx` files
+// (`isParenthesizedArrowFunctionExpression`): `<[const] T` followed by `,` or
+// `=`, or by `extends` and anything but `=`, `>`, or `/`. Nothing after the type
+// parameters is read, and everything else is a tag (#183).
+describe('generic arrows by the TSX rule', () => {
+	/**
+	 * The type parameter count of the first arrow function in `source`.
+	 * @param {string} source
+	 */
+	function arrowTypeParameterCount(source) {
+		return findNode(source, 'ArrowFunctionExpression').typeParameters?.params.length;
+	}
+
+	it('reads `<T extends …>` as a generic arrow whatever the constraint is', () => {
+		for (const source of [
+			'const f = <T extends U>(x: T) => x;',
+			'const f = <T extends keyof U>(x: T) => x;',
+			'const f = <T extends { a: 1 }>(x: T) => x;',
+			'const f = <T extends [U]>(x: T) => x;',
+			"const f = <T extends 'a' | 'b'>(x: T) => x;",
+			'const f = <T extends (a: U) => U>(x: T) => x;',
+			'const f = <T extends /* c */ U>(x: T) => x;',
+			'const f = <T extends U>(x: T): T => x;',
+			'const f = async <T extends U>(x: T) => x;',
+			'const a = <Box fn={<T extends U>(x: T) => x} />;',
+			'function App() @{ const f = <T extends U>(x: T) => x; <b>{f}</b> }',
+		]) {
+			expect(arrowTypeParameterCount(source), source).toBe(1);
+		}
+		expect(arrowTypeParameterCount('const f = <const T extends U, V>(x: T, y: V) => x;')).toBe(2);
+	});
+
+	it('reads `<T,>` and `<T = …>` as a generic arrow', () => {
+		for (const source of [
+			'const f = <T,>(x: T) => x;',
+			'const f = <const T,>(x: T) => x;',
+			'const f = <T = unknown>(x: T) => x;',
+			'const f = <const T = unknown>(x: T) => x;',
+			'const f = <T /* c */,>(x: T) => x;',
+		]) {
+			expect(arrowTypeParameterCount(source), source).toBe(1);
+		}
+		expect(arrowTypeParameterCount('const f = <T, U>(x: T, y: U) => x;')).toBe(2);
+	});
+
+	it('never reads the parameters, so nothing in them can hide the arrow', () => {
+		for (const source of [
+			// #164: the `=>` of a constraint's function type
+			`declare function Box(props: { fn: <T extends () => void>(x: T) => T }): any;
+export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
+			// #175: a `)` in a comment or a regular expression
+			'export const fn = <T extends object>(x: T /* ) */) => x;',
+			'export const fn = <T extends object>(x: T, re = /[)]/) => x;',
+			'export const fn = <T extends object,>(x: T /* ) */) => x;',
+			// A `)` in a nested template literal, and a regular expression after `if (…)`
+			'export const fn = <T extends object>(x: T, y = `${`)`}`) => x;',
+			'export const fn = <T extends object>(x: T, y = (s: string) => { if (s) /[)]/.exec(s); }) => x;',
+		]) {
+			expect(arrowTypeParameterCount(source), source).toBe(1);
+		}
+	});
+
+	it('keeps `<T extends>`, `<T extends/>`, and `<T extends=…>` as tags', () => {
+		for (const source of [
+			'const a = <T extends>text</T>;',
+			'const a = <T extends/>;',
+			'const a = <T extends />;',
+			'const a = <T extends="a">text</T>;',
+			'const a = <T extends={1} />;',
+		]) {
+			const [attribute] = findNode(source, 'JSXElement').openingElement.attributes;
+			expect(as_type(attribute, 'JSXAttribute').name.name, source).toBe('extends');
+		}
+	});
+
+	it('reads a `<` between children as a tag, as TypeScript does', () => {
+		for (const source of [
+			'const a = <main><a extends b>x</a></main>;',
+			'const a = <main>{1}<a extends b>x</a></main>;',
+			'function App() @{ <main><a extends b>x</a></main> }',
+		]) {
+			const attributes = findElement(source, 'a').openingElement.attributes;
+			expect(
+				attributes.map((attribute) => as_type(attribute, 'JSXAttribute').name.name),
+				source,
+			).toEqual(['extends', 'b']);
+		}
+	});
+
+	it('keeps an element whose text starts like an arrow function as an element (#734)', () => {
+		for (const source of [
+			'export const f = <b>(i) => i</b>;',
+			'export const f = <b>(i): x => i</b>;',
+			'export function App() {\n\treturn <main><b>(i) => i</b></main>;\n}',
+			'export function App() @{\n\t<main><b>(i) => i</b></main>\n}',
+			'export function App() @{\n\t<main><b>(i): x => i</b></main>\n}',
+			'export function App() @{\n\t<main>\n\t\t<b>(i) => i</b>\n\t</main>\n}',
+		]) {
+			const [text] = findElement(source, 'b').children;
+			expect(as_type(text, 'JSXText').value, source).toMatch(/^\(i\)(: x)? => i$/);
+		}
+		for (const source of [
+			'export const f = <script>(i) => i</script>;',
+			'export function App() {\n\treturn <div><script>(i) => i</script></div>;\n}',
+			'export function App() @{\n\t<main><script>(i) => i</script></main>\n}',
+		]) {
+			expect(findElement(source, 'script').content, source).toBe('(i) => i');
+		}
+	});
+
+	// A `@{ … }` body hands a `<` that starts a line to `parseElement`; the rule
+	// only decides whether a `<` reads as a tag or a generic arrow there.
+	it('reads `@{ … }` bodies as before', () => {
+		const element = findElement(
+			'function App() @{\n\t<div onClick={() => a}>(b) => c</div>\n}',
+			'div',
+		);
+		expect(element.openingElement.attributes).toHaveLength(1);
+		expect(as_type(element.children[0], 'JSXText').value).toBe('(b) => c');
+
+		const block = child(
+			getReturned(
+				'function App() { return <div>@{\n\tconst id = <T,>(x: T) => x;\n\t<>{id}</>\n}</div>; }',
+			),
+			0,
+			'JSXCodeBlock',
+		);
+		expect(declaratorInit(block.body[0]).type).toBe('ArrowFunctionExpression');
+		expect(block.render?.type).toBe('JSXFragment');
+
+		expect(
+			findElement('function App() @{\n\t<Box fn={<T extends U>(x: T) => x}>{1}</Box>\n}', 'Box')
+				.openingElement.attributes,
+		).toHaveLength(1);
+		expect(
+			arrowTypeParameterCount('function App() @{\n\t<b>{1}</b>\n}\nconst f = <T,>(x: T) => x;'),
+		).toBe(1);
+	});
+});
+
 describe('lazy destructuring is not supported', () => {
 	it('rejects `&{ ... }` and `&[ ... ]` binding patterns as parse errors', () => {
 		for (const source of [
@@ -12377,14 +12517,14 @@ describe('JSX whitespace in template text', () => {
 		}
 	});
 
-	it('reports a token that text cannot start at instead of reading it forever', async () => {
-		// The `<` of `<T,>` reads as a type parameter list's, where the text of
-		// `<b>` would start, so the text reads nothing
+	it('reads `<T,>` between children as a tag, as TypeScript does, and reports its `,`', async () => {
+		// Only where an expression can start does `<T,>` start a generic arrow
+		// function (#183), so its `<` never leaves the text of `<b>` reading nothing
 		const source = 'const f = <b><T,>() => 1;';
 		const outcomes = await parse_in_worker(modes.map((options) => ({ source, options })));
 
 		for (const outcome of outcomes) {
-			expect(outcome).toEqual(thrown(TS_ERRORS.UNEXPECTED_TOKEN, 13));
+			expect(outcome).toEqual(thrown(TS_ERRORS.UNEXPECTED_TOKEN, 15));
 		}
 	});
 
@@ -12442,10 +12582,11 @@ describe('syntax errors in an element that is a value', () => {
 		],
 		['a closing tag in parentheses', 'x = (</>);', [TS_ERRORS.UNEXPECTED_TOKEN, '1:5']],
 		['a closing tag where a statement starts', 'a;\n</div>', [TS_ERRORS.UNEXPECTED_TOKEN, '2:0']],
+		// `<T,>` between children is a tag, as in TypeScript (#183)
 		[
-			'text that reads nothing in a setup statement',
+			'a type parameter list as a child in a setup statement',
 			'export function App() @{\n\tconst f = <b><T,>() => 1;\n\t<main />\n}',
-			[TS_ERRORS.UNEXPECTED_TOKEN, '2:14'],
+			[TS_ERRORS.UNEXPECTED_TOKEN, '2:16'],
 		],
 	];
 

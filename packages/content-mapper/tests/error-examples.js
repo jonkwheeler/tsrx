@@ -718,7 +718,6 @@ let E;`,
 	{ error: TS_ERRORS.UNEXPECTED_LEADING_DECORATOR, source: `@dec function f() {}` },
 	{ error: TS_ERRORS.TYPE_CAST_IN_PARAMETER, source: `const f = (x as number) => x;` },
 	{ error: TS_ERRORS.UNEXPECTED_TYPE_ANNOTATION, source: `f(a: number);` },
-	{ error: TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER, source: `const f = <T>() => 1;` },
 	{
 		error: UPSTREAM_ERRORS.REDECLARED,
 		source: `var a = 1;
@@ -838,6 +837,10 @@ export const WITHOUT_EXAMPLE = new Map(
 		[TS_ERRORS.JSX_UNESCAPED_GREATER_THAN, 'No source found: a `>` in JSX text is text (#964).'],
 		[TS_ERRORS.JSX_UNESCAPED_CLOSING_BRACE, 'No source found (#964).'],
 		[TS_ERRORS.SIGNATURE_PARAMETER_NAME, 'No source found (#964).'],
+		[
+			TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER,
+			'A lone type parameter before `(` is a tag, as in TSX (#183), so a generic arrow reaches this check only after a keyword with no space (`return<T>() => 1`), which TypeScript reads as a tag too; the check goes with #169.',
+		],
 		[
 			UPSTREAM_ERRORS.LET_BINDING,
 			"`let` as a name gives `The keyword 'let' is reserved` (TS1212) at the same place first (#962).",

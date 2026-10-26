@@ -100,17 +100,6 @@ export function runSharedSourceMappingTests({
 			expect(result.code.slice(generated, generated + 1)).toBe(source[offset]);
 		});
 
-		it('retains the trailing-comma diagnostic for an ambiguous generic arrow', () => {
-			const result = compile_to_volar_mappings(
-				'export const identity = <Value>(value: Value) => value;',
-				'App.tsrx',
-				{ loose: true },
-			);
-			expect(result.errors.map((error) => error.message)).toEqual([
-				expect.stringContaining('trailing comma'),
-			]);
-		});
-
 		it.each([' ', '\n\t'])(
 			'maps the whole typed destructuring default with whitespace %j',
 			(whitespace) => {

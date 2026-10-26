@@ -131,6 +131,8 @@ const CharCode = Object.freeze({
 });
 
 const TYPE_PARAMETER_MODIFIERS = new Set(['const']);
+// JavaScript's reserved words, which never name a type parameter.
+const RESERVED_WORDS = new Set(Object.values(acorn.tokTypes).flatMap((type) => type.keyword ?? []));
 
 // Nodes that ESTree's decorators extension gives a `decorators` array.
 const DECORATABLE_NODE_TYPES = new Set([
@@ -1068,76 +1070,50 @@ function scan_type_from(input, i, stop_at_arrow) {
 }
 
 /**
- * Best-effort lookahead at a `<` to decide whether it starts a generic arrow
- * expression — `<...>(...)[: T] => ...`. The angle brackets must hold a type
- * parameter list, `<[const] Name [extends Type] [= Type], ...>`, so a JSX tag
- * whose attributes or children happen to contain `>` and `=>` (for example a
- * generic arrow passed as a prop) is never mistaken for one. Conservative:
- * returns false on any unexpected shape so JSX continues to parse as JSX.
+ * Whether the `<` at `pos` starts a generic arrow function rather than a JSX
+ * tag, by TypeScript's rule for `.tsx` files (`isParenthesizedArrowFunctionExpression`).
+ * It reads four tokens and never the parameters: `<[const] T` followed by `,`
+ * or `=`, or by `extends` and anything but `=`, `>`, or `/`. Everything else,
+ * `<T>(x) => x` included, is a tag.
  * @param {string} input
  * @param {number} pos
  */
 function looks_like_generic_arrow(input, pos) {
-	if (input.charCodeAt(pos) !== CharCode.lessThan) return false;
-
-	let i = pos + 1;
-	while (true) {
-		i = skip_space_and_comments_from(input, i);
-		if (i === -1) return false;
-		let name_end = scan_identifier_from(input, i);
-		if (name_end === -1) return false;
-
+	let i = skip_space_and_comments_from(input, pos + 1);
+	let name_end = i === -1 ? -1 : scan_identifier_from(input, i);
+	if (name_end === -1) return false;
+	const name = input.slice(i, name_end);
+	if (TYPE_PARAMETER_MODIFIERS.has(name)) {
 		// A `const` modifier precedes the parameter name.
-		while (TYPE_PARAMETER_MODIFIERS.has(input.slice(i, name_end))) {
-			const next = skip_space_and_comments_from(input, name_end);
-			const next_end = next === -1 ? -1 : scan_identifier_from(input, next);
-			if (next_end === -1) break;
-			i = next;
-			name_end = next_end;
-		}
-
 		i = skip_space_and_comments_from(input, name_end);
-		if (i === -1) return false;
-		if (input.startsWith('extends', i) && scan_identifier_from(input, i) === i + 7) {
-			i = scan_type_from(input, i + 7, false);
-			if (i === -1) return false;
-		}
-		if (input.charCodeAt(i) === CharCode.equals) {
-			i = scan_type_from(input, i + 1, false);
-			if (i === -1) return false;
-		}
-
-		const ch = input.charCodeAt(i);
-		if (ch === CharCode.greaterThan) {
-			i++;
-			break;
-		}
-		if (ch !== CharCode.comma) return false;
-		i = skip_space_and_comments_from(input, i + 1);
-		if (i === -1) return false;
-		if (input.charCodeAt(i) === CharCode.greaterThan) {
-			i++;
-			break;
-		}
+		name_end = i === -1 ? -1 : scan_identifier_from(input, i);
+		if (name_end === -1) return false;
+	} else if (RESERVED_WORDS.has(name)) {
+		return false;
 	}
 
-	// `>` must be followed by `(...)`.
-	i = skip_space_and_comments_from(input, i);
-	if (i === -1 || input.charCodeAt(i) !== CharCode.openParen) return false;
-	i = scan_balanced_from(input, i, CharCode.openParen, CharCode.closeParen);
+	i = skip_space_and_comments_from(input, name_end);
 	if (i === -1) return false;
-
-	// Optional `: ReturnType` before `=>`.
-	i = skip_space_and_comments_from(input, i);
-	if (i === -1) return false;
-	if (input.charCodeAt(i) === CharCode.colon) {
-		i = scan_type_from(input, i + 1, true);
-		if (i === -1) return false;
+	if (input.charCodeAt(i) === CharCode.comma) return true;
+	if (input.startsWith('extends', i) && scan_identifier_from(input, i) === i + 7) {
+		i = skip_space_and_comments_from(input, i + 7);
+		const next = i === -1 ? -1 : input.charCodeAt(i);
+		if (next === CharCode.equals) return !is_lone_equals(input, i);
+		if (next === CharCode.slash) return input.charCodeAt(i + 1) === CharCode.equals;
+		return next !== CharCode.greaterThan;
 	}
+	return is_lone_equals(input, i);
+}
 
-	return (
-		input.charCodeAt(i) === CharCode.equals && input.charCodeAt(i + 1) === CharCode.greaterThan
-	);
+/**
+ * Whether a `=` token starts at `i`, rather than `==`, `===`, or `=>`.
+ * @param {string} input
+ * @param {number} i
+ */
+function is_lone_equals(input, i) {
+	if (input.charCodeAt(i) !== CharCode.equals) return false;
+	const next = input.charCodeAt(i + 1);
+	return next !== CharCode.equals && next !== CharCode.greaterThan;
 }
 
 /**
@@ -7595,12 +7571,13 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
-			 * `<T,>(x: T) => x` and `<T>(x: T): T => x` should parse as generic
-			 * arrow functions, not JSX elements. acorn-typescript's `readToken`
-			 * can otherwise tokenize `<` as `jsxTagStart` when expression parsing
-			 * allows JSX, bypassing our `getTokenFromCode` override. We intercept
-			 * only when the source from `<` actually looks like a generic arrow
-			 * expression, so JSX like `<div>` keeps parsing normally.
+			 * `<T,>(x: T) => x` and `<T extends U>(x: T) => x` should parse as
+			 * generic arrow functions, not JSX elements. acorn-typescript's
+			 * `readToken` can otherwise tokenize `<` as `jsxTagStart` when
+			 * expression parsing allows JSX, bypassing our `getTokenFromCode`
+			 * override. We intercept only where TypeScript's TSX rule reads a
+			 * generic arrow (see `looks_like_generic_arrow`), so JSX like `<div>`
+			 * and `<T>` keeps parsing normally.
 			 *
 			 * @type {Parse.Parser['readToken']}
 			 */
@@ -7639,7 +7616,8 @@ export function TSRXPlugin(config) {
 					if (
 						afterOptionalMemberName ||
 						(next !== CharCode.slash &&
-							(looks_like_generic_arrow(this.input, this.pos) ||
+							// Between JSX children, as in TypeScript, a `<` only opens a tag.
+							((context !== tstc.tc_expr && looks_like_generic_arrow(this.input, this.pos)) ||
 								this.#canStartTypeParameterOrArgumentList(this.pos)))
 					) {
 						++this.pos;

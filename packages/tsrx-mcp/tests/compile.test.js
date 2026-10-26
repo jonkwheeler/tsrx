@@ -45,6 +45,40 @@ const target_fixtures = [
 ];
 const react_fixture = target_fixtures[0].cwd;
 
+const flagged_source = `export function selected() {
+	if (import.meta.env.platform.ios) {
+		return 'ios';
+	} else {
+		return 'other';
+	}
+}
+`;
+
+/**
+ * Run `test` in a temporary React project made of `files` (JSON-serialized),
+ * with the repository's installed compilers linked in.
+ *
+ * @param {Record<string, unknown>} files
+ * @param {(cwd: string) => Promise<void>} test
+ */
+async function with_platform_project(files, test) {
+	const cwd = await mkdtemp(join(tmpdir(), 'tsrx-mcp-platform-'));
+	try {
+		await symlink(resolve(__dirname, '../../../node_modules'), join(cwd, 'node_modules'));
+		await writeFile(
+			join(cwd, 'package.json'),
+			JSON.stringify({ type: 'module', dependencies: { '@tsrx/react': '*' } }),
+			'utf8',
+		);
+		for (const [name, content] of Object.entries(files)) {
+			await writeFile(join(cwd, name), JSON.stringify(content), 'utf8');
+		}
+		await test(cwd);
+	} finally {
+		await rm(cwd, { recursive: true, force: true });
+	}
+}
+
 describe('@tsrx/mcp compile helpers', () => {
 	it.each([
 		{ target: 'react', compilerPackage: '@tsrx/react' },
@@ -356,48 +390,73 @@ describe('@tsrx/mcp compile helpers', () => {
 	);
 
 	it('compiles and validates platform flags with the platform configured in tsconfig', async () => {
-		const temp_dir = await mkdtemp(join(tmpdir(), 'tsrx-mcp-platform-'));
-		const code = `export function selected() {
-	if (import.meta.env.platform.ios) {
-		return 'ios';
-	} else {
-		return 'other';
-	}
-}
-`;
+		await with_platform_project(
+			{ 'tsconfig.json': { tsrx: { compiler: '@tsrx/react', platform: 'ios' } } },
+			async (cwd) => {
+				await writeFile(join(cwd, 'App.tsrx'), flagged_source, 'utf8');
 
-		try {
-			await symlink(resolve(__dirname, '../../../node_modules'), join(temp_dir, 'node_modules'));
-			await writeFile(
-				join(temp_dir, 'package.json'),
-				JSON.stringify({ type: 'module', dependencies: { '@tsrx/react': '*' } }),
-				'utf8',
-			);
-			await writeFile(
-				join(temp_dir, 'tsconfig.json'),
-				JSON.stringify({ tsrx: { compiler: '@tsrx/react', platform: 'ios' } }),
-				'utf8',
-			);
-			await writeFile(join(temp_dir, 'App.tsrx'), code, 'utf8');
+				const compiled = await compile_tsrx({
+					code: flagged_source,
+					filename: join(cwd, 'App.tsrx'),
+					cwd,
+					includeCode: true,
+				});
+				expect(compiled.errors).toEqual([]);
+				expect(compiled.ok).toBe(true);
+				expect(compiled.code).toContain(`return 'ios'`);
+				expect(compiled.code).not.toContain(`return 'other'`);
 
-			const compiled = await compile_tsrx({
-				code,
-				filename: join(temp_dir, 'App.tsrx'),
-				cwd: temp_dir,
-				includeCode: true,
-			});
-			expect(compiled.errors).toEqual([]);
-			expect(compiled.ok).toBe(true);
-			expect(compiled.code).toContain(`return 'ios'`);
-			expect(compiled.code).not.toContain(`return 'other'`);
-
-			const validated = await validate_tsrx_file({ filePath: 'App.tsrx', cwd: temp_dir });
-			expect(validated.compile?.errors).toEqual([]);
-			expect(validated.ok).toBe(true);
-		} finally {
-			await rm(temp_dir, { recursive: true, force: true });
-		}
+				const validated = await validate_tsrx_file({ filePath: 'App.tsrx', cwd });
+				expect(validated.compile?.errors).toEqual([]);
+				expect(validated.ok).toBe(true);
+			},
+		);
 	});
+
+	it.each([
+		{
+			name: 'referenced projects select different platforms',
+			files: {
+				'tsconfig.json': {
+					files: [],
+					references: [{ path: './tsconfig.ios.json' }, { path: './tsconfig.android.json' }],
+				},
+				'tsconfig.ios.json': { tsrx: { platform: 'ios' } },
+				'tsconfig.android.json': { tsrx: { platform: 'android' } },
+			},
+			reason: 'select multiple TSRX platforms',
+		},
+		{
+			name: 'extends names a missing file',
+			files: { 'tsconfig.json': { extends: './missing.json' } },
+			reason: 'missing.json',
+		},
+		{
+			name: 'a project reference is missing',
+			files: { 'tsconfig.json': { files: [], references: [{ path: './missing' }] } },
+			reason: 'Unable to resolve TypeScript project reference',
+		},
+	])(
+		'compiles a file without platform flags when $name, and explains it for one with flags',
+		async ({ files, reason }) => {
+			await with_platform_project(files, async (cwd) => {
+				const filename = join(cwd, 'src', 'App.tsrx');
+
+				const plain = await compile_tsrx({ code: 'export const ok = 1;\n', filename, cwd });
+				expect(plain.errors).toEqual([]);
+				expect(plain.ok).toBe(true);
+
+				const flagged = await compile_tsrx({ code: flagged_source, filename, cwd });
+				expect(flagged.ok).toBe(false);
+				expect(flagged.errors).toEqual([
+					expect.objectContaining({
+						code: DIAGNOSTIC_CODES.PLATFORM_REQUIRED,
+						message: expect.stringContaining(reason),
+					}),
+				]);
+			});
+		},
+	);
 
 	it('reports unclosed tags as compile errors', async () => {
 		// Regression: this case must produce ok: false. Editor-style `loose`

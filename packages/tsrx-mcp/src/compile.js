@@ -143,8 +143,10 @@ function get_generated_css(result) {
  *   collect?: boolean,
  *   loose?: boolean,
  *   includeCode?: boolean,
- *   mode?: 'client' | 'server'
- * }} input
+ *   mode?: 'client' | 'server',
+ *   resolvePlatform?: boolean
+ * }} input `resolvePlatform: false` skips reading `tsrx.platform` from the
+ *   tsconfig nearest the file, as the hosted server does.
  */
 export async function compile_tsrx(input) {
 	const filename = input.filename ?? 'Component.tsrx';
@@ -210,23 +212,45 @@ export async function compile_tsrx(input) {
 	const compiler_package =
 		target === 'hono' && input.mode === 'client' ? '@tsrx/hono/dom' : candidate.compilerPackage;
 
+	// A file without platform flags compiles the same for every platform, so a
+	// tsconfig graph that does not resolve one is only reported once the
+	// compiler asks for a platform.
+	/** @type {import('@tsrx/core/types').Platform | undefined} */
+	let platform;
+	/** @type {unknown} */
+	let platform_error = null;
+	if (input.resolvePlatform !== false) {
+		try {
+			platform = resolveBuildPlatform({
+				root: path.dirname(path.resolve(cwd, filename)),
+				integration: '@tsrx/mcp',
+			});
+		} catch (error) {
+			platform_error = error;
+		}
+	}
+	/** @param {NormalizedCompileError} error */
+	const explain_platform = (error) =>
+		platform_error !== null && error.code === DIAGNOSTIC_CODES.PLATFORM_REQUIRED
+			? {
+					...error,
+					message: `${error.message} The project's tsconfig did not resolve a platform: ${platform_error instanceof Error ? platform_error.message : String(platform_error)}`,
+				}
+			: error;
+
 	try {
 		const compiler = await import_compiler(compiler_package, cwd, detection.packageJsonPath);
 		if (typeof compiler.compile !== 'function') {
 			throw new Error(`${compiler_package} does not export a compile() function.`);
 		}
 
-		const platform = resolveBuildPlatform({
-			root: path.dirname(path.resolve(cwd, filename)),
-			integration: '@tsrx/mcp',
-		});
 		const result = compiler.compile(input.code, filename, {
 			collect: input.collect ?? true,
 			loose: input.loose,
 			mode: input.mode,
 			platform,
 		});
-		const errors = normalize_errors(result?.errors, filename);
+		const errors = normalize_errors(result?.errors, filename).map(explain_platform);
 		const code = get_generated_code(result);
 		const css = get_generated_css(result);
 
@@ -247,7 +271,7 @@ export async function compile_tsrx(input) {
 			compilerPackage: compiler_package,
 			filename,
 			cwd,
-			errors: [normalize_error(error, filename)],
+			errors: [explain_platform(normalize_error(error, filename))],
 			code: null,
 			css: null,
 		};

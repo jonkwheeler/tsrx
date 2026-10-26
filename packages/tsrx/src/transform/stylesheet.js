@@ -7,10 +7,188 @@ import MagicString from 'magic-string';
 import { walk } from 'zimmerframe';
 
 const regex_css_browser_prefix = /^-((webkit)|(moz)|(o)|(ms))-/;
-const regex_css_name_boundary = /^[\s,;}]$/;
+const regex_css_ident_start = /^(-?([a-zA-Z_\\]|[^\x00-\x7f])|--)/;
+const regex_css_number = /^[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?$/i;
+const regex_css_value_word_end = /[\s,'"(]/;
+
+/** `none` and the CSS-wide keywords, which never name keyframes. */
+const reserved_keyframes_names = new Set([
+	'none',
+	'initial',
+	'inherit',
+	'unset',
+	'revert',
+	'revert-layer',
+	'default',
+]);
+
+/**
+ * The `animation` shorthand gives a keyword to the longhand it is valid for, and
+ * reads it as a keyframes name only once that longhand already has a value.
+ * @type {Map<string, string>}
+ */
+const animation_keyword_longhands = new Map([
+	['ease', 'easing'],
+	['ease-in', 'easing'],
+	['ease-out', 'easing'],
+	['ease-in-out', 'easing'],
+	['linear', 'easing'],
+	['step-start', 'easing'],
+	['step-end', 'easing'],
+	['infinite', 'iteration-count'],
+	['normal', 'direction'],
+	['reverse', 'direction'],
+	['alternate', 'direction'],
+	['alternate-reverse', 'direction'],
+	['forwards', 'fill-mode'],
+	['backwards', 'fill-mode'],
+	['both', 'fill-mode'],
+	['running', 'play-state'],
+	['paused', 'play-state'],
+]);
+
+const easing_functions = new Set(['cubic-bezier', 'steps', 'linear']);
+
+/**
+ * A top-level token of a CSS value. `value` is a word's text, a string's
+ * contents without quotes, or a function's lowercased name.
+ * @typedef {{
+ *   type: 'word' | 'string' | 'function' | 'comma',
+ *   start: number,
+ *   end: number,
+ *   value: string,
+ * }} CssValueToken
+ */
 
 /** @param {AST.CSS.Atrule} node */
 const is_keyframes_node = (node) => remove_css_prefix(node.name) === 'keyframes';
+
+/**
+ * @param {string} code
+ * @param {number} start index of the opening quote
+ * @param {number} end
+ * @returns {number} index after the closing quote
+ */
+function skip_css_string(code, start, end) {
+	let index = start + 1;
+	while (index < end && code[index] !== code[start]) {
+		index += code[index] === '\\' ? 2 : 1;
+	}
+	return Math.min(index + 1, end);
+}
+
+/**
+ * Split the source of a CSS value into top-level tokens, skipping whitespace
+ * and comments. A function token spans its arguments.
+ * @param {string} code
+ * @param {number} start
+ * @param {number} end
+ * @returns {CssValueToken[]}
+ */
+function tokenize_css_value(code, start, end) {
+	/** @type {CssValueToken[]} */
+	const tokens = [];
+	let index = start;
+
+	while (index < end) {
+		const char = code[index];
+
+		if (/\s/.test(char)) {
+			index += 1;
+		} else if (code.startsWith('/*', index)) {
+			const close = code.indexOf('*/', index + 2);
+			index = close === -1 || close >= end ? end : close + 2;
+		} else if (char === ',') {
+			tokens.push({ type: 'comma', start: index, end: index + 1, value: char });
+			index += 1;
+		} else if (char === '"' || char === "'") {
+			const close = skip_css_string(code, index, end);
+			tokens.push({
+				type: 'string',
+				start: index,
+				end: close,
+				value: code.slice(index + 1, close - 1),
+			});
+			index = close;
+		} else {
+			const word_start = index;
+			while (
+				index < end &&
+				!regex_css_value_word_end.test(code[index]) &&
+				!code.startsWith('/*', index)
+			) {
+				index += code[index] === '\\' ? 2 : 1;
+			}
+			index = Math.min(index, end);
+			const value = code.slice(word_start, index);
+
+			if (code[index] !== '(') {
+				tokens.push({ type: 'word', start: word_start, end: index, value });
+				continue;
+			}
+
+			let depth = 0;
+			while (index < end) {
+				const char = code[index];
+				if (char === '"' || char === "'") {
+					index = skip_css_string(code, index, end);
+					continue;
+				}
+				index += char === '\\' ? 2 : 1;
+				if (char === '(') depth += 1;
+				else if (char === ')' && --depth === 0) break;
+			}
+			index = Math.min(index, end);
+			tokens.push({ type: 'function', start: word_start, end: index, value: value.toLowerCase() });
+		}
+	}
+
+	return tokens;
+}
+
+/**
+ * The tokens of an `animation` or `animation-name` value that name keyframes.
+ * @param {CssValueToken[]} tokens
+ * @param {boolean} shorthand
+ * @returns {CssValueToken[]}
+ */
+function keyframes_name_tokens(tokens, shorthand) {
+	/** @type {CssValueToken[]} */
+	const names = [];
+	/** @type {Set<string>} */
+	const set_longhands = new Set();
+
+	for (const token of tokens) {
+		if (token.type === 'comma') {
+			set_longhands.clear();
+		} else if (token.type === 'string') {
+			names.push(token);
+		} else if (token.type === 'function') {
+			if (easing_functions.has(token.value)) set_longhands.add('easing');
+		} else if (regex_css_number.test(token.value)) {
+			set_longhands.add('iteration-count');
+		} else if (regex_css_ident_start.test(token.value)) {
+			const keyword = token.value.toLowerCase();
+			const longhand = shorthand ? animation_keyword_longhands.get(keyword) : undefined;
+			if (longhand && !set_longhands.has(longhand)) {
+				set_longhands.add(longhand);
+			} else if (!reserved_keyframes_names.has(keyword)) {
+				names.push(token);
+			}
+		}
+	}
+
+	return names;
+}
+
+/**
+ * Where the hash goes in front of a keyframes name: inside a string's quotes.
+ * @param {CssValueToken} token
+ * @returns {number}
+ */
+function keyframes_name_start(token) {
+	return token.type === 'string' ? token.start + 1 : token.start;
+}
 
 /**
  * @param {string} name
@@ -200,17 +378,24 @@ const visitors = {
 	},
 	Atrule(node, { state, next, path }) {
 		if (is_keyframes_node(node)) {
-			let start = node.start + node.name.length + 1;
-			while (state.code.original[start] === ' ') start += 1;
-			let end = start;
-			while (state.code.original[end] !== '{' && state.code.original[end] !== ' ') end += 1;
+			const prelude = tokenize_css_value(
+				state.code.original,
+				node.start + node.name.length + 1,
+				node.block?.start ?? node.end,
+			);
+			const token = prelude[0];
 
-			if (node.prelude.startsWith('-global-')) {
-				state.code.remove(start, start + 8);
-			} else if (!is_in_global_block(path)) {
-				append_hash(state, start);
-				state.keyframes[node.prelude]?.indexes.forEach((index) => append_hash(state, index));
-				state.keyframes[node.prelude] = { indexes: [], local: true };
+			if (token?.type === 'word' || token?.type === 'string') {
+				const name = token.value;
+				const start = keyframes_name_start(token);
+
+				if (name.startsWith('-global-')) {
+					state.code.remove(start, start + 8);
+				} else if (!is_in_global_block(path)) {
+					append_hash(state, start);
+					state.keyframes[name]?.indexes.forEach((index) => append_hash(state, index));
+					state.keyframes[name] = { indexes: [], local: true };
+				}
 			}
 
 			return; // don't transform anything within
@@ -221,34 +406,20 @@ const visitors = {
 	Declaration(node, { state }) {
 		const property = node.property && remove_css_prefix(node.property.toLowerCase());
 		if (property === 'animation' || property === 'animation-name') {
-			let index = node.start + node.property.length + 1;
-			/** @type {string} */
-			let name = '';
+			const tokens = tokenize_css_value(
+				state.code.original,
+				node.start + node.property.length + 1,
+				node.end,
+			);
 
-			while (index < state.code.original.length) {
-				const character = state.code.original[index];
-
-				if (regex_css_name_boundary.test(character)) {
-					if (name) {
-						const append_index = index - name.length;
-						state.keyframes[name] ??= { indexes: [], local: undefined };
-						if (state.keyframes[name].local) {
-							append_hash(state, append_index);
-						} else {
-							state.keyframes[name].indexes.push(append_index);
-						}
-					}
-
-					if (character === ';' || character === '}') {
-						break;
-					}
-
-					name = '';
+			for (const token of keyframes_name_tokens(tokens, property === 'animation')) {
+				const index = keyframes_name_start(token);
+				state.keyframes[token.value] ??= { indexes: [], local: undefined };
+				if (state.keyframes[token.value].local) {
+					append_hash(state, index);
 				} else {
-					name += character;
+					state.keyframes[token.value].indexes.push(index);
 				}
-
-				index++;
 			}
 		}
 	},

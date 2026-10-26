@@ -687,6 +687,68 @@ export function runSharedScopedStyleTests({
 		});
 	});
 
+	describe(`[${name}] scoped keyframes`, () => {
+		const frames = '{ from { opacity: 0; } to { opacity: 1; } }';
+
+		/**
+		 * @param {string} body
+		 * @returns {{ css: string, hash: string }}
+		 */
+		function compile_keyframes(body) {
+			const { css, cssHash, errors } = compile(
+				`export const theme = <style>${body}</style>;`,
+				'App.tsrx',
+			);
+			expect(errors).toEqual([]);
+			return { css, hash: hashes_of(cssHash)[0] };
+		}
+
+		it('prefixes the name after any whitespace that follows @keyframes', () => {
+			for (const space of ['\n', '\t', '\n\t ']) {
+				const { css, hash } = compile_keyframes(
+					`@keyframes${space}fade ${frames} .box { animation: fade 1s; }`,
+				);
+				expect(css).toContain(`@keyframes${space}${hash}-fade {`);
+				expect(css).toContain(`animation: ${hash}-fade 1s;`);
+			}
+		});
+
+		it('prefixes quoted keyframes names inside their quotes', () => {
+			const { css, hash } = compile_keyframes(
+				`@keyframes "fade" ${frames} @keyframes slide ${frames}
+				.a { animation: "fade" 1s infinite; }
+				.b { animation-name: fade, 'slide'; }`,
+			);
+			expect(css).toContain(`@keyframes "${hash}-fade" {`);
+			expect(css).toContain(`animation: "${hash}-fade" 1s infinite;`);
+			expect(css).toContain(`animation-name: ${hash}-fade, '${hash}-slide';`);
+		});
+
+		it('reads names around comments', () => {
+			const { css, hash } = compile_keyframes(
+				`@keyframes /* in */ fade/* after */ ${frames}
+				.box { animation: fade/*comment*/ 1s infinite; }`,
+			);
+			expect(css).toContain(`@keyframes /* in */ ${hash}-fade/* after */ {`);
+			expect(css).toContain(`animation: ${hash}-fade/*comment*/ 1s infinite;`);
+		});
+
+		it('leaves animation shorthand keywords alone even when local keyframes share their name', () => {
+			const { css, hash } = compile_keyframes(
+				`@keyframes linear ${frames} @keyframes fade ${frames}
+				.a { animation: fade 1s linear infinite; }
+				.b { animation: 1s ease linear; }
+				.c { animation: steps(4, end) linear 2s, linear 1s fade; }
+				.d { animation-name: linear; }`,
+			);
+			expect(css).toContain(`@keyframes ${hash}-linear {`);
+			expect(css).toContain(`animation: ${hash}-fade 1s linear infinite;`);
+			expect(css).toContain(`animation: 1s ease ${hash}-linear;`);
+			expect(css).toContain(`animation: steps(4, end) ${hash}-linear 2s, linear 1s ${hash}-fade;`);
+			expect(css).toContain(`animation-name: ${hash}-linear;`);
+		});
+	});
+
 	describe(`[${name}] style themes and apply`, () => {
 		it('exposes $class first on every assigned block', () => {
 			const { code, cssHash } = compile(

@@ -356,6 +356,7 @@ module.exports = grammar({
 				choice(
 					seq(choice('let', 'const', 'var'), choice($._destructuring_pattern, $.identifier)),
 					$.identifier,
+					$._using_identifier,
 				),
 				'in',
 				field('right', $.expression),
@@ -432,7 +433,14 @@ module.exports = grammar({
 		debugger_statement: ($) => seq('debugger', $._semicolon),
 
 		labeled_statement: ($) =>
-			prec.dynamic(-1, seq(field('label', $.identifier), ':', field('body', $.statement))),
+			prec.dynamic(
+				-1,
+				seq(
+					field('label', choice($.identifier, $._using_identifier)),
+					':',
+					field('body', $.statement),
+				),
+			),
 
 		empty_statement: ($) => ';',
 
@@ -680,12 +688,17 @@ module.exports = grammar({
 					optional('await'),
 					'(',
 					choice(
-						seq(choice('let', 'const', 'var'), choice($._destructuring_pattern, $.identifier)),
-						seq(choice('using', seq('await', 'using')), $.identifier),
-						$.identifier,
-						$._using_identifier,
+						seq(
+							choice(
+								seq(choice('let', 'const', 'var'), choice($._destructuring_pattern, $.identifier)),
+								$.identifier,
+								$._using_identifier,
+							),
+							choice('of', 'in'),
+						),
+						// A `using` declaration can only head a `for…of` loop.
+						seq(choice('using', seq('await', 'using')), $.identifier, 'of'),
 					),
-					choice('of', 'in'),
 					field('right', $.expression),
 					optional(seq(';', 'index', $.identifier)),
 					optional(seq(';', 'key', $.expression)),
@@ -921,7 +934,7 @@ module.exports = grammar({
 
 		required_parameter: ($) =>
 			seq(
-				field('pattern', choice($.identifier, $._destructuring_pattern)),
+				field('pattern', choice($.identifier, $._using_identifier, $._destructuring_pattern)),
 				optional('?'),
 				optional($._type_annotation),
 				optional($.initializer),
@@ -969,7 +982,8 @@ module.exports = grammar({
 
 		assignment_pattern: ($) => seq(field('left', $.pattern), '=', field('right', $.expression)),
 
-		pattern: ($) => choice($.identifier, $._reserved_identifier, $._destructuring_pattern),
+		pattern: ($) =>
+			choice($.identifier, $._reserved_identifier, $._using_identifier, $._destructuring_pattern),
 
 		expression: ($) =>
 			choice(
@@ -1248,7 +1262,10 @@ module.exports = grammar({
 		arrow_function: ($) =>
 			seq(
 				optional('async'),
-				choice(field('parameter', $.identifier), field('parameters', $.formal_parameters)),
+				choice(
+					field('parameter', choice($.identifier, $._using_identifier)),
+					field('parameters', $.formal_parameters),
+				),
 				optional($._type_annotation),
 				'=>',
 				field('body', choice($.expression, $.statement_block, $.jsx_statement_container)),

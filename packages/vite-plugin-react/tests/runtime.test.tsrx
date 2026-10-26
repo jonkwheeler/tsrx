@@ -1004,6 +1004,34 @@ function ForInsideTryApp() @{
 	</>
 }
 
+// ── Try/catch with a thrown non-Error value ──
+
+function ValueThrower(props: { value: unknown }): never {
+	throw props.value;
+}
+
+function ThrownValueApp(props: { value: unknown }) @{
+	const [fail, setFail] = useState(true);
+
+	@try {
+		@if (fail) {
+			<ValueThrower value={props.value} />
+		} @else {
+			<p className="ok">{'recovered'}</p>
+		}
+	} @catch (err, reset: () => void) {
+		<button
+			className="reset"
+			onClick={() => {
+				setFail(false);
+				reset();
+			}}
+		>
+			{'caught ' + String(err)}
+		</button>
+	}
+}
+
 // ── Explicit hook component inside control flow ──
 
 function ExplicitHookPanel(props: { multiplier: number }) {
@@ -1695,6 +1723,18 @@ describe('tsrx-react runtime', () => {
 		expect(container.querySelectorAll('.try-item').length).toBe(3);
 		expect(container.querySelectorAll('.try-item')[2].textContent).toBe('z');
 	});
+
+	// ── Try/catch with a thrown non-Error value ──
+
+	for (const value of [null, undefined, false, 0, 'boom']) {
+		it(`catches a thrown ${String(value)} and recovers via reset`, async () => {
+			await render(ThrownValueApp, { value });
+			expect(text('.reset')).toBe('caught ' + String(value));
+
+			await click('.reset');
+			expect(text('.ok')).toBe('recovered');
+		});
+	}
 
 	// ── Explicit hook components inside control flow ──
 

@@ -150,7 +150,7 @@ function BoundaryApp() @{
 	@try {
 		<Broken />
 	} @catch (error) {
-		<p class="error">{error.message}</p>
+		<p class="error">{error instanceof Error ? error.message : String(error)}</p>
 	}
 }
 

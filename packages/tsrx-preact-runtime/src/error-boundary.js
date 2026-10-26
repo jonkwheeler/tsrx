@@ -21,7 +21,7 @@ export class TsrxErrorBoundary extends Component {
 	}
 
 	/**
-	 * @param {Error} error
+	 * @param {unknown} error
 	 * @returns {TsrxErrorBoundaryState}
 	 */
 	static getDerivedStateFromError(error) {

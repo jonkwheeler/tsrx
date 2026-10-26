@@ -227,6 +227,26 @@ export function tsx_with_ts_locations(
 				context,
 			);
 		},
+		// esrap prints a string statement that is not a directive without its
+		// parentheses, so `('use strict');` became a directive.
+		// UPSTREAM(sveltejs/esrap#246): remove once a release includes the fix
+		ExpressionStatement: (node, context) => {
+			const expression = node.expression;
+			if (
+				!('directive' in node && node.directive) &&
+				expression.type === 'Literal' &&
+				typeof expression.value === 'string'
+			) {
+				context.write('(');
+				context.visit(expression);
+				context.write(');');
+				return;
+			}
+			/** @type {NonNullable<typeof base.ExpressionStatement>} */ (base.ExpressionStatement)(
+				node,
+				context,
+			);
+		},
 		// esrap's tsx printer writes `<T,>` for every one-parameter list, but
 		// only an arrow needs it: TSX reads `<T>(…) => …` as a JSX tag. Other
 		// lists print as written.

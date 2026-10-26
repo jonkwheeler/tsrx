@@ -3195,6 +3195,27 @@ break"}</p>
 			expect(code).toContain('function f([a]: A, { b }: B, [c]: C = [], ...[d]: D) {}');
 		});
 
+		it('keeps the parentheses that keep a string statement from being a directive', () => {
+			const { code } = compile(
+				`'use client';
+				export function run(value = 1) {
+					('use strict');
+					return value;
+				}
+				export function strict() {
+					'use strict';
+					'also';
+					run();
+					'later';
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain("'use client';");
+			expect(code).toMatch(/run\(value = 1\) \{\n\t\('use strict'\);/);
+			expect(code).toMatch(/strict\(\) \{\n\t'use strict';\n\t'also';\n\trun\(\);\n\t\('later'\);/);
+		});
+
 		it('preserves optional markers in tuple members and function parameters', () => {
 			const { code } = compile(
 				`export type OptionalTuple = [bar: string, baz?: string];

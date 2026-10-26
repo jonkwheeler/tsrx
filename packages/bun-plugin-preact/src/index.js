@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { compile } from '@tsrx/preact';
 import { mergePlatformDefinitions, replacePlatformFlags, validatePlatform } from '@tsrx/core';
-import { resolveBuildPlatform } from '@tsrx/core/config';
+import { resolveBuildPlatform, resolveTsconfigJsx } from '@tsrx/core/config';
 
 const DEFAULT_INCLUDE = /\.tsrx$/;
 const CSS_QUERY = '?tsrx-css&lang.css';
@@ -100,6 +100,26 @@ function get_tsconfig_base(build_config) {
 }
 
 /**
+ * Prefix compiled TSX with the pragma that selects the JSX import source, so
+ * Bun's own TSX transform picks the development or production runtime for the
+ * build. Bun ignores a lone `@jsxImportSource` under a classic `"jsx": "react"`
+ * tsconfig. There `@jsxRuntime automatic` keeps the automatic runtime, which
+ * Bun then takes from the development entry point in every build.
+ *
+ * @param {string} code
+ * @param {string} jsx_import_source
+ * @param {boolean} classic
+ * @returns {string}
+ */
+function add_jsx_pragma(code, jsx_import_source, classic) {
+	const runtime = classic ? '@jsxRuntime automatic ' : '';
+	const pragma = `/** ${runtime}@jsxImportSource ${jsx_import_source} */\n`;
+	// A shebang has to stay on the first line.
+	const shebang_end = code.startsWith('#!') ? code.indexOf('\n') + 1 || code.length : 0;
+	return code.slice(0, shebang_end) + pragma + code.slice(shebang_end);
+}
+
+/**
  * Bun plugin for `.tsrx` files that compiles them through `@tsrx/preact` and
  * then runs Bun's TSX transform so the final output calls Preact's automatic
  * JSX runtime. Component-local styles are exposed as virtual CSS modules.
@@ -144,6 +164,13 @@ export function tsrxPreact(options = {}) {
 			// Bun.plugin() registration has no `define`, so the flags left in compiled
 			// output get their values written in directly.
 			const inline_platform = build.config ? undefined : platform;
+			/** @type {Map<string, unknown>} */
+			const tsconfig_cache = new Map();
+			/** @param {string} file_path */
+			const uses_classic_jsx = (file_path) =>
+				// Bun.build() applies the tsconfig nearest each file. Bun.plugin()
+				// registration applies the working directory's tsconfig to every file.
+				resolveTsconfigJsx(build.config ? file_path : process.cwd(), tsconfig_cache) === 'react';
 
 			// Every instance sees every virtual CSS request. Leave the ones another
 			// instance compiled to that instance.
@@ -182,9 +209,7 @@ export function tsrxPreact(options = {}) {
 					}
 
 					return {
-						// Bun's own TSX transform picks the development or production JSX
-						// runtime for the build. The pragma selects only the import source.
-						contents: `/** @jsxImportSource ${jsx_import_source} */\n${output}`,
+						contents: add_jsx_pragma(output, jsx_import_source, uses_classic_jsx(args.path)),
 						loader: 'tsx',
 					};
 				},

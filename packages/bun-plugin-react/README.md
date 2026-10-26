@@ -25,6 +25,13 @@ The plugin compiles `.tsrx` modules with `@tsrx/react`, runs Bun's TSX transform
 for React's automatic JSX runtime, and emits sibling-scoped `<style>` blocks (each
 styles its siblings and everything below them) as virtual CSS modules.
 
+Bun selects the development or production JSX runtime for each build, as it does
+for `.tsx` files. Production builds need an automatic JSX setting such as
+`"jsx": "react-jsx"` in the tsconfig Bun applies: the nearest one for `Bun.build`,
+the working directory's for `Bun.plugin()`. Under the classic `"jsx": "react"`,
+the plugin keeps the automatic runtime, but Bun then always uses
+`react/jsx-dev-runtime`, which React's production build does not provide.
+
 For `bun:test`, register it from a preload:
 
 ```ts

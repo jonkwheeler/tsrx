@@ -174,6 +174,71 @@ describe('@tsrx/bun-plugin-hono', () => {
 		}
 	});
 
+	it('restores the automatic runtime under a classic jsx tsconfig', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-classic-'));
+		try {
+			await writeFile(
+				path.join(dir, 'tsconfig.json'),
+				JSON.stringify({ compilerOptions: { jsx: 'react' } }),
+			);
+			const file_path = path.join(dir, 'App.tsrx');
+			await writeFile(file_path, `export function App() @{ <p>{'x'}</p> }`);
+			const hooks = setup_plugin(undefined, { root: dir });
+			const result = await load_tsrx(hooks, file_path);
+
+			// Bun ignores a lone @jsxImportSource under `"jsx": "react"`.
+			expect(result?.contents).toMatch(
+				/^\/\*\* @jsxRuntime automatic @jsxImportSource hono\/jsx \*\/\n/,
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('reads the jsx setting from the working directory for Bun.plugin() registration', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-runtime-classic-'));
+		const cwd = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+		try {
+			await writeFile(
+				path.join(dir, 'tsconfig.json'),
+				JSON.stringify({ compilerOptions: { jsx: 'react' } }),
+			);
+			await mkdir(path.join(dir, 'src'));
+			await writeFile(
+				path.join(dir, 'src/tsconfig.json'),
+				JSON.stringify({ compilerOptions: { jsx: 'react-jsx' } }),
+			);
+			const file_path = path.join(dir, 'src/App.tsrx');
+			await writeFile(file_path, `export function App() @{ <p>{'x'}</p> }`);
+			// Bun's runtime transpiler applies only the working directory's tsconfig.
+			const hooks = setup_plugin(undefined, null);
+			const result = await load_tsrx(hooks, file_path);
+
+			expect(result?.contents).toMatch(
+				/^\/\*\* @jsxRuntime automatic @jsxImportSource hono\/jsx \*\/\n/,
+			);
+		} finally {
+			cwd.mockRestore();
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('keeps a leading shebang above the JSX pragma', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-shebang-'));
+		try {
+			const file_path = path.join(dir, 'cli.tsrx');
+			await writeFile(file_path, `#!/usr/bin/env bun\nexport function App() @{ <p>{'x'}</p> }`);
+			const hooks = setup_plugin(undefined, { root: dir });
+			const result = await load_tsrx(hooks, file_path);
+
+			expect(result?.contents).toMatch(
+				/^#!\/usr\/bin\/env bun\n\/\*\* @jsxImportSource hono\/jsx \*\/\n/,
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it('compiles server files and selects hono/jsx', async () => {
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-'));
 		try {

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { mergePlatformDefinitions, replacePlatformFlags, validatePlatform } from '@tsrx/core';
 import { compile as compileServer } from '@tsrx/hono';
 import { compile as compileDom } from '@tsrx/hono/dom';
-import { resolveBuildPlatform } from '@tsrx/core/config';
+import { resolveBuildPlatform, resolveTsconfigJsx } from '@tsrx/core/config';
 
 const TSRX_EXTENSION_PATTERN = /\.tsrx$/;
 const CSS_QUERY = '?tsrx-css&lang.css';
@@ -58,6 +58,26 @@ function get_tsconfig_base(build_config) {
 		}
 	}
 	return base;
+}
+
+/**
+ * Prefix compiled TSX with the pragma that selects the JSX import source, so
+ * Bun's own TSX transform picks the development or production runtime for the
+ * build. Bun ignores a lone `@jsxImportSource` under a classic `"jsx": "react"`
+ * tsconfig. There `@jsxRuntime automatic` keeps the automatic runtime, which
+ * Bun then takes from the development entry point in every build.
+ *
+ * @param {string} code
+ * @param {string} jsx_import_source
+ * @param {boolean} classic
+ * @returns {string}
+ */
+function add_jsx_pragma(code, jsx_import_source, classic) {
+	const runtime = classic ? '@jsxRuntime automatic ' : '';
+	const pragma = `/** ${runtime}@jsxImportSource ${jsx_import_source} */\n`;
+	// A shebang has to stay on the first line.
+	const shebang_end = code.startsWith('#!') ? code.indexOf('\n') + 1 || code.length : 0;
+	return code.slice(0, shebang_end) + pragma + code.slice(shebang_end);
 }
 
 /**
@@ -115,6 +135,13 @@ export function tsrxHono(options = {}) {
 			// Bun.plugin() registration has no `define`, so the flags left in compiled
 			// output get their values written in directly.
 			const inline_platform = build.config ? undefined : platform;
+			/** @type {Map<string, unknown>} */
+			const tsconfig_cache = new Map();
+			/** @param {string} file_path */
+			const uses_classic_jsx = (file_path) =>
+				// Bun.build() applies the tsconfig nearest each file. Bun.plugin()
+				// registration applies the working directory's tsconfig to every file.
+				resolveTsconfigJsx(build.config ? file_path : process.cwd(), tsconfig_cache) === 'react';
 
 			build.onResolve({ filter: CSS_QUERY_PATTERN }, (args) => {
 				if (!css_cache.has(args.path)) return undefined;
@@ -137,9 +164,7 @@ export function tsrxHono(options = {}) {
 				const output = append_css_import(code, css_id, css, emit_css);
 
 				return {
-					// Bun's own TSX transform picks the development or production JSX
-					// runtime for the build. The pragma selects only the import source.
-					contents: `/** @jsxImportSource ${jsx_import_source} */\n${output}`,
+					contents: add_jsx_pragma(output, jsx_import_source, uses_classic_jsx(args.path)),
 					loader: 'tsx',
 				};
 			});

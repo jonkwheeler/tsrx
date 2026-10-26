@@ -856,11 +856,24 @@ function rewrite_vapor_for_keyed_slot_refs(node, loop_params, replacements = new
 	return /** @type {T} */ (
 		walk(
 			node,
-			{ loop_param_names, shadowed_names: new Set() },
+			{ loop_param_names, shadowed_names: new Set(), in_type: false },
 			{
+				_(child, { state, next }) {
+					// A type names no runtime value, so a type parameter or type
+					// reference spelled like a loop param stays as written; only a
+					// `typeof` in a type reads the param.
+					if (child.type === 'TSTypeQuery') {
+						next({ ...state, in_type: false });
+					} else if (is_type_only_node(child)) {
+						next({ ...state, in_type: true });
+					} else {
+						next();
+					}
+				},
 				Identifier(identifier, { path, state, next }) {
 					const parent = path.at(-1);
 					if (
+						!state.in_type &&
 						(state.loop_param_names.has(identifier.name) || replacements.has(identifier.name)) &&
 						!state.shadowed_names.has(identifier.name) &&
 						parent &&
@@ -881,6 +894,25 @@ function rewrite_vapor_for_keyed_slot_refs(node, loop_params, replacements = new
 				BlockStatement: rewrite_block_shadowed_refs,
 			},
 		)
+	);
+}
+
+/**
+ * Whether `node` is TypeScript type syntax: a type annotation, type parameters
+ * or arguments, or the type of an `as`, `satisfies`, or `<T>` assertion.
+ *
+ * @param {AST.Node} node
+ * @returns {boolean}
+ */
+function is_type_only_node(node) {
+	return (
+		node.type === 'TSTypeAnnotation' ||
+		node.type === 'TSTypeParameterDeclaration' ||
+		node.type === 'TSTypeParameterInstantiation' ||
+		node.type === 'TSTypeReference' ||
+		node.type === 'TSTypeLiteral' ||
+		node.type === 'TSTypeOperator' ||
+		/^TS[A-Za-z]*(Type|Keyword)$/.test(node.type)
 	);
 }
 
@@ -964,7 +996,7 @@ function collect_pattern_replacements(pattern, source, replacements) {
 
 /**
  * @param {AST.Function} node
- * @param {import('zimmerframe').Context<AST.Node, { loop_param_names: Set<string>, shadowed_names: Set<string> }>} context
+ * @param {import('zimmerframe').Context<AST.Node, { loop_param_names: Set<string>, shadowed_names: Set<string>, in_type: boolean }>} context
  * @returns {AST.Node | void}
  */
 function rewrite_function_shadowed_refs(node, { state, next }) {
@@ -981,7 +1013,7 @@ function rewrite_function_shadowed_refs(node, { state, next }) {
 
 /**
  * @param {AST.BlockStatement} node
- * @param {import('zimmerframe').Context<AST.Node, { loop_param_names: Set<string>, shadowed_names: Set<string> }>} context
+ * @param {import('zimmerframe').Context<AST.Node, { loop_param_names: Set<string>, shadowed_names: Set<string>, in_type: boolean }>} context
  * @returns {AST.Node | void}
  */
 function rewrite_block_shadowed_refs(node, { state, next }) {

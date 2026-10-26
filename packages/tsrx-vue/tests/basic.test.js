@@ -706,6 +706,25 @@ describe('@tsrx/vue basic', () => {
 		expect(code).toContain("import { computed as __vapor_computed } from 'vue';");
 	});
 
+	it('leaves type parameters and type references in a keyed slot alone (#922)', () => {
+		const { code, errors } = compile(
+			`function List({ items }: { items: { id: string; label: string }[] }) @{
+				<ul>
+					@for (const item of items; key item.id) {
+						<button onClick={function <item>(x: item, y: typeof item): item[] { return [x as item]; }}>{item.label}</button>
+					}
+				</ul>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(errors).toEqual([]);
+		expect(code).toContain('function <item>(x: item, y: typeof item.value): item[] {');
+		expect(code).toContain('return [x as item];');
+		expect(code).toContain('{item.value.label}');
+		expect(code).not.toContain('<item.value>');
+	});
+
 	it('falls back without injecting VaporFor for keyed destructuring patterns it cannot rewrite', () => {
 		const { code } = compile(
 			`function App({ items, keyName }: { items: Array<Record<string, string>>, keyName: string }) @{

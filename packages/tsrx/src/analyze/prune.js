@@ -467,6 +467,107 @@ function can_render_dynamic_content(element, check_classes = false) {
 }
 
 /**
+ * The nodes a fragment, `@{ … }` block, control-flow body, or `@case` renders
+ * in place, in order, among the siblings around it; `null` for other nodes.
+ *
+ * @param {AST.Node} node
+ * @returns {AST.Node[] | null}
+ */
+function get_rendered_list(node) {
+	switch (node.type) {
+		case 'JSXFragment':
+			return node_children(node);
+		case 'JSXCodeBlock':
+			return node.render ? [node.render] : [];
+		case 'BlockStatement':
+			return node.body;
+		case 'SwitchCase':
+			return node.consequent;
+		default:
+			return null;
+	}
+}
+
+/**
+ * The branches a control-flow directive may render, or `null` for other nodes.
+ *
+ * @param {AST.Node} node
+ * @returns {Array<AST.Node | null | undefined> | null}
+ */
+function get_control_flow_branches(node) {
+	switch (node.type) {
+		case 'JSXIfExpression':
+			return [node.consequent, node.alternate];
+		case 'JSXForExpression':
+			return [node.body, node.empty];
+		case 'JSXSwitchExpression':
+			return node.cases;
+		case 'JSXTryExpression':
+			return [node.block, node.pending, node.handler?.body, node.finalizer];
+		default:
+			return null;
+	}
+}
+
+/**
+ * Add the elements of `list` from `index` on in `direction`, looking into the
+ * fragments, `@{ … }` blocks, and control flow there. Text is skipped, since
+ * it never separates element siblings.
+ *
+ * @param {AST.Node[]} list
+ * @param {number} index
+ * @param {CssPruneDirection} direction
+ * @param {boolean} adjacent_only
+ * @param {Map<AST.TSRXJSXElement, boolean>} siblings
+ * @returns {boolean} whether a `+` search found its sibling and can stop
+ */
+function add_list_siblings(list, index, direction, adjacent_only, siblings) {
+	const step = direction === FORWARD ? 1 : -1;
+	for (let i = index; i >= 0 && i < list.length; i += step) {
+		if (add_edge_siblings(list[i], direction, adjacent_only, siblings) && adjacent_only) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Add the elements `node` renders at its edge that faces back toward the
+ * element whose siblings are wanted.
+ *
+ * @param {AST.Node | null | undefined} node
+ * @param {CssPruneDirection} direction
+ * @param {boolean} adjacent_only
+ * @param {Map<AST.TSRXJSXElement, boolean>} siblings
+ * @returns {boolean} whether `node` always renders an element at that edge
+ */
+function add_edge_siblings(node, direction, adjacent_only, siblings) {
+	if (!node) return false;
+
+	if (is_native_jsx_element(node)) {
+		siblings.set(node, true);
+		// Components and dynamic elements may render nothing
+		return !can_render_dynamic_content(node, false);
+	}
+
+	const list = get_rendered_list(node);
+	if (list) {
+		const start = direction === FORWARD ? 0 : list.length - 1;
+		return add_list_siblings(list, start, direction, adjacent_only, siblings);
+	}
+
+	// Any branch may render, and a directive may render none of them
+	for (const branch of get_control_flow_branches(node) ?? []) {
+		add_edge_siblings(branch, direction, adjacent_only, siblings);
+	}
+	return false;
+}
+
+/**
+ * The elements that may render as the siblings of `node` in `direction`, up to
+ * its parent element. Fragments, `@{ … }` blocks, and control flow render their
+ * contents in place, so siblings are looked for inside and around them.
+ *
  * @param {AST.TSRXElementNode} node
  * @param {CssPruneDirection} direction
  * @param {boolean} adjacent_only
@@ -475,43 +576,29 @@ function can_render_dynamic_content(element, check_classes = false) {
 function get_possible_element_siblings(node, direction, adjacent_only) {
 	/** @type {Map<AST.TSRXJSXElement, boolean>} */
 	const siblings = new Map();
-	const container = get_sibling_container(node);
+	const path = node.metadata?.path ?? [];
+	const step = direction === FORWARD ? 1 : -1;
+	/** @type {AST.Node} */
+	let current = node;
 
-	if (container === null) {
-		return siblings;
-	}
+	for (let i = path.length - 1; i >= 0; i -= 1) {
+		const parent = path[i];
+		const is_element = is_native_jsx_element(parent);
+		const list = is_element ? node_children(parent) : get_rendered_list(parent);
 
-	const node_index = container.indexOf(node);
-
-	// Determine which siblings to check based on direction
-	let start, end, step;
-	if (direction === FORWARD) {
-		start = node_index + 1;
-		end = container.length;
-		step = 1;
-	} else {
-		start = node_index - 1;
-		end = -1;
-		step = -1;
-	}
-
-	// Collect siblings
-	for (let i = start; i !== end; i += step) {
-		const sibling = container[i];
-
-		if (is_native_jsx_element(sibling)) {
-			siblings.set(sibling, true);
-			// Don't break for dynamic elements (children and dynamic components)
-			// as they can render dynamic content or might render nothing
-			const isDynamic = can_render_dynamic_content(sibling, false);
-			if (adjacent_only && !isDynamic) {
-				break; // Only immediate sibling for '+' combinator
-			}
-		}
-		// Stop at non-whitespace text nodes for adjacent selectors
-		else if (adjacent_only && sibling.type === 'JSXText' && sibling.raw.trim()) {
+		if (list) {
+			const index = list.indexOf(current);
+			if (index === -1) break;
+			if (add_list_siblings(list, index + step, direction, adjacent_only, siblings)) break;
+			if (is_element) break;
+		} else if (parent.type === 'JSXForExpression' && current === parent.body) {
+			// Another iteration renders the body again on either side
+			add_edge_siblings(parent.body, direction, adjacent_only, siblings);
+		} else if (!get_control_flow_branches(parent) && parent.type !== 'CatchClause') {
 			break;
 		}
+
+		current = parent;
 	}
 
 	return siblings;
@@ -581,7 +668,7 @@ function apply_combinator(relative_selector, rest_selectors, rule, node, directi
 								sibling_matched = true;
 							} else {
 								// Check if there are any elements after this component that could match the remaining selectors
-								const container = get_sibling_container(node);
+								const container = get_sibling_container(possible_sibling);
 								if (container !== null) {
 									const component_index = container.indexOf(possible_sibling);
 
@@ -632,10 +719,11 @@ function apply_combinator(relative_selector, rest_selectors, rule, node, directi
  * (an authored `<>…</>`, a control-flow branch's output, or the synthetic
  * root of a style scope), or `null` when the element has no container.
  *
- * Sibling combinators (`+`, `~`) read this list. Ancestor combinators keep
- * using {@link get_element_parent}: a fragment is not an element, and a
- * scope's root fragment stands for the container that a scoped block never
- * styles.
+ * Sibling combinators (`+`, `~`) find their siblings with
+ * {@link get_possible_element_siblings}, which also looks through fragments
+ * and control flow. Ancestor combinators keep using {@link get_element_parent}:
+ * a fragment is not an element, and a scope's root fragment stands for the
+ * container that a scoped block never styles.
  *
  * @param {AST.TSRXElementNode} node
  * @returns {AST.Node[] | null}

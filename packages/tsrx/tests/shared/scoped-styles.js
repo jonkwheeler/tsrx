@@ -642,6 +642,69 @@ export function runSharedScopedStyleTests({
 			expect(css).toMatch(/\.inner\.tsrx-[0-9a-f]+ \{ color: blue; \}/);
 		});
 
+		it('keeps sibling rules across text, fragments, and control flow between the siblings', () => {
+			const a = `<i ${attr}="a" />`;
+			const b = `<b ${attr}="b">{'b'}</b>`;
+			const bodies = [
+				`${a}text${b}`,
+				`<>${a}</>${b}`,
+				`${a}<>${b}</>`,
+				`@if (show) { ${a} }${b}`,
+				`@if (show) { <span /> } @else { ${a} }${b}`,
+				`${a}@if (show) { ${b} }`,
+				`@for (const item of items) { ${a} }${b}`,
+				`@for (const item of items) { <>${b}{item}${a}</> }`,
+				`@switch (show) { @case true: { <>${a}</> } }${b}`,
+				`@try { ${a} } @catch (error) { <span /> }${b}`,
+				`@{ const label = 'a'; <>{label}${a}</> }${b}`,
+			];
+
+			for (const body of bodies) {
+				const { css } = compile(
+					`export function App({ show, items }: { show: boolean, items: string[] }) @{
+						<>
+							<style>.a + .b { color: red; } .a ~ .b { margin: 0; }</style>
+							${body}
+						</>
+					}`,
+					'App.tsrx',
+				);
+
+				expect(css, body).not.toContain('(unused)');
+			}
+		});
+
+		it('prunes sibling rules when another element or a parent boundary separates the siblings', () => {
+			const a = `<i ${attr}="a" />`;
+			const b = `<b ${attr}="b">{'b'}</b>`;
+			/** @type {Array<[string, string[]]>} */
+			const cases = [
+				[`${a}<u />${b}`, ['.a + .b']],
+				[`<>${a}<u /></>${b}`, ['.a + .b']],
+				[`@if (show) { <>${a}<u /></> }${b}`, ['.a + .b']],
+				[`<div>${a}</div>${b}`, ['.a + .b', '.a ~ .b']],
+				[`${b}<>${a}</>`, ['.a + .b', '.a ~ .b']],
+				[`@if (show) { ${a} } @else { ${b} }`, ['.a + .b', '.a ~ .b']],
+			];
+
+			for (const [body, pruned] of cases) {
+				const { css } = compile(
+					`export function App({ show }: { show: boolean }) @{
+						<>
+							<style>.a + .b { color: red; } .a ~ .b { margin: 0; }</style>
+							${body}
+						</>
+					}`,
+					'App.tsrx',
+				);
+
+				expect(
+					[...css.matchAll(/\/\* \(unused\) (.*?) \{/g)].map((m) => m[1]),
+					body,
+				).toEqual(pruned);
+			}
+		});
+
 		it('stops stamping and pruning at a function boundary', () => {
 			const { code, css } = compile(
 				`export function App({ items }: { items: string[] }) @{

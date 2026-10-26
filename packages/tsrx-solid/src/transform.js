@@ -1225,14 +1225,20 @@ function try_statement_to_jsx_child(node, transform_context) {
 	if (handler) {
 		transform_context.needs_errored = true;
 
+		// `<Errored>` passes the error as an accessor; the `@catch` binding is the
+		// thrown value itself, as on every other target.
+		const error_accessor = create_generated_identifier(handler.param ? '_tsrx_error' : '_error');
 		/** @type {AST.Pattern[]} */
-		const catch_params = [];
-		if (handler.param) catch_params.push(handler.param);
-		else catch_params.push(create_generated_identifier('_error'));
+		const catch_params = [error_accessor];
 		if (handler.resetParam) catch_params.push(handler.resetParam);
 		else catch_params.push(create_generated_identifier('_reset'));
 
-		const catch_body_nodes = handler.body.body || [];
+		const catch_body_nodes = handler.param
+			? [
+					b.const(handler.param, b.call(clone_identifier(error_accessor))),
+					...(handler.body.body || []),
+				]
+			: handler.body.body || [];
 		const catch_jsx = body_to_jsx_child(catch_body_nodes, transform_context);
 
 		const fallback_fn = merge_branch_body_into_arrow(

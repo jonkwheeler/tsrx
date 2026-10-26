@@ -499,6 +499,84 @@ function SpreadRefReactiveApp() @{
 	</>
 }
 
+// ── Several host spreads beside the element's own ref ──
+
+const spreads_ref_calls: string[] = [];
+let spreads_assigned_node: HTMLInputElement | undefined;
+
+function spreadsRef(name: string) {
+	return (node: HTMLInputElement | null) => {
+		if (node) spreads_ref_calls.push(name);
+	};
+}
+
+function SpreadsRefOnceApp() @{
+	let input: HTMLInputElement | undefined;
+	const first = { title: 'first', ref: spreadsRef('first') };
+	const second = { 'data-second': 'second', ref: spreadsRef('second') };
+	<>
+		<input ref={spreadsRef('own')} {...first} {...second} class="spreads-ref-once" />
+		@if (true) {
+			<input ref={input} {...first} {...second} class="spreads-ref-assigned" />
+		}
+		<button
+			class="spreads-ref-check"
+			onClick={() => {
+				spreads_assigned_node = input;
+			}}
+		>
+			{'check'}
+		</button>
+	</>
+}
+
+let set_spreads_first: (bag: Record<string, unknown>) => void = () => {};
+let set_spreads_second: (bag: Record<string, unknown>) => void = () => {};
+
+function SpreadsRefReactiveApp() @{
+	const [first, setFirst] = createSignal<Record<string, unknown>>({ title: 'before' });
+	const [second, setSecond] = createSignal<Record<string, unknown>>({
+		disabled: false,
+		ref: spreadsRef('second'),
+	});
+	set_spreads_first = setFirst;
+	set_spreads_second = setSecond;
+	<button ref={spreadsRef('own')} {...first()} {...second()} class="spreads-ref-reactive">
+		{'target'}
+	</button>
+}
+
+// ── A spread host keeps its children across prop changes ──
+
+function SpreadChildHost(props: { title: string; children?: JSX.Element }) @{
+	<div {...props} ref={() => {}} class="spread-child-host" />
+}
+
+function SpreadsChildHost(props: {
+	title: string;
+	children?: JSX.Element;
+	ref?: (node: HTMLDivElement) => void;
+}) @{
+	const extra = { 'data-extra': 'extra' };
+	<div {...props} {...extra} ref={() => {}} class="spreads-child-host" />
+}
+
+let set_spread_child_title: (title: string) => void = () => {};
+
+function SpreadChildApp() @{
+	const [title, setTitle] = createSignal('before');
+	set_spread_child_title = setTitle;
+	<>
+		<SpreadChildHost title={title()}>
+			<span class="spread-child">{'child'}</span>
+		</SpreadChildHost>
+		{/* A `ref` prop puts a `ref` in the bag, which the runtime leaves out of its spread. */}
+		<SpreadsChildHost title={title()} ref={spreadsRef('prop')}>
+			<span class="spreads-child">{'child'}</span>
+		</SpreadsChildHost>
+	</>
+}
+
 // ── Conditional host spreads ──
 
 let conditional_spread_and_node: HTMLInputElement | null = null;
@@ -1328,6 +1406,72 @@ describe('tsrx-solid runtime', () => {
 		await click('.spread-ref-reactive-update');
 		expect(target.title).toBe('after');
 		expect(target.disabled).toBe(true);
+	});
+
+	it("applies every spread's ref and the element's own ref once each", async () => {
+		spreads_ref_calls.length = 0;
+		spreads_assigned_node = undefined;
+		await render(SpreadsRefOnceApp);
+		await flush();
+		expect(spreads_ref_calls).toEqual(['own', 'first', 'second', 'first', 'second']);
+
+		const input = container.querySelector('.spreads-ref-once')!;
+		expect(input.getAttribute('title')).toBe('first');
+		expect(input.getAttribute('data-second')).toBe('second');
+		expect(input.hasAttribute('ref')).toBe(false);
+
+		await click('.spreads-ref-check');
+		expect(spreads_assigned_node).toBe(container.querySelector('.spreads-ref-assigned'));
+	});
+
+	it('updates several reactive host spreads and their refs beside a ref', async () => {
+		spreads_ref_calls.length = 0;
+		await render(SpreadsRefReactiveApp);
+		await flush();
+		const target = container.querySelector('.spreads-ref-reactive') as HTMLButtonElement;
+		expect(spreads_ref_calls).toEqual(['own', 'second']);
+		expect([target.title, target.disabled]).toEqual(['before', false]);
+
+		set_spreads_second({ disabled: true, ref: spreadsRef('second') });
+		await flush();
+		expect([target.title, target.disabled]).toEqual(['before', true]);
+
+		// A bag that gains a ref applies it; one that loses it no longer does.
+		spreads_ref_calls.length = 0;
+		set_spreads_first({ title: 'after', ref: spreadsRef('gained') });
+		await flush();
+		expect(target.title).toBe('after');
+		expect(spreads_ref_calls).toContain('gained');
+		expect(spreads_ref_calls).not.toContain('own');
+
+		spreads_ref_calls.length = 0;
+		set_spreads_first({ title: 'last' });
+		await flush();
+		expect(target.title).toBe('last');
+		expect(spreads_ref_calls).not.toContain('gained');
+		expect(spreads_ref_calls).not.toContain('own');
+		expect(target.hasAttribute('ref')).toBe(false);
+	});
+
+	it('keeps the children of a spread host across prop changes', async () => {
+		spreads_ref_calls.length = 0;
+		await render(SpreadChildApp);
+		await flush();
+		const child = container.querySelector('.spread-child');
+		const children = container.querySelector('.spreads-child');
+		expect(child).not.toBeNull();
+		expect(children).not.toBeNull();
+
+		set_spread_child_title('after');
+		await flush();
+		expect(container.querySelector('.spread-child-host')!.getAttribute('title')).toBe('after');
+		expect(container.querySelector('.spreads-child-host')!.getAttribute('title')).toBe('after');
+		expect(container.querySelector('.spreads-child-host')!.getAttribute('data-extra')).toBe(
+			'extra',
+		);
+		expect(container.querySelector('.spread-child')).toBe(child);
+		expect(container.querySelector('.spreads-child')).toBe(children);
+		expect(spreads_ref_calls).toEqual(['prop']);
 	});
 
 	for (const enabled of [false, true]) {

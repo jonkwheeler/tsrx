@@ -37,6 +37,7 @@ export interface JsxTransformContext {
 	needs_merge_refs: boolean;
 	needs_normalize_spread_props: boolean;
 	needs_normalize_spread_props_for_ref_attr: boolean;
+	needs_spread_ref_bags: boolean;
 	needs_fragment: boolean;
 	needs_dynamic_element: boolean;
 	needs_dynamic_factory: boolean;
@@ -448,8 +449,11 @@ export interface JsxPlatform {
 		 *   element's own `ref` (Solid's `spread()`), so an element with one
 		 *   spread keeps its own `ref` as written and spreads the normalized bag
 		 *   in place. The runtime keeps only the last of several spreads' refs,
-		 *   so an element with more than one spread merges them as for
-		 *   `undefined`.
+		 *   so an element with more than one spread and its own `ref` lowers its
+		 *   bags through `spread_ref_bags`, which `imports.refProp` must export:
+		 *   each spread gets its bag without a `ref`, and one more spread carries
+		 *   every bag's ref. The type-only print merges those refs into the
+		 *   element's `ref` as for `undefined`.
 		 */
 		hostSpreadRefStrategy?: 'explicit-ref-attr' | 'spread';
 		/**

@@ -163,7 +163,7 @@ function BodyThrowBoundaryApp() @{
 		const value = loadOrThrow();
 		<p class="ok">{value}</p>
 	} @catch (error) {
-		<p class="error">{error.message}</p>
+		<p class="error">{error instanceof Error ? error.message : String(error)}</p>
 	}
 }
 

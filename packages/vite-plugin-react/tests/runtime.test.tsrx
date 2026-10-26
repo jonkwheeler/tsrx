@@ -831,8 +831,8 @@ function ThrowingChild() @{
 function ErrorBoundaryApp() @{
 	@try {
 		<ThrowingChild />
-	} @catch (err: Error) {
-		<p className="caught">{err.message}</p>
+	} @catch (err) {
+		<p className="caught">{(err as Error).message}</p>
 	}
 }
 
@@ -852,9 +852,9 @@ function ErrorToggleApp() @{
 	<>
 		@try {
 			<MaybeThrow shouldThrow={fail} />
-		} @catch (err: Error, reset: () => void) {
+		} @catch (err, reset: () => void) {
 			<>
-				<p className="caught">{err.message}</p>
+				<p className="caught">{(err as Error).message}</p>
 				<button
 					className="reset"
 					onClick={() => {
@@ -902,8 +902,8 @@ function SuspenseErrorApp(props: { promise: Promise<string> }) @{
 		<AsyncChild promise={props.promise} />
 	} @pending {
 		<p className="pending">{'loading...'}</p>
-	} @catch (err: Error) {
-		<p className="caught">{err.message}</p>
+	} @catch (err) {
+		<p className="caught">{(err as Error).message}</p>
 	}
 }
 
@@ -914,9 +914,9 @@ function ErrorResetApp(props: { promise: Promise<string> }) @{
 		<AsyncChild promise={props.promise} />
 	} @pending {
 		<p className="pending">{'loading...'}</p>
-	} @catch (err: Error, reset: () => void) {
+	} @catch (err, reset: () => void) {
 		<>
-			<p className="caught">{err.message}</p>
+			<p className="caught">{(err as Error).message}</p>
 			<button className="retry" onClick={() => reset()}>
 				{'retry'}
 			</button>
@@ -937,12 +937,12 @@ function NestedTryApp() @{
 		<div className="outer">
 			@try {
 				<InnerThrow />
-			} @catch (err: Error) {
-				<p className="inner-caught">{err.message}</p>
+			} @catch (err) {
+				<p className="inner-caught">{(err as Error).message}</p>
 			}
 		</div>
-	} @catch (err: Error) {
-		<p className="outer-caught">{err.message}</p>
+	} @catch (err) {
+		<p className="outer-caught">{(err as Error).message}</p>
 	}
 }
 
@@ -975,7 +975,7 @@ function IfInsideTryApp() @{
 			} @else {
 				<p className="branch-b">{'alternate'}</p>
 			}
-		} @catch (err: Error) {
+		} @catch (err) {
 			<p className="caught">{'error'}</p>
 		}
 		<button className="toggle" onClick={() => setShow(!show)}>
@@ -996,7 +996,7 @@ function ForInsideTryApp() @{
 					{item}
 				</span>
 			}
-		} @catch (err: Error) {
+		} @catch (err) {
 			<p className="caught">{'error'}</p>
 		}
 		<button className="add" onClick={() => setItems([...items, 'z'])}>

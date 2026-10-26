@@ -1361,6 +1361,28 @@ function C() @{
 }`);
 		});
 
+		it.each([
+			['decorated', 'declare function dec(...args: unknown[]): any;\n@dec class Store {}'],
+			[
+				'exported decorated',
+				'declare function dec(...args: unknown[]): any;\nexport @dec class Store {}',
+			],
+			['abstract', 'abstract class Store {}'],
+			['declared', 'declare class Store {}'],
+			['expression', 'const Store = class {};'],
+		])('maps the class keyword of a %s class', (_kind, source) => {
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			const source_class_offset = source.search(/\bclass\b/);
+			const generated_class_offset = result.code.search(/\bclass\b/);
+			const mapping = find_exact_mapping(
+				result.mappings,
+				source_class_offset,
+				generated_class_offset,
+				'class'.length,
+			);
+			expect(mapping).toBeDefined();
+		});
+
 		it('maps anonymous default class keywords', () => {
 			expect_class_keyword_mapping(`export default class {
 	value = 1;

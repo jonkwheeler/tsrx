@@ -817,38 +817,23 @@ export function convert_source_map_to_mappings(
 	 * TypeScript reports private-name diagnostics (e.g. TS2322 on an
 	 * incompatible initializer, TS2564 on a missing one) on the whole `#name`.
 	 * Extra sources (a dynamic tag's closing `</{this.#Tag}>`) share that range.
-	 *
-	 * Workaround: esrap (2.3.10 and main) writes the `#` without a location and
-	 * anchors the node's source start on the name after it, so the source `#`
-	 * maps one character late. Once esrap maps the `#` itself
-	 * (sveltejs/esrap#198), replace this with an ordinary `#name` token in the
-	 * Identifier branch: https://github.com/tsrx-org/tsrx/issues/208
 	 * @param {AST.PrivateIdentifier} node
 	 * @returns {void}
 	 */
-	function add_private_identifier_mappings(node) {
+	function add_private_identifier_tokens(node) {
 		if (!has_location(node)) return;
 
 		const text = `#${node.name}`;
-		let generated_start = generated_offset_for_text(node.loc.start, text);
-		// esrap's anchor sits after the `#`; step back over it (#208).
-		if (generated_start === undefined) {
-			const name_start = generated_offset_for_text(node.loc.start, node.name);
-			if (name_start !== undefined && generated_code[name_start - 1] === '#') {
-				generated_start = name_start - 1;
-			}
-		}
-		if (generated_start === undefined) return;
-
-		const source_nodes = [node, ...(node.metadata?.extra_source_mappings ?? [])];
-		for (const source_node of source_nodes) {
+		tokens.push({ source: text, generated: text, loc: node.loc, metadata: {} });
+		for (const source_node of node.metadata?.extra_source_mappings ?? []) {
 			if (!has_location(source_node)) continue;
-			mappings.push({
-				sourceOffsets: [source_node.start],
-				lengths: [source_node.end - source_node.start],
-				generatedOffsets: [generated_start],
-				generatedLengths: [text.length],
-				data: { ...mapping_data, customData: {} },
+			tokens.push({
+				source: text,
+				generated: text,
+				loc: source_node.loc,
+				generatedLoc: node.loc,
+				metadata: {},
+				sourceLength: source_node.end - source_node.start,
 			});
 		}
 	}
@@ -1868,16 +1853,14 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') {
-				if (node.loc) {
-					tokens.push({
-						source: 'class',
-						generated: 'class',
-						loc: {
-							start: { line: node.loc.start.line, column: node.loc.start.column },
-							end: { line: node.loc.start.line, column: node.loc.start.column + 'class'.length },
-						},
-						metadata: {},
-					});
+				// The class can start at a decorator, `abstract` or `declare`, so take
+				// the `class` keyword from the parser's tokens.
+				if (has_location(node)) {
+					const from = node.decorators?.at(-1)?.end ?? node.start;
+					const keyword = find_source_token(source_tokens, 'class', from, 'after');
+					if (keyword?.loc && keyword.start < node.end) {
+						tokens.push({ source: 'class', generated: 'class', loc: keyword.loc, metadata: {} });
+					}
 				}
 
 				// Visit in source order: decorators, id, typeParameters, superClass,
@@ -2097,7 +2080,7 @@ export function convert_source_map_to_mappings(
 				// Leaf node, no children to visit
 				return;
 			} else if (node.type === 'PrivateIdentifier') {
-				add_private_identifier_mappings(node);
+				add_private_identifier_tokens(node);
 				return; // Leaf node, don't traverse further
 			} else if (node.type === 'PropertyDefinition') {
 				// Visit in source order: decorators, key, typeAnnotation, value
@@ -2159,6 +2142,27 @@ export function convert_source_map_to_mappings(
 				// Type assertion: value as Type
 				if (node.expression) {
 					visit(node.expression);
+				}
+				// TypeScript reports a failed check (TS1360) on the `satisfies` keyword.
+				if (
+					node.type === 'TSSatisfiesExpression' &&
+					has_location(node) &&
+					has_location(node.expression)
+				) {
+					const keyword = find_source_token(
+						source_tokens,
+						'satisfies',
+						node.expression.end,
+						'after',
+					);
+					if (keyword?.loc && keyword.start < node.end) {
+						tokens.push({
+							source: 'satisfies',
+							generated: 'satisfies',
+							loc: keyword.loc,
+							metadata: {},
+						});
+					}
 				}
 				if (node.typeAnnotation) {
 					visit(node.typeAnnotation);

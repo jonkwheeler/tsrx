@@ -449,6 +449,26 @@ it('reports unresolved class field and heritage types in .tsrx files', () => {
 	}
 });
 
+it('reports a failed satisfies check on its keyword in .tsrx files', () => {
+	const lines = [
+		'declare const count: number; declare function load(): number;',
+		'export const a = 1 satisfies string; export const b = count satisfies string; export const c = load() satisfies string;',
+		'export function read() { return count as unknown as number satisfies string; }',
+		'export function View() @{ const shown = count satisfies string; <div>{shown}</div> }',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	const ts1360 = "error TS1360: Type 'number' does not satisfy the expected type 'string'.";
+	for (const [index, line] of lines.entries()) {
+		for (const match of line.matchAll(/satisfies/g)) {
+			expect(result.output).toContain(
+				`layout.tsrx(${index + 4},${/** @type {number} */ (match.index) + 1}): ${ts1360}`,
+			);
+		}
+	}
+});
+
 it('reports errors on private class fields in .tsrx files', () => {
 	const line = 'export class Model { #value: number = "bad"; #missing: number; }';
 	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${line}\n`);

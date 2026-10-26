@@ -589,6 +589,26 @@ it('reports a missing return on a primitive return type in .tsrx files', () => {
 	);
 });
 
+it('applies block TypeScript directives and optional binding patterns as TypeScript does in .tsrx files', () => {
+	const lines = [
+		'/* @ts-expect-error */',
+		"export const a: number = 'bad';",
+		'/* @ts-ignore */',
+		"export const b: number = 'bad';",
+		"/* @ts-expect-error */ export const c: number = 'bad';",
+		'declare function optional({ a }?: { a: number }): void; optional();',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	// The same diagnostics as tsc: a directive on the line where the error is
+	// covers nothing and is unused.
+	expect(result.output.trim().split('\n')).toEqual([
+		"layout.tsrx(8,1): error TS2578: Unused '@ts-expect-error' directive.",
+		`layout.tsrx(8,${lines[4].indexOf('c:') + 1}): error TS2322: Type 'string' is not assignable to type 'number'.`,
+	]);
+	expect(result.status).toBe(2);
+});
+
 it('reports a superclass expression that is not a constructor in .tsrx files', () => {
 	const line =
 		'function createBase() { return {}; } export class Model extends createBase() {} export class Cast extends (Model as unknown as {}) {}';

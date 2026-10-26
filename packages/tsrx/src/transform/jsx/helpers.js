@@ -6,7 +6,6 @@ import {
 	format_comment,
 	get_line_comments_after,
 	is_file_level_pragma,
-	is_jsx_child_tooling_comment,
 	should_preserve_comment,
 	should_preserve_jsx_tooling_comment,
 } from '../../comment-utils.js';
@@ -118,8 +117,9 @@ export function tsx_with_ts_locations(
 	/**
 	 * @param {AST.CommentWithLocation} comment
 	 * @param {ESRap.Context} context
+	 * @param {boolean} [inline] Follow the comment with a space, not a line break.
 	 */
-	const write_preserved_comment = (comment, context) => {
+	const write_preserved_comment = (comment, context, inline = false) => {
 		if (
 			!emitted_comments ||
 			(hashbang !== null && comment.start === 0) ||
@@ -135,7 +135,11 @@ export function tsx_with_ts_locations(
 		if (comment.loc) context.location(comment.loc.start.line, comment.loc.start.column);
 		context.write(format_comment(comment));
 		if (comment.loc) context.location(comment.loc.end.line, comment.loc.end.column);
-		context.newline();
+		if (inline) {
+			context.write(' ');
+		} else {
+			context.newline();
+		}
 	};
 
 	/**
@@ -176,7 +180,12 @@ export function tsx_with_ts_locations(
 	const write_leading_comments = (node, context) => {
 		if (!node.leadingComments || !is_comment_owner(node)) return;
 		for (const comment of node.leadingComments) {
-			if (has_location(comment)) write_preserved_comment(comment, context);
+			if (!has_location(comment)) continue;
+			// A block comment that ends on the line where the node starts stays on
+			// that line. TypeScript applies a `/* @ts-expect-error */` to the line
+			// after the one where it ends, so it would otherwise cover the node.
+			const inline = comment.type === 'Block' && comment.loc.end.line === node.loc?.start.line;
+			write_preserved_comment(comment, context, inline);
 		}
 	};
 
@@ -327,7 +336,7 @@ export function tsx_with_ts_locations(
 		JSXEmptyExpression: (node, context) => {
 			if (!emitted_comments || !preserve_owner_comments) return;
 			for (const comment of /** @type {AST.CommentWithLocation[]} */ (node.innerComments ?? [])) {
-				if (!is_jsx_child_tooling_comment(comment) || comment.value.includes('*/')) continue;
+				if (!should_preserve_jsx_tooling_comment(comment) || comment.value.includes('*/')) continue;
 				const key = `${comment.start}:${comment.end}:${comment.type}:${comment.value}`;
 				if (emitted_comments.has(key)) continue;
 				emitted_comments.add(key);

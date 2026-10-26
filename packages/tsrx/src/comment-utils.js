@@ -93,6 +93,11 @@ export function should_preserve_comment(comment) {
  * Declaration generators also consume documentation and custom `// @...`
  * annotations from JSX-backed virtual TypeScript. Keep this broader policy
  * separate from the legacy to_ts printer's semantic-comment policy.
+ *
+ * TypeScript also reads a `@ts-expect-error` or `@ts-ignore` block comment,
+ * JSDoc-style too, as the line form, and between JSX children, in its `{}`
+ * (see `#addTemplateText` in `plugin.js`), as in TSX's
+ * `{/* @ts-expect-error *\/}`.
  * @param {AST.CommentWithLocation} comment
  * @returns {boolean}
  */
@@ -100,21 +105,7 @@ export function should_preserve_jsx_tooling_comment(comment) {
 	return (
 		should_preserve_comment(comment) ||
 		is_jsdoc_comment(comment) ||
-		(comment.type === 'Line' && comment.value.trimStart().startsWith('@'))
-	);
-}
-
-/**
- * A comment between JSX children that the editor's TypeScript keeps, in its
- * `{}` (see `#addTemplateText` in `plugin.js`): a tooling comment, or a
- * `@ts-expect-error` or `@ts-ignore` block comment, JSDoc-style too, which
- * TypeScript also reads there, as in TSX's `{/* @ts-expect-error *\/}`.
- * @param {AST.CommentWithLocation} comment
- * @returns {boolean}
- */
-export function is_jsx_child_tooling_comment(comment) {
-	return (
-		should_preserve_jsx_tooling_comment(comment) ||
+		(comment.type === 'Line' && comment.value.trimStart().startsWith('@')) ||
 		(comment.type === 'Block' && /^[\s*]*@ts-(?:expect-error|ignore)\b/.test(comment.value))
 	);
 }
@@ -205,11 +196,8 @@ export function format_comment(comment) {
 			return `/// ${comment.value.trimStart().slice(1)}`;
 		}
 		return `// ${comment.value.trim()}`;
-	} else {
-		// Block comment - check if it's a JSDoc (value starts with *)
-		if (comment.value.startsWith('*')) {
-			return `/** ${comment.value.trim().slice(1)} */`;
-		}
-		return `/* ${comment.value.trim()} */`;
 	}
+	// A block comment prints as written: TypeScript reads a JSDoc comment's
+	// lines, and the text of each must match the source for the editor.
+	return `/*${comment.value}*/`;
 }

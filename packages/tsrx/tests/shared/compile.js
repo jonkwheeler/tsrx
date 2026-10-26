@@ -5,7 +5,7 @@ import { error_with } from './errors.js';
 import { runSharedScopedStyleTests } from './scoped-styles.js';
 import { runSharedScopedStyleConformanceTests } from './scoped-styles-conformance.js';
 
-/** @import { CompileDiagnosticsHarness, CompileHarness } from '../../types/index' */
+/** @import { CodeMapping, CompileDiagnosticsHarness, CompileHarness } from '../../types/index' */
 
 /**
  * @param {string} haystack
@@ -139,6 +139,76 @@ export function App() @{
 				const length = generatedLengths?.[0] ?? lengths[0];
 				expect(code.slice(generatedOffsets[0], generatedOffsets[0] + length)).toBe(text);
 			}
+		});
+	});
+
+	describe(`[${name}] comments in virtual code`, () => {
+		/**
+		 * Whether a verification mapping covers exactly `text`, which starts at
+		 * `offset` in the source, and maps it to the same generated text.
+		 * @param {{ code: string, mappings: CodeMapping[] }} result
+		 * @param {number} offset
+		 * @param {string} text
+		 */
+		const is_mapped = (result, offset, text) =>
+			result.mappings.some(
+				(mapping) =>
+					mapping.sourceOffsets[0] === offset &&
+					mapping.lengths[0] === text.length &&
+					mapping.data.verification &&
+					result.code.slice(
+						mapping.generatedOffsets[0],
+						mapping.generatedOffsets[0] + (mapping.generatedLengths?.[0] ?? mapping.lengths[0]),
+					) === text,
+			);
+
+		it.each(['/** */', '/** Docs. */', '/**\n * Docs.\n * @param a The value.\n */'])(
+			'prints the JSDoc comment %j as written',
+			(comment) => {
+				const source = `${comment}\nexport function A({ a }: { a: number }) @{\n\t<p>{a}</p>\n}\n`;
+				const result = compile_to_volar_mappings(source, 'App.tsrx');
+
+				expect(result.errors).toEqual([]);
+				expect(result.code).toContain(`${comment}\nexport `);
+				expect(is_mapped(result, 0, comment)).toBe(true);
+			},
+		);
+
+		it('keeps a block TypeScript directive on the line before its statement', () => {
+			const source = `/* @ts-expect-error */
+export const a: number = 'bad';
+/*@ts-ignore*/
+export const b: number = 'bad';
+export class K {
+	/* @ts-ignore */
+	v: number = 'bad';
+}
+/* plain */
+export const c = 1;
+`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx');
+
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain("/* @ts-expect-error */\nexport const a: number = 'bad';");
+			expect(result.code).toContain("/*@ts-ignore*/\nexport const b: number = 'bad';");
+			expect(result.code).toMatch(/\/\* @ts-ignore \*\/\n\s*v: number = 'bad';/);
+			expect(result.code).not.toContain('plain');
+			for (const comment of ['/* @ts-expect-error */', '/*@ts-ignore*/', '/* @ts-ignore */']) {
+				expect(is_mapped(result, source.indexOf(comment), comment), comment).toBe(true);
+			}
+		});
+
+		it('keeps a block comment on the line where its statement starts', () => {
+			// TypeScript applies a directive to the line after the one it ends on, so
+			// this one covers nothing, as in TypeScript, and is reported as unused.
+			const source = `/* @ts-expect-error */ export const a: number = 'bad';
+/** Docs. */ export const b = 1;
+`;
+			const { code, errors } = compile_to_volar_mappings(source, 'App.tsrx');
+
+			expect(errors).toEqual([]);
+			expect(code).toContain("/* @ts-expect-error */ export const a: number = 'bad';");
+			expect(code).toContain('/** Docs. */ export const b = 1;');
 		});
 	});
 

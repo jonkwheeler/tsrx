@@ -375,6 +375,51 @@ export function App() @{
 			expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
 		});
 
+		it('reports an `@for` head that assigns instead of declaring (#267)', () => {
+			for (const [head, setup] of [
+				['state.item', 'const state = { item: 0 };'],
+				['item', 'let item = 0;'],
+				['{ item }', 'let item = 0;'],
+				['[state.item]', 'const state = { item: 0 };'],
+			]) {
+				const source = `export function App({ items }: { items: any[] }) @{
+					${setup}
+					<ul>
+						@for (${head} of items; index i) {
+							<li>{i}</li>
+						}
+					</ul>
+				}`;
+				const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+				const start = source.indexOf(`(${head} of`) + 1;
+
+				expect(
+					result.errors.map((error) => [error.code, error.pos, error.end]),
+					head,
+				).toEqual([[TSRX_ERRORS.FOR_HEAD_ASSIGNMENT.code, start, start + head.length]]);
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+			}
+		});
+
+		it('reports an `@for` head that declares its item with `using` (#453)', () => {
+			for (const kind of ['using', 'await using']) {
+				const source = `export async function App({ items }: { items: Disposable[] }) @{
+					<ul>
+						@for (${kind} item of items) {
+							<li>{String(item)}</li>
+						}
+					</ul>
+				}`;
+				const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+				expect(
+					result.errors.map((error) => [error.code, error.message]),
+					kind,
+				).toEqual([[TSRX_ERRORS.FOR_HEAD_USING.code, TSRX_ERRORS.FOR_HEAD_USING(kind).message]]);
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+			}
+		});
+
 		it('preserves deferred imports in type-only output', () => {
 			const result = compile_to_volar_mappings(
 				`import defer * as feature from './feature.js';

@@ -378,42 +378,163 @@ function wrap_helper_component(helper_fn, helper_id, source_node) {
  */
 function wrap_native_function_components(program, ctx) {
 	const wrapped = walk(program, ctx, {
-		FunctionDeclaration(node, { next, path, state }) {
-			const inner = next() ?? node;
-			return (
-				wrap_native_function_component(/** @type {AST.Function} */ (inner), state, path) ?? inner
-			);
-		},
-		FunctionExpression(node, { next, path, state }) {
-			const inner = next() ?? node;
-			return (
-				wrap_native_function_component(/** @type {AST.Function} */ (inner), state, path) ?? inner
-			);
-		},
-		ArrowFunctionExpression(node, { next, path, state }) {
-			const inner = next() ?? node;
-			return (
-				wrap_native_function_component(/** @type {AST.Function} */ (inner), state, path) ?? inner
-			);
-		},
+		FunctionDeclaration: visit_function_component,
+		FunctionExpression: visit_function_component,
+		ArrowFunctionExpression: visit_function_component,
+		Program: visit_statement_list_owner,
+		BlockStatement: visit_statement_list_owner,
+		StaticBlock: visit_statement_list_owner,
+		SwitchCase: visit_statement_list_owner,
 	});
 	program.body = /** @type {AST.Program} */ (wrapped).body;
 }
 
 /**
- * @param {AST.Function} fn
+ * @param {AST.Program | AST.BlockStatement | AST.StaticBlock | AST.SwitchCase} node
+ * @param {import('zimmerframe').Context<AST.Node, TransformContext>} context
+ * @returns {AST.Node | void}
+ */
+function visit_statement_list_owner(node, { next }) {
+	const walked = /** @type {typeof node} */ (next() ?? node);
+	const statements = /** @type {AST.Node[]} */ (
+		walked.type === 'SwitchCase' ? walked.consequent : walked.body
+	);
+	const hoisted = hoist_component_bindings(statements);
+	if (hoisted === statements) {
+		return walked === node ? undefined : walked;
+	}
+	return /** @type {AST.Node} */ (
+		walked.type === 'SwitchCase' ? { ...walked, consequent: hoisted } : { ...walked, body: hoisted }
+	);
+}
+
+/**
+ * Wrapping turns a component's function declaration into a `const`, which,
+ * unlike the declaration, is not hoisted. Move each wrapped component above
+ * the first statement in its scope that reads it while the scope runs, so
+ * `const registry = { inner: Inner }` above `function Inner` still works. A
+ * read inside a nested function runs later and needs no move.
+ *
+ * @param {AST.Node[]} statements
+ * @returns {AST.Node[]}
+ */
+function hoist_component_bindings(statements) {
+	let result = statements;
+	for (const statement of statements) {
+		const name = get_component_binding_name(statement);
+		if (!name) continue;
+
+		const index = result.indexOf(statement);
+		const first_read = result
+			.slice(0, index)
+			.findIndex((other) => reads_binding_eagerly(other, name));
+		if (first_read === -1) continue;
+
+		result = [
+			...result.slice(0, first_read),
+			statement,
+			...result.slice(first_read, index),
+			...result.slice(index + 1),
+		];
+	}
+	return result;
+}
+
+/**
+ * @param {AST.Node} statement
+ * @returns {string | null}
+ */
+function get_component_binding_name(statement) {
+	const declaration =
+		statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
+	return declaration?.metadata?.vue_component_binding ?? null;
+}
+
+/**
+ * TypeScript nodes that hold runtime code. Every other `TS*` node is a type,
+ * which is erased and never reads a binding.
+ */
+const RUNTIME_TS_NODE_TYPES = new Set([
+	'TSAsExpression',
+	'TSSatisfiesExpression',
+	'TSNonNullExpression',
+	'TSInstantiationExpression',
+	'TSTypeAssertion',
+	'TSEnumDeclaration',
+	'TSEnumMember',
+	'TSModuleDeclaration',
+	'TSModuleBlock',
+	'TSExportAssignment',
+	'TSParameterProperty',
+]);
+
+/**
+ * Whether evaluating `node` reads `name`, not counting reads inside nested
+ * functions or types.
+ *
+ * @param {AST.Node} node
+ * @param {string} name
+ * @returns {boolean}
+ */
+function reads_binding_eagerly(node, name) {
+	let found = false;
+	walk(node, null, {
+		_(node, { next }) {
+			if (node.type.startsWith('TS') && !RUNTIME_TS_NODE_TYPES.has(node.type)) return;
+			next();
+		},
+		FunctionDeclaration() {},
+		FunctionExpression() {},
+		ArrowFunctionExpression() {},
+		ExportSpecifier() {},
+		Identifier(node, { path, stop }) {
+			const parent = path.at(-1);
+			if (node.name === name && parent && is_reference(node, parent)) {
+				found = true;
+				stop();
+			}
+		},
+		JSXIdentifier(node, { path, stop }) {
+			const parent = path.at(-1);
+			if (
+				node.name === name &&
+				((parent?.type === 'JSXOpeningElement' && parent.name === node) ||
+					(parent?.type === 'JSXMemberExpression' && parent.object === node))
+			) {
+				found = true;
+				stop();
+			}
+		},
+	});
+	return found;
+}
+
+/**
+ * @param {AST.Function} node
+ * @param {import('zimmerframe').Context<AST.Node, TransformContext>} context
+ * @returns {AST.Node}
+ */
+function visit_function_component(node, { next, path, state }) {
+	const inner = /** @type {AST.Function} */ (next() ?? node);
+	return wrap_native_function_component(inner, node, state, path) ?? inner;
+}
+
+/**
+ * @param {AST.Function} fn the walked function, which is a copy of `source`
+ * when the walk replaced something inside it
+ * @param {AST.Function} source the function as it appears in `path`
  * @param {TransformContext} ctx
  * @param {AST.Node[]} path
  * @returns {AST.Expression | AST.VariableDeclaration | null}
  */
-function wrap_native_function_component(fn, ctx, path) {
-	if (!fn.metadata?.native_tsrx_function) {
+function wrap_native_function_component(fn, source, ctx, path) {
+	const parent = path.at(-1);
+	const name = get_function_component_name(source, parent);
+	if (!name || !/^[A-Z]/.test(name)) {
 		return null;
 	}
 
-	const parent = path.at(-1);
-	const name = get_function_component_name(fn, parent);
-	if (!name || !/^[A-Z]/.test(name)) {
+	if (!fn.metadata?.native_tsrx_function && !returns_local_jsx_binding(fn)) {
 		return null;
 	}
 
@@ -433,7 +554,7 @@ function wrap_native_function_component(fn, ctx, path) {
 		return call;
 	}
 
-	if (parent?.type === 'ExportDefaultDeclaration' && parent.declaration === fn) {
+	if (parent?.type === 'ExportDefaultDeclaration' && parent.declaration === source) {
 		return call;
 	}
 
@@ -441,11 +562,84 @@ function wrap_native_function_component(fn, ctx, path) {
 		return call;
 	}
 
-	return setLocation(
+	const declaration = setLocation(
 		b.declaration('const', [b.declarator(create_generated_identifier(fn.id.name), call)]),
 		has_location(fn) ? fn : undefined,
 		true,
 	);
+	declaration.metadata = { ...declaration.metadata, vue_component_binding: fn.id.name };
+	return declaration;
+}
+
+/**
+ * Whether `fn` builds its output in a local binding and returns that binding
+ * (`const element = <div />; return element;`). The core transform marks only
+ * functions that return JSX directly or have an `@{ … }` body as components.
+ *
+ * @param {AST.Function} fn
+ * @returns {boolean}
+ */
+function returns_local_jsx_binding(fn) {
+	if (fn.body?.type !== 'BlockStatement') {
+		return false;
+	}
+
+	/** @type {{ jsx_bindings: Set<string>, returned: Set<string> }} */
+	const state = { jsx_bindings: new Set(), returned: new Set() };
+	walk(/** @type {AST.Node} */ (fn.body), state, {
+		FunctionDeclaration() {},
+		FunctionExpression() {},
+		ArrowFunctionExpression() {},
+		VariableDeclarator(node, { state, next }) {
+			if (node.id.type === 'Identifier' && contains_jsx(node.init)) {
+				state.jsx_bindings.add(node.id.name);
+			}
+			next();
+		},
+		AssignmentExpression(node, { state, next }) {
+			if (node.left.type === 'Identifier' && contains_jsx(node.right)) {
+				state.jsx_bindings.add(node.left.name);
+			}
+			next();
+		},
+		ReturnStatement(node, { state, next }) {
+			if (node.argument?.type === 'Identifier') {
+				state.returned.add(node.argument.name);
+			}
+			next();
+		},
+	});
+
+	for (const name of state.returned) {
+		if (state.jsx_bindings.has(name)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * @param {AST.Node | null | undefined} node
+ * @returns {boolean}
+ */
+function contains_jsx(node) {
+	if (!node) {
+		return false;
+	}
+
+	let found = false;
+	walk(node, null, {
+		FunctionDeclaration() {},
+		FunctionExpression() {},
+		ArrowFunctionExpression() {},
+		JSXElement() {
+			found = true;
+		},
+		JSXFragment() {
+			found = true;
+		},
+	});
+	return found;
 }
 
 /**

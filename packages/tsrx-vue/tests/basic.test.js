@@ -67,6 +67,97 @@ describe('@tsrx/vue basic', () => {
 		expect(code.match(/defineVaporComponent/g)).toHaveLength(2);
 	});
 
+	it('wraps arrow components that contain nested functions', () => {
+		const { code } = compile(
+			`const Handler = ({ label, onPick }) => <button onClick={() => onPick(label)}>{label}</button>;
+			const List = ({ items }) => {
+				return <ul>{items.map((item) => <li>{item}</li>)}</ul>;
+			};
+			const parts = { Item: ({ label }) => <b onClick={() => label}>{label}</b> };`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain('const Handler = defineVaporComponent(({ label, onPick }) =>');
+		expect(code).toContain('const List = defineVaporComponent(({ items }) =>');
+		expect(code).toContain('Item: defineVaporComponent(({ label }) =>');
+	});
+
+	it('wraps a default-exported component that contains a nested function', () => {
+		const { code } = compile(
+			`export default function App() @{
+				const pick = () => 1;
+				<button onClick={pick}>x</button>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain('export default defineVaporComponent(function App()');
+		expect(code).not.toContain('export default const');
+	});
+
+	it('wraps components that return JSX through a local variable', () => {
+		const { code } = compile(
+			`function Card({ title }: { title: string }) {
+				const element = <div class="card" title={title} />;
+				return element;
+			}
+
+			function Badge({ on }: { on: boolean }) {
+				let element;
+				if (on) element = <b />;
+				else element = <i />;
+				return element;
+			}
+
+			function Factory() {
+				const value = { a: 1 };
+				return value;
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain('const Card = defineVaporComponent(function Card(');
+		expect(code).toContain('const Badge = defineVaporComponent(function Badge(');
+		expect(code).toContain('function Factory() {');
+		expect(code).not.toContain('defineVaporComponent(function Factory');
+	});
+
+	it('moves a wrapped component above the first statement that reads it', () => {
+		const { code } = compile(
+			`export { Inner };
+			type InnerType = typeof Inner;
+
+			export function App() @{
+				<Inner label="app" />
+			}
+
+			export const registry = { inner: Inner };
+
+			export function Inner(props: { label: string }) @{
+				<span>{props.label}</span>
+			}
+
+			function make() {
+				return <Nested />;
+				function Nested() {
+					return <i />;
+				}
+			}`,
+			'App.tsrx',
+		);
+
+		const inner = code.indexOf('export const Inner = defineVaporComponent');
+		expect(inner).toBeGreaterThan(-1);
+		expect(inner).toBeLessThan(code.indexOf('export const registry'));
+		// Reads that run later (exports, types, function bodies) keep the source order.
+		expect(code.indexOf('export { Inner }')).toBeLessThan(inner);
+		expect(code.indexOf('type InnerType')).toBeLessThan(inner);
+		expect(code.indexOf('export const App')).toBeLessThan(inner);
+		expect(code.indexOf('const Nested = defineVaporComponent')).toBeLessThan(
+			code.indexOf('return <Nested />'),
+		);
+	});
+
 	it('rejects the removed `&{ ... }` lazy destructuring syntax', () => {
 		expect(() =>
 			compile(

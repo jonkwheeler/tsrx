@@ -244,7 +244,9 @@ describe('@tsrx/turbopack-plugin-react config helper', () => {
 		expect(rule.condition).toEqual({
 			all: [{ not: 'foreign' }, { query: '?tsrx-css&lang.css' }],
 		});
-		expect(rule.type).toBe('css');
+		// Next only gives server components' CSS a stylesheet link for `*.css` modules.
+		expect(rule.as).toBe('*.css');
+		expect(rule).not.toHaveProperty('type');
 		expect(rule.loaders).toHaveLength(1);
 		expect(rule.loaders[0]).toContain('packages/turbopack-plugin-react/src/css-loader.js');
 	});
@@ -282,7 +284,7 @@ describe('@tsrx/turbopack-plugin-react config helper', () => {
 			condition: {
 				all: [{ not: 'foreign' }, { query: '?tsrx-css&lang.css' }],
 			},
-			type: 'css',
+			as: '*.css',
 		});
 	});
 
@@ -317,7 +319,7 @@ describe('@tsrx/turbopack-plugin-react config helper', () => {
 			condition: {
 				all: [{ not: 'foreign' }, { query: '?tsrx-css&lang.css' }],
 			},
-			type: 'css',
+			as: '*.css',
 		});
 		expect(config.turbopack.rules['*.tsrx'][2]).toEqual({
 			loaders: ['custom-loader'],

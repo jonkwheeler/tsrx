@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -354,6 +354,50 @@ describe('@tsrx/mcp compile helpers', () => {
 			expect(result.errors).toEqual([]);
 		},
 	);
+
+	it('compiles and validates platform flags with the platform configured in tsconfig', async () => {
+		const temp_dir = await mkdtemp(join(tmpdir(), 'tsrx-mcp-platform-'));
+		const code = `export function selected() {
+	if (import.meta.env.platform.ios) {
+		return 'ios';
+	} else {
+		return 'other';
+	}
+}
+`;
+
+		try {
+			await symlink(resolve(__dirname, '../../../node_modules'), join(temp_dir, 'node_modules'));
+			await writeFile(
+				join(temp_dir, 'package.json'),
+				JSON.stringify({ type: 'module', dependencies: { '@tsrx/react': '*' } }),
+				'utf8',
+			);
+			await writeFile(
+				join(temp_dir, 'tsconfig.json'),
+				JSON.stringify({ tsrx: { compiler: '@tsrx/react', platform: 'ios' } }),
+				'utf8',
+			);
+			await writeFile(join(temp_dir, 'App.tsrx'), code, 'utf8');
+
+			const compiled = await compile_tsrx({
+				code,
+				filename: join(temp_dir, 'App.tsrx'),
+				cwd: temp_dir,
+				includeCode: true,
+			});
+			expect(compiled.errors).toEqual([]);
+			expect(compiled.ok).toBe(true);
+			expect(compiled.code).toContain(`return 'ios'`);
+			expect(compiled.code).not.toContain(`return 'other'`);
+
+			const validated = await validate_tsrx_file({ filePath: 'App.tsrx', cwd: temp_dir });
+			expect(validated.compile?.errors).toEqual([]);
+			expect(validated.ok).toBe(true);
+		} finally {
+			await rm(temp_dir, { recursive: true, force: true });
+		}
+	});
 
 	it('reports unclosed tags as compile errors', async () => {
 		// Regression: this case must produce ok: false. Editor-style `loose`

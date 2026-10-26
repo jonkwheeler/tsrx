@@ -2,6 +2,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { DIAGNOSTIC_CODES } from '@tsrx/core';
+import { resolveBuildPlatform } from '@tsrx/core/config';
 import { detect_target, TARGET_CANDIDATES } from './target.js';
 
 const VALID_TARGETS = new Set(TARGET_CANDIDATES.map((candidate) => candidate.target));
@@ -215,10 +216,15 @@ export async function compile_tsrx(input) {
 			throw new Error(`${compiler_package} does not export a compile() function.`);
 		}
 
+		const platform = resolveBuildPlatform({
+			root: path.dirname(path.resolve(cwd, filename)),
+			integration: '@tsrx/mcp',
+		});
 		const result = compiler.compile(input.code, filename, {
 			collect: input.collect ?? true,
 			loose: input.loose,
 			mode: input.mode,
+			platform,
 		});
 		const errors = normalize_errors(result?.errors, filename);
 		const code = get_generated_code(result);

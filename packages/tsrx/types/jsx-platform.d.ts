@@ -435,11 +435,23 @@ export interface JsxPlatform {
 		 */
 		multiRefStrategy?: 'merge-refs' | 'array';
 		/**
-		 * Some JSX runtimes do not apply a `ref` that arrives through a props
-		 * spread. In that case, host spread normalization also emits an
-		 * explicit `ref={normalized.ref}` attribute.
+		 * How a host spread's `ref` reaches the element.
+		 *
+		 * - `undefined`: the JSX runtime applies a `ref` that arrives through a
+		 *   spread, but the element's own `ref` replaces it. An element with its
+		 *   own `ref` also reads each spread's normalized `ref` and merges them
+		 *   into that attribute.
+		 * - `'explicit-ref-attr'`: the JSX runtime does not apply a `ref` that
+		 *   arrives through a spread, so every host spread also emits an explicit
+		 *   `ref={normalized.ref}` attribute.
+		 * - `'spread'`: the JSX runtime applies a spread's `ref` alongside the
+		 *   element's own `ref` (Solid's `spread()`), so an element with one
+		 *   spread keeps its own `ref` as written and spreads the normalized bag
+		 *   in place. The runtime keeps only the last of several spreads' refs,
+		 *   so an element with more than one spread merges them as for
+		 *   `undefined`.
 		 */
-		hostSpreadRefStrategy?: 'explicit-ref-attr';
+		hostSpreadRefStrategy?: 'explicit-ref-attr' | 'spread';
 		/**
 		 * Where a host spread binds its normalized props bag when the element
 		 * also reads the bag's `ref` through a `ref` attribute.

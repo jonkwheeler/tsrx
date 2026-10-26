@@ -1059,9 +1059,31 @@ describe('@tsrx/solid basic', () => {
 			expect(code).not.toContain('__normalize_spread_props(second, cb)');
 		});
 
-		it('lowers a host spread beside a ref in expression position once', () => {
-			const source = `export function App({ enabled, bag, cb }) {
+		it('keeps the ref as written beside a single host spread', () => {
+			const template = `function App() @{
+					let input;
+					<input ref={input} {...props.rest} />
+				}`;
+			const expression = `export function App({ enabled, bag, cb }) {
 					return enabled ? <input {...bag} ref={cb} /> : null;
+				}`;
+
+			for (const compile_fn of [compile, compile_to_volar_mappings]) {
+				const template_code = compile_fn(template, 'App.tsrx').code;
+				expect(template_code).toContain(
+					'<input ref={input} {...__normalize_spread_props(props.rest)} />',
+				);
+				expect(template_code).not.toContain('spread_props1');
+
+				const expression_code = compile_fn(expression, 'App.tsrx').code;
+				expect(expression_code).toContain('<input {...__normalize_spread_props(bag)} ref={cb} />');
+				expect(expression_code).not.toContain('spread_props1');
+			}
+		});
+
+		it('lowers host spreads beside a ref in expression position once', () => {
+			const source = `export function App({ enabled, first, second, cb }) {
+					return enabled ? <input {...first} {...second} ref={cb} /> : null;
 				}`;
 
 			for (const { code } of [
@@ -1069,12 +1091,12 @@ describe('@tsrx/solid basic', () => {
 				compile_to_volar_mappings(source, 'App.tsrx'),
 			]) {
 				expect(code).toContain(
-					'let App__spread_props1 = __normalize_spread_props_for_ref_attr(bag);',
+					'let App__spread_props1 = __normalize_spread_props_for_ref_attr(first);',
 				);
 				expect(code).toContain(
-					'<input {...App__spread_props1} ref={[App__spread_props1?.ref, cb]} />',
+					'<input {...App__spread_props1} {...App__spread_props2} ref={[App__spread_props1?.ref, App__spread_props2?.ref, cb]} />',
 				);
-				expect(code).not.toContain('App__spread_props2');
+				expect(code).not.toContain('App__spread_props3');
 			}
 		});
 

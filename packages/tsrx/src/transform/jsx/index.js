@@ -5367,12 +5367,13 @@ function is_component_like_jsx_name(name) {
 function normalize_host_ref_spreads(attrs, is_host, transform_context) {
 	if (!is_host) return attrs;
 
-	const needs_explicit_spread_ref =
-		transform_context.platform.jsx?.hostSpreadRefStrategy === 'explicit-ref-attr';
-	const ref_exprs = attrs
-		.filter((attr) => is_jsx_ref_attribute(attr))
-		.map((attr) => attr.value.expression);
-	const needs_synthetic_spread_ref = needs_explicit_spread_ref || ref_exprs.length > 0;
+	const strategy = transform_context.platform.jsx?.hostSpreadRefStrategy;
+	const has_ref = attrs.some((attr) => is_jsx_ref_attribute(attr));
+	const needs_synthetic_spread_ref =
+		strategy === 'explicit-ref-attr' ||
+		(has_ref &&
+			(strategy !== 'spread' ||
+				attrs.filter((attr) => attr.type === 'JSXSpreadAttribute').length > 1));
 	// Types do not depend on evaluation order, so the type-only print keeps
 	// the initialized setup declaration.
 	const bind_in_place =

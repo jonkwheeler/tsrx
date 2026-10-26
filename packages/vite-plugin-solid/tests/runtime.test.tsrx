@@ -445,6 +445,60 @@ function MultiSpreadExplicitRefApp() @{
 	/>
 }
 
+// ── A host spread beside the element's own ref ──
+
+let spread_assigned_ref_node: HTMLInputElement | null = null;
+
+function SpreadAssignedRefApp() @{
+	let input: HTMLInputElement | undefined;
+	const rest = { title: 'assigned' };
+	<>
+		<input ref={input} {...rest} class="spread-assigned-ref" />
+		<button
+			class="spread-assigned-ref-check"
+			onClick={() => {
+				spread_assigned_ref_node = input ?? null;
+			}}
+		>
+			{'check'}
+		</button>
+	</>
+}
+
+const spread_ref_calls: string[] = [];
+
+function spreadBagRef(node: HTMLInputElement | null) {
+	if (node) spread_ref_calls.push('bag');
+}
+
+function spreadOwnRef(node: HTMLInputElement | null) {
+	if (node) spread_ref_calls.push('own');
+}
+
+function SpreadRefOnceApp() @{
+	<>
+		<input {...{ ref: spreadBagRef }} ref={spreadOwnRef} />
+		@if (true) {
+			<input {...{ ref: spreadBagRef }} ref={spreadOwnRef} />
+		}
+	</>
+}
+
+function SpreadRefReactiveApp() @{
+	const [bag, setBag] = createSignal({ title: 'before', disabled: false });
+	<>
+		<button
+			class="spread-ref-reactive-update"
+			onClick={() => setBag({ title: 'after', disabled: true })}
+		>
+			{'update'}
+		</button>
+		<button {...bag()} ref={() => {}} class="spread-ref-reactive-target">
+			{'target'}
+		</button>
+	</>
+}
+
 // ── Conditional host spreads ──
 
 let conditional_spread_and_node: HTMLInputElement | null = null;
@@ -1247,6 +1301,33 @@ describe('tsrx-solid runtime', () => {
 		expect(multi_spread_first_node).toBe(multi_spread_native_node);
 		expect(multi_spread_native_calls).toBe(1);
 		expect(container.querySelector('.multi-spread-explicit-ref')!.hasAttribute('ref')).toBe(false);
+	});
+
+	it('assigns a variable ref on an element with a spread', async () => {
+		spread_assigned_ref_node = null;
+		await render(SpreadAssignedRefApp);
+		await click('.spread-assigned-ref-check');
+		const input = container.querySelector('.spread-assigned-ref');
+		expect(input).toBeInstanceOf(HTMLInputElement);
+		expect(spread_assigned_ref_node).toBe(input);
+		expect(input!.getAttribute('title')).toBe('assigned');
+	});
+
+	it("calls a spread's ref and the element's own ref once each", async () => {
+		spread_ref_calls.length = 0;
+		await render(SpreadRefOnceApp);
+		await flush();
+		expect(spread_ref_calls).toEqual(['own', 'bag', 'own', 'bag']);
+	});
+
+	it('updates a reactive host spread beside a ref', async () => {
+		await render(SpreadRefReactiveApp);
+		const target = container.querySelector('.spread-ref-reactive-target') as HTMLButtonElement;
+		expect(target.title).toBe('before');
+		expect(target.disabled).toBe(false);
+		await click('.spread-ref-reactive-update');
+		expect(target.title).toBe('after');
+		expect(target.disabled).toBe(true);
 	});
 
 	for (const enabled of [false, true]) {

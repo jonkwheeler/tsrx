@@ -96,6 +96,8 @@ const solid_platform = {
 		// `ref` attributes collapse to `ref={[a, b, ...]}` rather than
 		// going through a `mergeRefs` helper.
 		multiRefStrategy: 'array',
+		// Solid's `spread()` applies the bag's `ref` beside the element's own.
+		hostSpreadRefStrategy: 'spread',
 		// Solid's compiler escapes a string child into its HTML template, and a
 		// `<script>` element's text there isn't decoded; `innerHTML` renders the
 		// body as written on the client and the server.
@@ -2082,7 +2084,13 @@ function transform_element_attributes(raw_attrs, is_composite, transform_context
 function normalize_solid_host_ref_spreads(attrs, is_host, transform_context) {
 	if (!is_host) return attrs;
 
-	const needs_synthetic_spread_ref = attrs.some(is_solid_jsx_ref_attribute);
+	// Solid's `spread()` applies a lone spread's `ref` beside the element's own
+	// `ref`, which keeps its native meaning (`ref={el}` assigns `el`). Of several
+	// spreads' refs its prop merge keeps only the last, so those are merged into
+	// the element's `ref` array instead.
+	const needs_synthetic_spread_ref =
+		attrs.some(is_solid_jsx_ref_attribute) &&
+		attrs.filter((attr) => attr?.type === 'JSXSpreadAttribute').length > 1;
 
 	return attrs.flatMap(
 		/**

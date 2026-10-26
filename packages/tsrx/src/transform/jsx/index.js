@@ -25,6 +25,7 @@ import {
 	clone_jsx_name,
 	create_generated_identifier,
 	create_null_literal,
+	FOR_OF_ITEM_PARAM_NAME,
 	get_for_of_iteration_params,
 	identifier_to_jsx_identifier,
 	is_bare_render_expression,
@@ -4425,7 +4426,26 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 	// Restore bindings
 	transform_context.available_bindings = saved_bindings;
 
-	const iter_callback = b.arrow(loop_params, b.block(body_statements));
+	// An `await` in a default of the head's pattern can't stay in the
+	// parameters of the async callback the loop becomes, so that callback takes
+	// the item whole and destructures it as its first statement.
+	let callback_params = loop_params;
+	if (
+		node.left.type === 'VariableDeclaration' &&
+		loop_params[0] === node.left.declarations[0]?.id &&
+		find_first_top_level_await(loop_params[0], false)
+	) {
+		const item = b.id(FOR_OF_ITEM_PARAM_NAME);
+		// `using` binds only a name, so a pattern that awaits is never one.
+		const kind = /** @type {'const' | 'let' | 'var'} */ (node.left.kind);
+		callback_params = [item, ...loop_params.slice(1)];
+		body_statements = [
+			b.declaration(kind, [b.declarator(loop_params[0], item)]),
+			...body_statements,
+		];
+	}
+
+	const iter_callback = b.arrow(callback_params, b.block(body_statements));
 	const empty_fallback = node.empty
 		? b.call(
 				b.arrow(

@@ -46,3 +46,31 @@ export function SpreadsRefOrderApp() @{
 		ref={capture}
 	/>
 }
+
+function getter_bag(extra: object = {}) {
+	const counter = { reads: 0 };
+	const bag = Object.assign(
+		{
+			get title() {
+				return String(++counter.reads);
+			},
+		},
+		extra,
+	);
+	return [counter, bag] as const;
+}
+
+export function SpreadGetterApp() @{
+	const [counter, bag] = getter_bag();
+	<input class="spread-getter" {...bag} data-reads={String(counter.reads)} />
+}
+
+export function SpreadGetterRefApp() @{
+	const [counter, bag] = getter_bag();
+	<input class="spread-getter-ref" {...bag} data-reads={String(counter.reads)} ref={capture} />
+}
+
+export function SpreadGetterOwnRefApp() @{
+	const [counter, bag] = getter_bag({ ref: capture });
+	<input class="spread-getter-own-ref" {...bag} data-reads={String(counter.reads)} />
+}

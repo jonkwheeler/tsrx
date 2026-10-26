@@ -5108,6 +5108,11 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 			? platform.imports.refProp
 			: null;
 
+	// A JSX runtime that evaluates attributes left to right copies a spread once,
+	// so it gets the normalizers that return their copy: handing back the
+	// original bag would make the copy read its getters a second time.
+	const copies_spread = transform_context.platform.jsx?.hostSpreadRefBinding === 'in-place';
+
 	/** @type {Map<string, AST.ImportSpecifier[]>} */
 	const ref_imports = new Map();
 
@@ -5123,7 +5128,10 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 		add_ref_import_specifier(
 			ref_imports,
 			normalize_spread_props_source,
-			b.import_specifier('normalize_spread_props', NORMALIZE_SPREAD_PROPS_INTERNAL_NAME),
+			b.import_specifier(
+				copies_spread ? 'copy_spread_props' : 'normalize_spread_props',
+				NORMALIZE_SPREAD_PROPS_INTERNAL_NAME,
+			),
 		);
 	}
 
@@ -5132,7 +5140,7 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 			ref_imports,
 			normalize_spread_props_for_ref_attr_source,
 			b.import_specifier(
-				'normalize_spread_props_for_ref_attr',
+				copies_spread ? 'copy_spread_props_for_ref_attr' : 'normalize_spread_props_for_ref_attr',
 				NORMALIZE_SPREAD_PROPS_FOR_REF_ATTR_INTERNAL_NAME,
 			),
 		);

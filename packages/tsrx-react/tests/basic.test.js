@@ -1778,6 +1778,24 @@ describe('destructuring', () => {
 			expect(type_only).toContain('{...App__spread_props1}');
 		});
 
+		it('imports the spread normalizers that return their copy', () => {
+			const { code } = compile(
+				`export function App() @{
+					<>
+						<input {...props.first} />
+						<input {...props.second} ref={props.cb} />
+					</>
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('copy_spread_props as __normalize_spread_props');
+			expect(code).toContain(
+				'copy_spread_props_for_ref_attr as __normalize_spread_props_for_ref_attr',
+			);
+			expect(code).toContain('{...__normalize_spread_props(props.first)}');
+		});
+
 		it('rejects multiple ref={expr} attributes on the same element', () => {
 			expect(() =>
 				compile(

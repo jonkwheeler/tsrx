@@ -294,7 +294,6 @@
   "let"
   "const"
   "var"
-  "using"
 ] @keyword.storage
 
 ; Special identifiers

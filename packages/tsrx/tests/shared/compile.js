@@ -81,10 +81,12 @@ function tsx_shape(code) {
 }
 
 /**
- * An element or fragment in each position where TSX reads only a
- * left-hand-side expression, so it needs its parentheses: the object of a
- * member, call, tagged-template or `!` suffix, a `new` callee, and a
- * superclass. TSX reads an element only as a unary operand.
+ * An element or fragment in each position where TSX needs it in parentheses.
+ * TSX reads an element only as a unary operand, not as the object of a
+ * member, call, tagged-template, `!` or type-argument suffix, a `new` callee
+ * or a superclass. And it reads a `<` right after an element as the start of
+ * another element, so an element that ends the left operand of `<` needs
+ * them too.
  * @type {Array<[string, string]>}
  */
 const ELEMENT_OPERAND_CASES = [
@@ -103,6 +105,11 @@ const ELEMENT_OPERAND_CASES = [
 	['an instantiation expression', 'export const value = (<b />)<string>;'],
 	['a superclass', 'export class A extends (<div />) {}'],
 	['a class expression superclass', 'export const B = class extends (<></>) {};'],
+	['the left operand of `<`', 'export const value = (<b />) < x;'],
+	['a fragment as the left operand of `<`', 'export const value = (<></>) < x;'],
+	['the end of the left operand of `<`', 'export const value = x + (<b />) < y;'],
+	['the end of a nested left operand of `<`', 'export const value = x < y * (<b />) < z;'],
+	['the end of an exponent before `<`', 'export const value = x ** y ** (<b />) < z;'],
 ];
 
 /**
@@ -2611,8 +2618,23 @@ export function App() @{
 		});
 
 		it('adds no parentheses around an element that is an operand of an operator', () => {
-			const source = `export function f(x: unknown) {
-	return [!<b />, typeof <b />, <b /> as unknown, <b /> satisfies unknown, x ?? <b />, () => <b />];
+			const source = `export function f(x: any, y: any) {
+	return [
+		!<b />,
+		typeof <b />,
+		<b /> as unknown,
+		<b /> satisfies unknown,
+		x ?? <b />,
+		() => <b />,
+		<b /> <= x,
+		<b /> > x,
+		<b /> << x,
+		x < <b />,
+		!<b /> < x,
+		x + -<b /> < y,
+		(x == <b />) < y,
+		x ** (y * <b />) < x,
+	];
 }`;
 			const { code } = compile(source, 'App.tsrx');
 

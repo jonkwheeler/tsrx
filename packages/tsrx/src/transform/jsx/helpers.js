@@ -185,10 +185,14 @@ export function tsx_with_ts_locations(
 	 * only as a unary operand: `<b>ok</b>.type` is the element followed by a
 	 * separate `.type` statement, and `class A extends <div /> {}` doesn't
 	 * parse. So an element needs its parentheses as the object of a member,
-	 * call, tagged-template or `!` suffix, a `new` callee, or a superclass.
-	 * The build parse drops the source's parentheses, and esrap ranks an
-	 * element as a primary expression, which it never wraps there. The editor
-	 * parse keeps them as a `ParenthesizedExpression`, which prints them.
+	 * call, tagged-template, `!` or type-argument suffix (an instantiation
+	 * expression), a `new` callee, or a superclass. TSX also reads a `<` right
+	 * after an element as the start of another element, so an element that
+	 * ends the left operand of `<` needs them too (see
+	 * `element_before_less_than`). The build parse drops the source's
+	 * parentheses, and esrap ranks an element as a primary expression, which
+	 * it never wraps there. The editor parse keeps them as a
+	 * `ParenthesizedExpression`, which prints them.
 	 * @type {WeakSet<AST.Node>}
 	 */
 	const parenthesized_elements = new WeakSet();
@@ -391,6 +395,13 @@ export function tsx_with_ts_locations(
 			print_with_element_operand(base.NewExpression, node, node.callee, context),
 		TaggedTemplateExpression: (node, context) =>
 			print_with_element_operand(base.TaggedTemplateExpression, node, node.tag, context),
+		BinaryExpression: (node, context) =>
+			print_with_element_operand(
+				base.BinaryExpression,
+				node,
+				node.operator === '<' ? element_before_less_than(node.left) : null,
+				context,
+			),
 		TSNonNullExpression: (node, context) =>
 			print_with_element_operand(base.TSNonNullExpression, node, node.expression, context),
 		TSInstantiationExpression: (node, context) =>
@@ -528,6 +539,49 @@ const COMMENT_OWNER_NODE_TYPES = new Set([
 
 /** @type {WeakSet<AST.Node>} */
 const arrow_type_parameters = new WeakSet();
+
+/**
+ * The precedence esrap gives each binary operator that binds at least as
+ * tightly as `<`. esrap wraps any looser operand of these in parentheses.
+ * @type {Record<string, number>}
+ */
+const TIGHT_BINARY_PRECEDENCE = {
+	'<': 9,
+	'>': 9,
+	'<=': 9,
+	'>=': 9,
+	in: 9,
+	instanceof: 9,
+	'<<': 10,
+	'>>': 10,
+	'>>>': 10,
+	'+': 11,
+	'-': 11,
+	'*': 12,
+	'/': 12,
+	'%': 12,
+	'**': 13,
+};
+
+/**
+ * The element or fragment that `node` ends with when esrap prints it as the
+ * left operand of `<`, with no parentheses after it: `<b />` in `<b /> < x`
+ * and `x + <b /> < y`. A unary operand (`!<b /> < y`) is fine, as is an
+ * operand esrap wraps (`(x == <b />) < y`).
+ * @param {AST.Node} node
+ * @param {number} [min_precedence] The precedence below which esrap wraps
+ * `node`.
+ * @returns {AST.Node | null}
+ */
+function element_before_less_than(node, min_precedence = TIGHT_BINARY_PRECEDENCE['<']) {
+	if (node.type === 'JSXElement' || node.type === 'JSXFragment') return node;
+	if (node.type !== 'BinaryExpression') return null;
+	const precedence = TIGHT_BINARY_PRECEDENCE[node.operator];
+	if (precedence === undefined || precedence < min_precedence) return null;
+	// A right operand needs to bind more tightly to go unwrapped, except in
+	// right-associative `**`.
+	return element_before_less_than(node.right, node.operator === '**' ? precedence : precedence + 1);
+}
 
 /**
  * @param {AST.Node | null | undefined} node

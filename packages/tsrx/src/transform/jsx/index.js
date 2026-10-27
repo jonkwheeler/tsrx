@@ -534,6 +534,8 @@ export function createJsxTransform(platform) {
 	 * @returns {JsxTransformResult}
 	 */
 	function transform(ast, source, filename, options) {
+		/** @type {Map<number, boolean> | undefined} */
+		let hoistable_tags;
 		const effective_platform =
 			options?.runtimeImports === 'direct' && platform.directRuntimeImports
 				? {
@@ -577,7 +579,7 @@ export function createJsxTransform(platform) {
 			type_only_style_anchors,
 			helper_state: null,
 			available_bindings: new Map(),
-			module_binding_ends: collect_module_binding_ends(ast),
+			hoistable_tags: () => (hoistable_tags ??= collect_hoistable_tags(ast)),
 			filename: filename ?? null,
 			source,
 			collect,
@@ -2467,7 +2469,7 @@ function hoist_static_render_nodes(render_nodes, transform_context) {
 			continue;
 		}
 		if (references_scope_bindings(node, transform_context.available_bindings)) continue;
-		if (reads_uninitialized_tag(node, transform_context.module_binding_ends)) continue;
+		if (reads_unhoistable_tag(node, transform_context.hoistable_tags())) continue;
 
 		const name = create_helper_name(transform_context.helper_state, 'static');
 		const id = create_generated_identifier(name);
@@ -2481,64 +2483,246 @@ function hoist_static_render_nodes(render_nodes, transform_context) {
 }
 
 /**
- * For each name a top-level statement binds to a value the module body
- * initializes in order, which is anything but a function declaration or an
- * import, the end of the first statement that binds it.
+ * Whether each tag in `program` can be read where a static hoisted out of it
+ * runs, keyed by the start of the identifier the tag starts with. A static
+ * runs at module level, before the top-level statement it came from. A tag
+ * can be read there when that identifier resolves to an import, a function
+ * declaration, or a `const` or class declared in an earlier statement. A
+ * member tag (`<Menu.Item>`) also reads a property, which a later assignment
+ * can add, so one that starts with a function or class declared in the module
+ * stays at render time. So does a tag that starts with `this`, `super`, a
+ * local binding, a binding that can be reassigned (`let`, `var`, an enum, a
+ * namespace, an import alias), or a name the module does not bind.
  *
  * @param {AST.Program} program
- * @returns {Map<string, number>}
+ * @returns {Map<number, boolean>}
  */
-function collect_module_binding_ends(program) {
-	/** @type {Map<string, number>} */
-	const ends = new Map();
+function collect_hoistable_tags(program) {
+	/** @type {Map<string, { kind: string, end: number }>} */
+	const module_bindings = new Map();
+	/**
+	 * @param {string} name
+	 * @param {string} kind
+	 * @param {number} end
+	 */
+	const declare = (name, kind, end) => {
+		const existing = module_bindings.get(name);
+		module_bindings.set(
+			name,
+			!existing ? { kind, end } : existing.kind === kind ? existing : { kind: 'mutable', end },
+		);
+	};
 	for (const statement of program.body) {
-		// Typed loosely: the TypeScript declarations are not in the estree types
-		/** @type {any} */
-		const declaration =
-			statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration'
-				? statement.declaration
-				: statement;
-		if (!declaration || declaration.declare) continue;
-		/** @type {Map<string, AST.Identifier>} */
-		const bindings = new Map();
-		if (declaration.type === 'VariableDeclaration' || declaration.type === 'ClassDeclaration') {
-			collect_statement_bindings(declaration, bindings);
-		} else if (
-			(declaration.type === 'TSEnumDeclaration' || declaration.type === 'TSModuleDeclaration') &&
-			declaration.id.type === 'Identifier'
-		) {
-			bindings.set(declaration.id.name, declaration.id);
-		}
-		for (const name of bindings.keys()) {
-			if (!ends.has(name) && typeof statement.end === 'number') ends.set(name, statement.end);
+		for (const [name, kind] of statement_bindings(statement)) {
+			declare(name, kind, statement.end ?? Infinity);
 		}
 	}
-	return ends;
+	// A `var` in a block outside any function is module-level too
+	for (const name of var_names(program)) declare(name, 'mutable', Infinity);
+
+	/** @type {Map<number, boolean>} */
+	const hoistable = new Map();
+	/** @type {Set<string>[]} */
+	const scopes = [];
+	/**
+	 * @param {string} name
+	 * @param {boolean} member
+	 * @param {number} position
+	 * @returns {boolean}
+	 */
+	const is_hoistable = (name, member, position) => {
+		if (name === 'this' || name === 'super') return false;
+		if (scopes.some((names) => names.has(name))) return false;
+		const binding = module_bindings.get(name);
+		switch (binding?.kind) {
+			case 'import':
+				return true;
+			case 'function':
+				return !member;
+			case 'class':
+				return !member && binding.end <= position;
+			case 'const':
+				return binding.end <= position;
+			default:
+				return false;
+		}
+	};
+	/** @param {AST.Node} node */
+	const visit = (node) => {
+		const names = node === program ? null : scope_names(node);
+		if (names) scopes.push(names);
+		if (node.type === 'JSXOpeningElement' && !is_intrinsic_tag(node.name)) {
+			const root = jsx_tag_root(node.name);
+			if (root && typeof root.start === 'number') {
+				hoistable.set(
+					root.start,
+					is_hoistable(root.name, node.name.type === 'JSXMemberExpression', root.start),
+				);
+			}
+		}
+		for (const child of child_nodes(node)) visit(child);
+		if (names) scopes.pop();
+	};
+	visit(program);
+	return hoistable;
 }
 
 /**
- * Whether a static would read a tag the module has not initialized yet. A
- * static runs before the top-level statement it was hoisted out of, so a tag
- * can't read a name bound there or later (`<Screen.Tag>` in a method of
- * `class Screen`), or `this`.
+ * Whether a tag is intrinsic (`<div>`, `<my-element>`, `<svg:rect>`): a string
+ * that reads no binding.
  *
- * @param {AST.Node} node
- * @param {Map<string, number>} module_binding_ends
+ * @param {ESTreeJSX.TSRXJSXOpeningElement['name']} name
  * @returns {boolean}
  */
-function reads_uninitialized_tag(node, module_binding_ends) {
-	if (node.type === 'JSXIdentifier') {
-		if (node.name === 'this') return true;
-		const end = module_binding_ends.get(node.name);
-		return end !== undefined && !(typeof node.start === 'number' && end <= node.start);
+function is_intrinsic_tag(name) {
+	if (name.type === 'JSXNamespacedName') return true;
+	return (
+		name.type === 'JSXIdentifier' &&
+		name.name !== 'this' &&
+		name.name !== 'super' &&
+		(/^[a-z]/.test(name.name) || name.name.includes('-'))
+	);
+}
+
+/**
+ * The identifier a tag that reads a binding starts with: the tag itself, or
+ * the object a member tag starts with. `null` for any other tag.
+ *
+ * @param {ESTreeJSX.TSRXJSXOpeningElement['name']} name
+ * @returns {ESTreeJSX.JSXIdentifier | null}
+ */
+function jsx_tag_root(name) {
+	/** @type {any} */
+	let root = name;
+	while (root.type === 'JSXMemberExpression') root = root.object;
+	return root.type === 'JSXIdentifier' ? root : null;
+}
+
+/**
+ * The value bindings a statement in a statement list declares, with their
+ * kind: `import`, `function`, `class`, `const`, or `mutable`. Type-only and
+ * ambient declarations bind no value.
+ *
+ * @param {AST.Node} statement
+ * @returns {Array<[string, string]>}
+ */
+function statement_bindings(statement) {
+	// Typed loosely: the TypeScript declarations are not in the estree types
+	/** @type {any} */
+	const node =
+		statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration'
+			? statement.declaration
+			: statement;
+	if (!node || node.declare) return [];
+	switch (node.type) {
+		case 'ImportDeclaration':
+			if (node.importKind === 'type') return [];
+			return node.specifiers.flatMap((/** @type {any} */ specifier) =>
+				specifier.importKind === 'type' ? [] : [[specifier.local.name, 'import']],
+			);
+		case 'VariableDeclaration': {
+			/** @type {Map<string, AST.Identifier>} */
+			const bindings = new Map();
+			collect_statement_bindings(node, bindings);
+			const kind = node.kind === 'let' || node.kind === 'var' ? 'mutable' : 'const';
+			return [...bindings.keys()].map((name) => [name, kind]);
+		}
+		case 'FunctionDeclaration':
+			return node.id ? [[node.id.name, 'function']] : [];
+		case 'ClassDeclaration':
+			return node.id ? [[node.id.name, 'class']] : [];
+		case 'TSEnumDeclaration':
+		case 'TSModuleDeclaration':
+		case 'TSImportEqualsDeclaration':
+			return node.id?.type === 'Identifier' ? [[node.id.name, 'mutable']] : [];
+		default:
+			return [];
 	}
-	if (node.type === 'JSXMemberExpression') {
-		return reads_uninitialized_tag(node.object, module_binding_ends);
+}
+
+/**
+ * The names `node` binds for the code inside it, or `null` when it binds none:
+ * a function's parameters, name, and `var`s, a class's name, a catch clause's
+ * parameters, a `@for` index, the declarations of a loop head, and the
+ * declarations in any statement list it holds.
+ *
+ * @param {AST.Node} node
+ * @returns {Set<string> | null}
+ */
+function scope_names(node) {
+	/** @type {Map<string, AST.Identifier>} */
+	const bindings = new Map();
+	/** @type {string[]} */
+	const names = [];
+	/** @type {any} */
+	const loose = node;
+	if (is_function_node(node)) {
+		for (const param of node.params) collect_pattern_bindings(param, bindings);
+		if (node.type === 'FunctionExpression' && node.id) names.push(node.id.name);
+		if (node.body) names.push(...var_names(node.body));
 	}
-	if (node.type === 'JSXAttribute') {
-		return !!node.value && reads_uninitialized_tag(node.value, module_binding_ends);
+	if ((node.type === 'ClassDeclaration' || node.type === 'ClassExpression') && node.id) {
+		names.push(node.id.name);
 	}
-	return child_nodes(node).some((child) => reads_uninitialized_tag(child, module_binding_ends));
+	if (loose.type === 'StaticBlock' || loose.type === 'TSModuleBlock')
+		names.push(...var_names(node));
+	if (node.type === 'CatchClause') {
+		collect_pattern_bindings(node.param, bindings);
+		collect_pattern_bindings(loose.resetParam, bindings);
+	}
+	if (loose.type === 'JSXForExpression') collect_pattern_bindings(loose.index, bindings);
+	for (const key of Object.keys(node)) {
+		if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
+		const value = loose[key];
+		if (Array.isArray(value)) {
+			for (const item of value) {
+				if (is_ast_node(item)) names.push(...statement_bindings(item).map(([name]) => name));
+			}
+		} else if (is_ast_node(value) && value.type === 'VariableDeclaration') {
+			collect_statement_bindings(value, bindings);
+		}
+	}
+	return bindings.size > 0 || names.length > 0 ? new Set([...bindings.keys(), ...names]) : null;
+}
+
+/**
+ * The names `var` declarations bind in `node`, outside any function in it.
+ *
+ * @param {AST.Node} node
+ * @returns {string[]}
+ */
+function var_names(node) {
+	/** @type {Map<string, AST.Identifier>} */
+	const bindings = new Map();
+	/** @param {AST.Node} current */
+	const visit = (current) => {
+		if (current.type === 'VariableDeclaration' && current.kind === 'var') {
+			collect_statement_bindings(current, bindings);
+		}
+		for (const child of child_nodes(current)) {
+			if (!is_function_node(child)) visit(child);
+		}
+	};
+	visit(node);
+	return [...bindings.keys()];
+}
+
+/**
+ * Whether a static would read a tag that `collect_hoistable_tags` found can't
+ * be read where the static runs, or one it has no record of.
+ *
+ * @param {AST.Node} node
+ * @param {Map<number, boolean>} hoistable_tags
+ * @returns {boolean}
+ */
+function reads_unhoistable_tag(node, hoistable_tags) {
+	if (node.type === 'JSXOpeningElement' && !is_intrinsic_tag(node.name)) {
+		const root = jsx_tag_root(node.name);
+		if (!root || typeof root.start !== 'number' || hoistable_tags.get(root.start) !== true) {
+			return true;
+		}
+	}
+	return child_nodes(node).some((child) => reads_unhoistable_tag(child, hoistable_tags));
 }
 
 /**

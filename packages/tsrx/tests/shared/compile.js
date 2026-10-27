@@ -4323,47 +4323,159 @@ export function App() @{
 	});
 
 	describe(`[${name}] static JSX hoisting`, () => {
+		/**
+		 * Runs compiled output with JSX elements as `{ type, props }` objects
+		 * and returns what its `result` export returns. An import is a string
+		 * that names it when it is capitalized, and otherwise a function that
+		 * returns its argument.
+		 * @param {string} code
+		 * @returns {unknown}
+		 */
+		function run_result(code) {
+			const { outputText } = ts.transpileModule(code, {
+				fileName: 'App.tsx',
+				compilerOptions: {
+					jsx: ts.JsxEmit.React,
+					jsxFactory: 'h',
+					jsxFragmentFactory: 'Fragment',
+					module: ts.ModuleKind.CommonJS,
+					target: ts.ScriptTarget.ES2022,
+				},
+			});
+			/** @param {unknown} type @param {object | null} props @param {unknown[]} children */
+			const h = (type, props, ...children) => ({
+				type,
+				props: { ...props, ...(children.length ? { children } : {}) },
+			});
+			/** @param {string} specifier */
+			const require = (specifier) =>
+				new Proxy(
+					{},
+					{
+						get: (_, key) =>
+							typeof key === 'string' && /^[A-Z]/.test(key)
+								? `${specifier}.${key}`
+								: (/** @type {unknown} */ value) => value,
+					},
+				);
+			const module = { exports: /** @type {Record<string, any>} */ ({}) };
+			new Function('h', 'Fragment', 'require', 'module', 'exports', outputText)(
+				h,
+				'Fragment',
+				require,
+				module,
+				module.exports,
+			);
+			return module.exports.result();
+		}
+
 		it.each([
 			[
-				'the class it is in',
-				"class Screen {\n\tstatic Tag = 'div';\n\trender() {\n\t\treturn <Screen.Tag>hello</Screen.Tag>;\n\t}\n}\nexport const view = new Screen().render();",
-				'<Screen.Tag>hello</Screen.Tag>',
+				'the class it is in (#204)',
+				"class Screen {\n\tstatic Tag = 'div';\n\trender() {\n\t\treturn <Screen.Tag>hello</Screen.Tag>;\n\t}\n}\nexport const result = () => new Screen().render().type;",
+				'div',
+			],
+			[
+				'the class expression it is in',
+				"const C = class Screen {\n\tstatic Tag = 'nce';\n\trender() {\n\t\treturn <Screen.Tag>hello</Screen.Tag>;\n\t}\n};\nexport const result = () => new C().render().type;",
+				'nce',
 			],
 			[
 				'this',
-				"export class Screen {\n\tTag = 'div';\n\trender() {\n\t\treturn <this.Tag>hello</this.Tag>;\n\t}\n}",
-				'<this.Tag>hello</this.Tag>',
+				"class Screen {\n\tTag = 'span';\n\trender() {\n\t\treturn <this.Tag>hello</this.Tag>;\n\t}\n}\nexport const result = () => new Screen().render().type;",
+				'span',
+			],
+			[
+				'super',
+				"const base = { Tag: 'sup' };\nconst screen = {\n\t__proto__: base,\n\trender() {\n\t\treturn <super.Tag>hello</super.Tag>;\n\t},\n};\nexport const result = () => screen.render().type;",
+				'sup',
 			],
 			[
 				'a const declared after it',
-				"export function App() @{\n\t<div><Tag>hello</Tag></div>\n}\nconst Tag = 'section';",
-				'<div><Tag>hello</Tag></div>',
+				"function App() {\n\treturn <div><Late>hello</Late></div>;\n}\nconst Late = 'late';\nexport const result = () => App().props.children[0].type;",
+				'late',
+			],
+			[
+				'a binding of the static block it is in',
+				"let made: any;\nclass Holder {\n\tstatic {\n\t\tconst Tag = 'sb';\n\t\tfunction App() {\n\t\t\treturn <Tag>hello</Tag>;\n\t\t}\n\t\tmade = App;\n\t}\n}\nexport const result = () => made().type;",
+				'sb',
+			],
+			[
+				'a var assigned after it',
+				"var Tag: any;\nfunction App() {\n\treturn <Tag>hello</Tag>;\n}\nTag = 'va';\nexport const result = () => App().type;",
+				'va',
+			],
+			[
+				'a let reassigned after it',
+				"let Tag: any = 'first';\nfunction App() {\n\treturn <Tag>hello</Tag>;\n}\nTag = 'second';\nexport const result = () => App().type;",
+				'second',
+			],
+			[
+				'a property assigned to a function declaration after it',
+				"function App() {\n\treturn <Menu.Item>hello</Menu.Item>;\n}\nfunction Menu() {}\nMenu.Item = 'mi';\nexport const result = () => App().type;",
+				'mi',
+			],
+			[
+				'a property assigned to a class declared before it',
+				"class Menu {}\nfunction App() {\n\treturn <Menu.Item>hello</Menu.Item>;\n}\n(Menu as any).Item = 'cp';\nexport const result = () => App().type;",
+				'cp',
+			],
+			[
+				'an import alias declared after it',
+				"namespace N {\n\texport const Tag = 'ie';\n}\nfunction App() {\n\treturn <Tag>hello</Tag>;\n}\nimport Tag = N.Tag;\nexport const result = () => App().type;",
+				'ie',
 			],
 		])(
-			'leaves JSX whose tag reads %s in place, since the module has not initialized it (#204)',
-			(_case, source, element) => {
+			'leaves JSX whose tag reads %s in place, reading it at render time',
+			(_case, source, expected) => {
 				const { code } = compile(source, 'App.tsrx');
 				expect(code).not.toContain('__static');
-				expect(code).toContain(`return ${element};`);
+				expect(run_result(code)).toBe(expected);
 			},
 		);
 
-		it.runIf(['react', 'preact', 'hono'].includes(name)).each([
+		it.each([
 			[
 				'a const declared before it',
-				"const Tag = 'section';\nexport function App() @{\n\t<div><Tag>hello</Tag></div>\n}",
+				"const Tag = 'section';\nfunction App() {\n\treturn <div><Tag>hello</Tag></div>;\n}\nexport const result = () => App().props.children[0].type;",
+				'section',
+			],
+			[
+				'a member of a const declared before it',
+				"const ui = { Button: 'btn' };\nfunction App() {\n\treturn <div><ui.Button>hello</ui.Button></div>;\n}\nexport const result = () => App().props.children[0].type;",
+				'btn',
 			],
 			[
 				'a function declared after it',
-				'export function App() @{\n\t<div><Tag>hello</Tag></div>\n}\nfunction Tag() {\n\treturn null;\n}',
+				'function App() {\n\treturn <div><Tag>hello</Tag></div>;\n}\nfunction Tag() {\n\treturn null;\n}\nexport const result = () => App().props.children[0].type === Tag;',
+				true,
 			],
 			[
-				'an import',
-				"import { Tag } from './tag';\nexport function App() @{\n\t<div><Tag>hello</Tag></div>\n}",
+				'a class declared before it',
+				'class Box {}\nfunction App() {\n\treturn <div><Box>hello</Box></div>;\n}\nexport const result = () => App().props.children[0].type === Box;',
+				true,
 			],
-		])('hoists JSX whose tag reads %s', (_case, source) => {
+			[
+				'a re-exported import',
+				"import { Tag } from './tag';\nexport { Tag };\nfunction App() {\n\treturn <div><Tag>hello</Tag></div>;\n}\nexport const result = () => App().props.children[0].type;",
+				'./tag.Tag',
+			],
+		])('hoists JSX whose tag reads %s', (_case, source, expected) => {
 			const { code } = compile(source, 'App.tsrx');
-			expect(code).toContain('const App__static1 = <div><Tag>hello</Tag></div>;');
+			// Solid and Vue never hoist JSX with a component in it
+			if (['react', 'preact', 'hono'].includes(name)) {
+				expect(code).toContain('const App__static1 = <div>');
+			}
+			expect(run_result(code)).toBe(expected);
+		});
+
+		it('hoists an intrinsic tag that shares its name with a later binding', () => {
+			const { code } = compile(
+				'function App() {\n\treturn <div>hello</div>;\n}\nconst div = 1;\nexport const result = () => App().type;',
+				'App.tsrx',
+			);
+			expect(code).toContain('const App__static1 = <div>hello</div>;');
+			expect(run_result(code)).toBe('div');
 		});
 
 		it.each([

@@ -55,12 +55,11 @@ export interface JsxTransformContext {
 	helper_state: JsxHelperState | null;
 	available_bindings: Map<string, AST.Identifier>;
 	/**
-	 * For each name a top-level statement binds to a value the module body
-	 * initializes in order (anything but a function declaration or an import),
-	 * the end of the first statement that binds it. A static hoisted out of a
-	 * component can't read these names from that statement on.
+	 * Whether each tag in the module can be read where a static hoisted out of
+	 * it runs, keyed by the start of the identifier the tag starts with.
+	 * Computed on first use.
 	 */
-	module_binding_ends: Map<string, number>;
+	hoistable_tags: () => Map<number, boolean>;
 	inside_element_child?: boolean;
 	/** Full source text for source-aware diagnostics. */
 	source: string;

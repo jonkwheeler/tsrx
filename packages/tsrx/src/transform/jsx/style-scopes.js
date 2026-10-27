@@ -46,6 +46,7 @@ import {
 } from '../../utils/ast.js';
 import {
 	add_scope_classes,
+	has_spread_class_merge,
 	is_composite_jsx_element,
 	prepare_stylesheet_for_render,
 } from '../scoping.js';
@@ -63,6 +64,7 @@ import { set_node_path_metadata } from './helpers.js';
  * @typedef {{
  *   ctx: TransformContext,
  *   class_attr_name: 'class' | 'className',
+ *   spread_class_props: ReadonlyArray<'class' | 'className'> | null,
  *   static_classes: Map<AST.JSXStyleElement, string | null>,
  *   ref_sink: AST.Statement[],
  * }} StyleScopeState `ref_sink` collects the `<style ref>` setup statements
@@ -85,6 +87,12 @@ export function prepare_style_scopes(program, ctx) {
 		ctx,
 		class_attr_name:
 			ctx.platform.jsx.classAttrName ?? (ctx.platform.jsx.rewriteClassAttr ? 'className' : 'class'),
+		// Types don't depend on a spread's class, so the type-only print keeps
+		// spreads as written.
+		spread_class_props:
+			!ctx.typeOnly && ctx.platform.imports.refProp
+				? (ctx.platform.jsx.hostSpreadClassProps ?? null)
+				: null,
 		static_classes: new Map(),
 		ref_sink: [],
 	};
@@ -760,8 +768,16 @@ function stamp_node(node, scope, state) {
 					scope.hash ? [scope.hash] : [],
 					scope.applied,
 					state.class_attr_name,
+					state.spread_class_props,
 				)
 			: node;
+	if (
+		out !== node &&
+		state.spread_class_props &&
+		has_spread_class_merge(/** @type {AST.TSRXJSXElement} */ (out))
+	) {
+		state.ctx.needs_merge_spread_class = true;
+	}
 	return rewrite_children(out, state, (child) => stamp_node(child, scope, state));
 }
 

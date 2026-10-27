@@ -874,12 +874,18 @@ export function convert_source_map_to_mappings(
 				// A stripped or moved comment must not claim another node's shared
 				// source coordinate. The printer writes this exact formatted text.
 				if (start === undefined) continue;
+				// TypeScript completes inside a comment printed as written, such as
+				// the `/** */` template after `/**` and JSDoc tags (#1066).
+				const as_written = text === source.slice(comment.start, comment.end);
 				mappings.push({
 					sourceOffsets: [comment.start],
 					lengths: [comment.end - comment.start],
 					generatedOffsets: [start],
 					generatedLengths: [text.length],
-					data: { ...mapping_data_verify_only, customData: {} },
+					data: {
+						...(as_written ? mapping_data_verify_complete : mapping_data_verify_only),
+						customData: {},
+					},
 				});
 			}
 		}

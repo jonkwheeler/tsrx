@@ -2794,6 +2794,29 @@ export function f(n: number) {
 				).toBeFalsy();
 			}
 		});
+
+		it('completes inside a comment that the output writes as written (#1066)', () => {
+			// TypeScript offers the `/** */` template right after `/**`, and JSDoc tags.
+			const source = `/** */
+export function A() @{
+	/** @param x */
+	function inner(x: number) { return x; }
+	//@ts-expect-error
+	const y: string = 1;
+	<p>{inner(1)}{y}</p>
+}`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			expect(result.errors).toEqual([]);
+			for (const comment of ['/** */', '/** @param x */']) {
+				const offset = source.indexOf(comment);
+				expect(generated_at(result, offset, comment.length)).toEqual([comment]);
+				expect(mappings_at(result, offset, comment.length)[0].data.completion).toBe(true);
+			}
+			// The output writes this one as `// @ts-expect-error`, so offsets in it differ.
+			const directive = '//@ts-expect-error';
+			const [mapping] = mappings_at(result, source.indexOf(directive), directive.length);
+			expect(mapping.data.completion).toBeFalsy();
+		});
 	});
 
 	describe(`[${name}] input AST immutability`, () => {

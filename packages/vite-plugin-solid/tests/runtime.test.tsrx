@@ -546,6 +546,28 @@ function SpreadsRefReactiveApp() @{
 	</button>
 }
 
+// ── A spread wrapper creates its children once ──
+
+let spread_wrapper_child_runs = 0;
+let set_spread_wrapper_title: (title: string) => void = () => {};
+
+function SpreadWrapperChild() @{
+	spread_wrapper_child_runs += 1;
+	<span class="spread-wrapper-child">{'child'}</span>
+}
+
+function SpreadWrapper(props: { title: string; children?: JSX.Element }) @{
+	<div {...props} class="spread-wrapper" />
+}
+
+function SpreadWrapperApp() @{
+	const [title, setTitle] = createSignal('a');
+	set_spread_wrapper_title = setTitle;
+	<SpreadWrapper title={title()}>
+		<SpreadWrapperChild />
+	</SpreadWrapper>
+}
+
 // ── A spread host keeps its children across prop changes ──
 
 function SpreadChildHost(props: { title: string; children?: JSX.Element }) @{
@@ -1451,6 +1473,23 @@ describe('tsrx-solid runtime', () => {
 		expect(spreads_ref_calls).not.toContain('gained');
 		expect(spreads_ref_calls).not.toContain('own');
 		expect(target.hasAttribute('ref')).toBe(false);
+	});
+
+	it('creates the children of a spread wrapper once', async () => {
+		spread_wrapper_child_runs = 0;
+		await render(SpreadWrapperApp);
+		await flush();
+		const child = container.querySelector('.spread-wrapper-child');
+		expect(child).not.toBeNull();
+		expect(spread_wrapper_child_runs).toBe(1);
+
+		for (const title of ['b', 'c', 'd']) {
+			set_spread_wrapper_title(title);
+			await flush();
+		}
+		expect(container.querySelector('.spread-wrapper')!.getAttribute('title')).toBe('d');
+		expect(container.querySelector('.spread-wrapper-child')).toBe(child);
+		expect(spread_wrapper_child_runs).toBe(1);
 	});
 
 	it('keeps the children of a spread host across prop changes', async () => {

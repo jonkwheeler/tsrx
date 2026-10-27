@@ -20,6 +20,7 @@ import { walk } from 'zimmerframe';
 import {
 	DIAGNOSTIC_CODES,
 	IDENTIFIER_OBFUSCATION_PREFIX,
+	isReference as is_reference,
 	TSRX_ERRORS,
 	createJsxTransform,
 	createScriptBody as create_script_body,
@@ -1041,6 +1042,9 @@ function build_show_element(test, children, fallback) {
 const FOR_ITEMS_INTERNAL_NAME = '__for_items';
 const FOR_KEYED_ROWS_INTERNAL_NAME = '__for_keyed_rows';
 const FOR_ROW_PARAM_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'row';
+const FOR_ITEM_PARAM_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'item';
+const FOR_BINDINGS_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'bindings';
+const CREATE_MEMO_INTERNAL_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'createMemo';
 
 /**
  * `for (const item of items; index i) { ... }` →
@@ -1064,6 +1068,11 @@ const FOR_ROW_PARAM_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'row';
  * `<For each={__for_keyed_rows(items, (item, i) => i)} keyed={(row) => row.key}>
  *   {(row, i) => { const item = () => row().item; ... }}
  * </For>`
+ *
+ * Wherever the child callback receives the item as an accessor (any loop with
+ * a key or an index), a destructuring pattern can't be its parameter: the
+ * callback destructures the current item in a memo instead, and the body reads
+ * each name from it, so the names follow the row as Solid reuses it.
  *
  * @param {AST.ForOfStatement} node
  * @param {TransformContext} transform_context
@@ -1103,10 +1112,27 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 				/** @type {AST.Expression} */ (node.key),
 			),
 		);
-		arrow = read_item_from_row(arrow, loop_params[0]);
+		const row = create_generated_identifier(FOR_ROW_PARAM_NAME);
+		arrow = bind_loop_item(
+			arrow,
+			loop_params[0],
+			row,
+			b.member(b.call(clone_ast_node(row)), create_generated_identifier('item')),
+			transform_context,
+		);
 	} else {
 		transform_context.needs_for_items = true;
 		each = b.call(create_generated_identifier(FOR_ITEMS_INTERNAL_NAME), node.right);
+		if ((node.key || node.index) && loop_params[0] && loop_params[0].type !== 'Identifier') {
+			const item = create_generated_identifier(FOR_ITEM_PARAM_NAME);
+			arrow = bind_loop_item(
+				arrow,
+				loop_params[0],
+				item,
+				b.call(clone_ast_node(item)),
+				transform_context,
+			);
+		}
 	}
 
 	const attributes = [b.jsx_attribute(b.jsx_id('each'), to_jsx_expression_container(each))];
@@ -1177,29 +1203,181 @@ function reads_identifier(expression, name) {
 }
 
 /**
- * The child callback of a `<For>` over `__for_keyed_rows` rows: it receives
- * the row accessor in the item's place, and binds the item as the loop body
- * expects it, an accessor for a name and the value for a pattern.
+ * Gives a `<For>` child callback the accessor `param` in place of the loop's
+ * item binding, and binds the item from `value` (an expression of `param`) as
+ * the body expects it: a name becomes an accessor, as in Solid's other keyed
+ * loops, and a pattern is destructured in a memo whose names the body reads,
+ * so they follow the row when Solid reuses it.
  *
  * @param {AST.ArrowFunctionExpression} arrow
  * @param {AST.Pattern} item
+ * @param {AST.Identifier} param
+ * @param {AST.Expression} value
+ * @param {TransformContext} transform_context
  * @returns {AST.ArrowFunctionExpression}
  */
-function read_item_from_row(arrow, item) {
-	const row = create_generated_identifier(FOR_ROW_PARAM_NAME);
-	/** @type {AST.Expression} */
-	const row_item = b.member(b.call(clone_ast_node(row)), create_generated_identifier('item'));
-	const declaration = b.const(item, item.type === 'Identifier' ? b.arrow([], row_item) : row_item);
-	const body =
+function bind_loop_item(arrow, item, param, value, transform_context) {
+	/** @type {AST.Statement[]} */
+	let body =
 		arrow.body.type === 'BlockStatement'
-			? [declaration, ...arrow.body.body]
-			: [declaration, b.return(/** @type {AST.Expression} */ (arrow.body))];
+			? arrow.body.body
+			: [b.return(/** @type {AST.Expression} */ (arrow.body))];
+	/** @type {AST.Statement} */
+	let declaration;
+	if (item.type === 'Identifier') {
+		declaration = b.const(item, b.arrow([], value));
+	} else {
+		transform_context.needs_for_memo = true;
+		const bindings = create_generated_identifier(FOR_BINDINGS_NAME);
+		const names = [...collect_param_bindings([item]).keys()];
+		declaration = b.const(
+			bindings,
+			b.call(
+				CREATE_MEMO_INTERNAL_NAME,
+				b.arrow(
+					[],
+					b.block([
+						b.const(item, value),
+						b.return(
+							b.object(names.map((name) => b.prop('init', b.id(name), b.id(name), false, true))),
+						),
+					]),
+				),
+			),
+		);
+		/** @type {Map<string, AST.Expression>} */
+		const replacements = new Map(
+			names.map((name) => [
+				name,
+				b.member(b.call(clone_ast_node(bindings)), create_generated_identifier(name)),
+			]),
+		);
+		body = body.map((statement) => rewrite_binding_refs(statement, replacements));
+	}
 	return {
 		...arrow,
-		params: [row, ...arrow.params.slice(1)],
-		body: b.block(body),
+		params: [param, ...arrow.params.slice(1)],
+		body: b.block([declaration, ...body]),
 		expression: false,
 	};
+}
+
+/**
+ * Whether `node` is TypeScript type syntax, which names no runtime value.
+ *
+ * @param {AST.Node} node
+ * @returns {boolean}
+ */
+function is_type_only_node(node) {
+	return (
+		node.type === 'TSTypeAnnotation' ||
+		node.type === 'TSTypeParameterDeclaration' ||
+		node.type === 'TSTypeParameterInstantiation' ||
+		node.type === 'TSTypeAliasDeclaration' ||
+		node.type === 'TSInterfaceDeclaration' ||
+		node.type === 'TSTypeReference' ||
+		node.type === 'TSTypeLiteral' ||
+		node.type === 'TSTypeOperator' ||
+		node.type === 'TSTypeQuery' ||
+		/^TS[A-Za-z]*(Type|Keyword)$/.test(node.type)
+	);
+}
+
+/**
+ * Replaces each reference to a name in `replacements` with its expression,
+ * leaving names that a nested function, block, or loop declares again.
+ *
+ * @template {AST.Node} T
+ * @param {T} node
+ * @param {Map<string, AST.Expression>} replacements
+ * @returns {T}
+ */
+function rewrite_binding_refs(node, replacements) {
+	/**
+	 * @param {Set<string>} shadowed
+	 * @param {Map<string, AST.Identifier>} declared
+	 */
+	const with_declared = (shadowed, declared) => {
+		const next = new Set(shadowed);
+		for (const name of declared.keys()) next.add(name);
+		return next;
+	};
+	/**
+	 * @param {AST.Node[]} statements
+	 * @returns {Map<string, AST.Identifier>}
+	 */
+	const lexical_names = (statements) => {
+		/** @type {Map<string, AST.Identifier>} */
+		const names = new Map();
+		for (const statement of statements) {
+			if (statement.type !== 'VariableDeclaration' || statement.kind !== 'var') {
+				collect_statement_bindings(statement, names);
+			}
+		}
+		return names;
+	};
+	/** @param {AST.Node} child */
+	const replacement_for = (child) =>
+		child.type === 'Identifier' ? replacements.get(child.name) : undefined;
+
+	return /** @type {T} */ (
+		walk(/** @type {AST.Node} */ (node), /** @type {Set<string>} */ (new Set()), {
+			_(child, { state, next }) {
+				if (!is_type_only_node(child)) next(state);
+			},
+			Identifier(identifier, { path, state }) {
+				const parent = path.at(-1);
+				const replacement = replacement_for(identifier);
+				if (
+					replacement &&
+					!state.has(identifier.name) &&
+					parent &&
+					is_reference(identifier, parent)
+				) {
+					return clone_ast_node(replacement);
+				}
+			},
+			Property(property, { state, next }) {
+				const replacement = replacement_for(property.value);
+				if (
+					property.shorthand &&
+					replacement &&
+					!state.has(/** @type {AST.Identifier} */ (property.value).name)
+				) {
+					return { ...property, shorthand: false, value: clone_ast_node(replacement) };
+				}
+				next(state);
+			},
+			BlockStatement(block, { state, next }) {
+				next(with_declared(state, lexical_names(block.body)));
+			},
+			CatchClause(clause, { state, next }) {
+				next(with_declared(state, collect_param_bindings(clause.param ? [clause.param] : [])));
+			},
+			ForStatement(loop, { state, next }) {
+				next(with_declared(state, lexical_names(loop.init ? [loop.init] : [])));
+			},
+			ForInStatement(loop, { state, next }) {
+				next(with_declared(state, lexical_names([loop.left])));
+			},
+			ForOfStatement(loop, { state, next }) {
+				next(with_declared(state, lexical_names([loop.left])));
+			},
+			FunctionDeclaration: shadow_function,
+			FunctionExpression: shadow_function,
+			ArrowFunctionExpression: shadow_function,
+		})
+	);
+
+	/**
+	 * @param {AST.Function} fn
+	 * @param {{ state: Set<string>, next: (state: Set<string>) => unknown }} context
+	 */
+	function shadow_function(fn, { state, next }) {
+		const declared = collect_param_bindings(fn.params);
+		if (fn.type !== 'ArrowFunctionExpression' && fn.id) declared.set(fn.id.name, fn.id);
+		next(with_declared(state, declared));
+	}
 }
 
 /**
@@ -2036,6 +2214,10 @@ function inject_solid_imports(program, transform_context) {
 				ref_prop_source,
 			),
 		);
+	}
+
+	if (transform_context.needs_for_memo) {
+		program.body.unshift(b.imports([['createMemo', CREATE_MEMO_INTERNAL_NAME]], 'solid-js'));
 	}
 
 	const iterable_source = transform_context.platform.imports.forOfIterableHelper;

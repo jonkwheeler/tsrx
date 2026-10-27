@@ -554,6 +554,87 @@ function ForKeyedByItemAndIndexApp() @{
 	</>
 }
 
+function ForPatternKeyedByIndexApp() @{
+	const [items, setItems] = createSignal([{ name: 'a' }, { name: 'b' }]);
+	<>
+		<ul>
+			@for (const { name } of items(); index i; key i) {
+				<li class="pattern-index-item">{name}</li>
+			}
+		</ul>
+		<button class="reverse" onClick={() => setItems([{ name: 'b' }, { name: 'a' }])}>
+			{'reverse'}
+		</button>
+	</>
+}
+
+function ForPatternReplacedUnderKeyApp() @{
+	const [items, setItems] = createSignal([{ id: 'a', n: 1 }]);
+	<>
+		<ul>
+			@for (const { id, n } of items(); index i; key `${id}-${i}`) {
+				<li class="pattern-replaced-item">{`${id}${n}`}</li>
+			}
+		</ul>
+		<button class="replace" onClick={() => setItems([{ id: 'a', n: 2 }])}>
+			{'replace'}
+		</button>
+	</>
+}
+
+function ForPatternKeyedByItemApp() @{
+	const [items, setItems] = createSignal([
+		{ id: 'a', n: 1 },
+		{ id: 'b', n: 1 },
+	]);
+	<>
+		<ul>
+			@for (const { id, n } of items(); key id) {
+				<li class="pattern-item-key">{`${id}${n}`}</li>
+			}
+		</ul>
+		<button
+			class="replace"
+			onClick={() =>
+				setItems([
+					{ id: 'b', n: 2 },
+					{ id: 'a', n: 1 },
+				])
+			}
+		>
+			{'replace'}
+		</button>
+	</>
+}
+
+function ForPatternIndexOnlyApp() @{
+	const [items, setItems] = createSignal([{ id: 'a' }, { id: 'b' }]);
+	<>
+		<ul>
+			@for (const { id } of items(); index i) {
+				<li class="pattern-index-only">{`${i}${id}`}</li>
+			}
+		</ul>
+		<button class="reverse" onClick={() => setItems([{ id: 'b' }, { id: 'a' }])}>
+			{'reverse'}
+		</button>
+	</>
+}
+
+function ForSparseKeyedByIndexApp() @{
+	const [items, setItems] = createSignal<(string | undefined)[]>(['a', , 'c']);
+	<>
+		<ul>
+			@for (const item of items(); index i; key i) {
+				<li class="sparse-item">{`${i()}:${String(item())}`}</li>
+			}
+		</ul>
+		<button class="reverse" onClick={() => setItems(['c', 'b'])}>
+			{'reverse'}
+		</button>
+	</>
+}
+
 function ForSetSignalApp() @{
 	const [tags, setTags] = createSignal(new Set(['x', 'y']));
 	<>
@@ -1391,6 +1472,56 @@ describe('tsrx-solid runtime', () => {
 
 		await click('.reverse');
 		expect(rows()).toEqual(['b', 'a']);
+	});
+
+	it('keeps destructured names current in a loop keyed by its index (#933)', async () => {
+		await render(ForPatternKeyedByIndexApp);
+		const rows = () =>
+			Array.from(container.querySelectorAll('.pattern-index-item'), (item) => item.textContent);
+		expect(rows()).toEqual(['a', 'b']);
+
+		await click('.reverse');
+		expect(rows()).toEqual(['b', 'a']);
+	});
+
+	it('keeps destructured names current when an item is replaced under its key', async () => {
+		await render(ForPatternReplacedUnderKeyApp);
+		const rows = () =>
+			Array.from(container.querySelectorAll('.pattern-replaced-item'), (item) => item.textContent);
+		expect(rows()).toEqual(['a1']);
+
+		await click('.replace');
+		expect(rows()).toEqual(['a2']);
+	});
+
+	it('destructures the item, not its accessor, in a loop keyed by the item', async () => {
+		await render(ForPatternKeyedByItemApp);
+		const rows = () =>
+			Array.from(container.querySelectorAll('.pattern-item-key'), (item) => item.textContent);
+		expect(rows()).toEqual(['a1', 'b1']);
+
+		await click('.replace');
+		expect(rows()).toEqual(['b2', 'a1']);
+	});
+
+	it('destructures the item, not its accessor, in a loop with only an index', async () => {
+		await render(ForPatternIndexOnlyApp);
+		const rows = () =>
+			Array.from(container.querySelectorAll('.pattern-index-only'), (item) => item.textContent);
+		expect(rows()).toEqual(['0a', '1b']);
+
+		await click('.reverse');
+		expect(rows()).toEqual(['0b', '1a']);
+	});
+
+	it('renders the holes of a sparse array in a loop keyed by its index', async () => {
+		await render(ForSparseKeyedByIndexApp);
+		const rows = () =>
+			Array.from(container.querySelectorAll('.sparse-item'), (item) => item.textContent);
+		expect(rows()).toEqual(['0:a', '1:undefined', '2:c']);
+
+		await click('.reverse');
+		expect(rows()).toEqual(['0:c', '1:b']);
 	});
 
 	it('renders and updates a for-of loop over a Set (#1070)', async () => {

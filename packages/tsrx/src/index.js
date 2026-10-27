@@ -165,6 +165,7 @@ export {
 	with_platform_types as withPlatformTypes,
 } from './transform/platform.js';
 export { with_deferred_imports as withDeferredImports } from './transform/imports.js';
+export { is_reference as isReference } from './utils/is-reference.js';
 export {
 	add_jsx_setup_declaration as addJsxSetupDeclaration,
 	collect_param_bindings as collectParamBindings,

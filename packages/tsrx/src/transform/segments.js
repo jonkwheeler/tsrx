@@ -844,6 +844,40 @@ export function convert_source_map_to_mappings(
 		}
 	}
 
+	/**
+	 * A quick fix that adds a declaration before a statement, such as Add
+	 * missing function declaration, inserts it at the start of the statement's
+	 * line. A `return` the compiler adds around a template's output has no
+	 * source text, so map the start of its line to the start of the output's
+	 * line, when the output starts its line (#1027). The indentation maps too
+	 * when it is the same text in both files.
+	 * @param {AST.ReturnStatement} node
+	 * @returns {void}
+	 */
+	function push_output_line_start_mapping(node) {
+		const output = node.argument;
+		if (!has_location(output)) return;
+		const source_line_start = src_line_offsets[output.loc.start.line - 1];
+		const source_indent = source.slice(source_line_start, output.start);
+		if (!/^[ \t]*$/.test(source_indent)) return;
+		const { line, column } = output.loc.start;
+		for (const generated of src_to_gen_map.get(`${line}:${column}`) ?? []) {
+			const line_start = gen_line_offsets[generated.line - 1];
+			const before = generated_code.slice(line_start, line_start + generated.column);
+			const match = /^([ \t]*)return[ \t]+$/.exec(before);
+			if (!match) continue;
+			const length = match[1] === source_indent ? source_indent.length : 0;
+			mappings.push({
+				sourceOffsets: [source_line_start],
+				lengths: [length],
+				generatedOffsets: [line_start],
+				generatedLengths: [length],
+				data: { ...mapping_data_verify_only, customData: {} },
+			});
+			return;
+		}
+	}
+
 	/** @type {Set<string>} */
 	const mapped_comments = new Set();
 
@@ -2000,6 +2034,9 @@ export function convert_source_map_to_mappings(
 					push_statement_end_mapping(node);
 				} else if (node.type === 'ThrowStatement') {
 					push_statement_end_mapping(node);
+				} else {
+					// A return the compiler adds, around a template's output.
+					push_output_line_start_mapping(node);
 				}
 				return;
 			} else if (node.type === 'ExpressionStatement') {

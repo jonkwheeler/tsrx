@@ -2817,6 +2817,35 @@ export function A() @{
 			const [mapping] = mappings_at(result, source.indexOf(directive), directive.length);
 			expect(mapping.data.completion).toBeFalsy();
 		});
+
+		it.each([
+			['a tab', '\t', 1],
+			['spaces', '  ', 0],
+		])(
+			'maps the start of the line of a template output indented with %s to the line of its return (#1027)',
+			(_name, indent, length) => {
+				// Add missing function declaration inserts the declaration at the start of
+				// the line of the generated `return`. The indentation maps when it is the
+				// same text in both files.
+				const source = `export function A() @{\n${indent}<p>{missing()}</p>\n}`;
+				const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+				const generated_line = result.code.lastIndexOf('\n', result.code.indexOf('return <p>')) + 1;
+				expect(
+					result.mappings
+						.filter((mapping) => mapping.generatedOffsets[0] === generated_line)
+						.map((mapping) => [mapping.sourceOffsets[0], mapping.lengths[0]]),
+				).toEqual([[source.indexOf(indent), length]]);
+			},
+		);
+
+		it('maps no line start for a template output that does not start its line', () => {
+			const source = 'export function A() @{ <p>{missing()}</p> }';
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			const generated_line = result.code.lastIndexOf('\n', result.code.indexOf('return <p>')) + 1;
+			expect(
+				result.mappings.filter((mapping) => mapping.generatedOffsets[0] === generated_line),
+			).toEqual([]);
+		});
 	});
 
 	describe(`[${name}] input AST immutability`, () => {

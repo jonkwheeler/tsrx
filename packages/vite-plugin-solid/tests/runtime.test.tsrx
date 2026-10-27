@@ -1798,6 +1798,57 @@ function SwitchPromiseApp() @{
 	}
 }
 
+// ── Fallback bodies with setup ──
+
+const fallback_runs: string[] = [];
+
+function FallbackSetupApp() @{
+	const [n, setN] = createSignal(0);
+	const [show] = createSignal(false);
+	const [mode] = createSignal('z');
+	const [items] = createSignal<string[]>([]);
+	<div>
+		@if (show()) {
+			<b />
+		} @else {
+			fallback_runs.push('else');
+			const label = `else ${n()}`;
+			<p class="else-fallback">{label}</p>
+		}
+		@if (show()) {
+			<b />
+		} @else if (show()) {
+			<i />
+		} @else {
+			fallback_runs.push('else-chain');
+			const label = `else-chain ${n()}`;
+			<p class="else-chain-fallback">{label}</p>
+		}
+		@switch (mode()) {
+			@case 'a': {
+				<b />
+			}
+			@default: {
+				fallback_runs.push('default');
+				const label = `default ${n()}`;
+				<p class="default-fallback">{label}</p>
+			}
+		}
+		<ul>
+			@for (const item of items()) {
+				<li>{item}</li>
+			} @empty {
+				fallback_runs.push('empty');
+				const label = `empty ${n()}`;
+				<li class="empty-fallback">{label}</li>
+			}
+		</ul>
+		<button class="bump-fallback" onClick={() => setN(n() + 1)}>
+			{'bump'}
+		</button>
+	</div>
+}
+
 describe('tsrx-solid control-flow bodies', () => {
 	it('renders a whole-body @{ } block and runs its setup once', async () => {
 		block_runs.if = block_runs.elseIf = block_runs.case = 0;
@@ -1813,6 +1864,23 @@ describe('tsrx-solid control-flow bodies', () => {
 		// The setup reads `k()` but runs untracked, as a body without `@{ }` does.
 		expect(block_runs).toEqual({ if: 1, elseIf: 1, case: 1 });
 		expect(Array.from(container.querySelectorAll('i'))).toEqual(nodes);
+	});
+
+	it('runs the setup of a fallback body once', async () => {
+		fallback_runs.length = 0;
+		await render(FallbackSetupApp);
+		const labels = () =>
+			['.else-fallback', '.else-chain-fallback', '.default-fallback', '.empty-fallback'].map(text);
+		expect(labels()).toEqual(['else 0', 'else-chain 0', 'default 0', 'empty 0']);
+		expect([...fallback_runs].sort()).toEqual(['default', 'else', 'else-chain', 'empty']);
+		const nodes = Array.from(container.querySelectorAll('p, li'));
+
+		await click('.bump-fallback');
+		await click('.bump-fallback');
+		// The setup reads `n()` but runs untracked, as in the other branch bodies.
+		expect([...fallback_runs].sort()).toEqual(['default', 'else', 'else-chain', 'empty']);
+		expect(labels()).toEqual(['else 0', 'else-chain 0', 'default 0', 'empty 0']);
+		expect(Array.from(container.querySelectorAll('p, li'))).toEqual(nodes);
 	});
 
 	it('compares a promise discriminant as a value, as a JavaScript switch does', async () => {

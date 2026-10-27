@@ -513,9 +513,52 @@ describe('@tsrx/solid basic', () => {
 				/<Match when=\{kind === 'a'\}>\{\(_\) => \{\s*const v = 1;\s*return <b>\{v\}<\/b>;\s*\}\}<\/Match>/,
 			);
 			expect(code).toMatch(
-				/fallback=\{\(\(\) => \{\s*const w = 2;\s*return <i>\{w\}<\/i>;\s*\}\)\(\)\}/,
+				/fallback=\{_\$_untrack\(\(\) => \{\s*const w = 2;\s*return <i>\{w\}<\/i>;\s*\}\)\}/,
 			);
 			expect(code).not.toContain('return null');
+		});
+
+		it('runs the setup of a fallback body untracked', () => {
+			const { code } = compile(
+				`function App(props: { show: boolean; mode: string; items: string[] }) @{
+					<div>
+						@if (props.show) {
+							<b />
+						} @else {
+							const a = 1;
+							<i>{a}</i>
+						}
+						@switch (props.mode) {
+							@case 'a': {
+								<b />
+							}
+							@default: {
+								const b = 2;
+								<i>{b}</i>
+							}
+						}
+						@for (const item of props.items) {
+							<b>{item}</b>
+						} @empty {
+							const c = 3;
+							<i>{c}</i>
+						}
+					</div>
+				}`,
+				'App.tsrx',
+			);
+			expect(code).toContain('untrack as _$_untrack');
+			for (const [name, value] of [
+				['a', 1],
+				['b', 2],
+				['c', 3],
+			]) {
+				expect(code).toMatch(
+					new RegExp(
+						`fallback=\\{_\\$_untrack\\(\\(\\) => \\{\\s*const ${name} = ${value};\\s*return <i>\\{${name}\\}</i>;\\s*\\}\\)\\}`,
+					),
+				);
+			}
 		});
 
 		it('element children mixing JSX and statements wrap in an IIFE', () => {

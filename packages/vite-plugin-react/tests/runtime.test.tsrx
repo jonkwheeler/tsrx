@@ -1093,6 +1093,25 @@ function DifferentHookCountArmsApp() @{
 	</>
 }
 
+function UnkeyedTryRowsApp() @{
+	const [items, setItems] = useState(['a', 'b', 'c']);
+
+	<>
+		<button className="drop-first" onClick={() => setItems(items.slice(1))}>
+			{'drop'}
+		</button>
+		<ul>
+			@for (const item of items) {
+				@try {
+					<li className="try-row">{item}</li>
+				} @catch (err) {
+					<li className="caught">{(err as Error).message}</li>
+				}
+			}
+		</ul>
+	</>
+}
+
 // ── Try/catch with a thrown non-Error value ──
 
 function ValueThrower(props: { value: unknown }): never {
@@ -1861,6 +1880,23 @@ describe('tsrx-react runtime', () => {
 
 		await click('.flip');
 		expect(text('.arm')).toBe('A');
+	});
+
+	it('renders try sites in a loop without a key without duplicate keys', async () => {
+		await render(UnkeyedTryRowsApp);
+		expect([...container.querySelectorAll('.try-row')].map((row) => row.textContent)).toEqual([
+			'a',
+			'b',
+			'c',
+		]);
+
+		await click('.drop-first');
+		expect([...container.querySelectorAll('.try-row')].map((row) => row.textContent)).toEqual([
+			'b',
+			'c',
+		]);
+		const logged = console_error_spy!.mock.calls.map((args) => args.map(String).join(' '));
+		expect(logged.filter((message) => message.includes('the same key'))).toEqual([]);
 	});
 
 	// ── Try/catch with a thrown non-Error value ──

@@ -154,6 +154,17 @@ describe('error codes', () => {
 }`,
 			],
 			[
+				'TSRX2030',
+				`function App() @{
+	<div>
+		@{
+			var y = 1;
+			<p>{y}</p>
+		}
+	</div>
+}`,
+			],
+			[
 				'TSRX3011',
 				`function App() @{
 	<>

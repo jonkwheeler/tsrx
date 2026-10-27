@@ -96,7 +96,7 @@ export const DIAGNOSTIC_CODES = {
 	TARGET_CATCH_RESET_UNSUPPORTED: 'TSRX2026',
 	/** An `@for` head that assigns to existing variables, or declares its loop variable with `var` or `using`. */
 	FOR_HEAD: 'TSRX2027',
-	/** A `var` declared in an `@if`, `@for`, `@switch` or `@try` body, outside any function or class in it. */
+	/** A `var` declared in a nested `@{ … }` block or an `@if`, `@for`, `@switch` or `@try` body, outside any function or class in it. */
 	DIRECTIVE_BODY_VAR: 'TSRX2030',
 
 	/** `<style apply>` carries no expression value. */
@@ -383,7 +383,7 @@ export const TSRX_ERRORS = {
 	),
 	DIRECTIVE_BODY_VAR: tsrx(
 		'DIRECTIVE_BODY_VAR',
-		"TSRX does not support `var` declarations in `@if`, `@for`, `@switch` or `@try` bodies, since the variable can't be read outside the body. Declare it with `const` or `let`.",
+		"TSRX does not support `var` declarations in a nested `@{ … }` block or an `@if`, `@for`, `@switch` or `@try` body, since the variable can't be read outside it. Declare it with `const` or `let`.",
 	),
 	MULTIPLE_REFS: tsrx(
 		'MULTIPLE_REFS',

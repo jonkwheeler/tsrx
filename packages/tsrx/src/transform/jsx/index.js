@@ -66,6 +66,7 @@ import {
 	child_nodes,
 	has_location,
 	is_ast_node,
+	is_code_block_function_body,
 	is_function_node,
 	is_function_or_class_node as is_function_or_class_boundary,
 	is_template_directive as is_jsx_control_flow_expression,
@@ -4355,10 +4356,11 @@ export function validate_for_of_head(left, transform_context) {
 
 /**
  * Every target runs an `@if`, `@for`, `@switch` or `@try` body that declares
- * something in a function of its own, so a `var` there, or in a plain block or
- * loop inside it, would not reach the enclosing function. A function or class
- * in the body scopes its own `var`s. This walks the authored module before any
- * target lowers a directive, so each `var` is reported once, in source order.
+ * something, and every `@{ … }` block that isn't a function's own body, in a
+ * function of its own, so a `var` there, or in a plain block or loop inside
+ * one, would not reach the enclosing function. A function or class inside
+ * scopes its own `var`s. This walks the authored module before any target
+ * lowers a directive or block, so each `var` is reported once, in source order.
  *
  * @param {AST.Program} program
  * @param {TransformContext} transform_context
@@ -4367,7 +4369,7 @@ export function validate_for_of_head(left, transform_context) {
 function validate_directive_body_vars(program, transform_context) {
 	/** @type {AST.VariableDeclaration[]} */
 	const declarations = [];
-	collect_directive_body_vars(program, false, declarations);
+	collect_directive_body_vars(program, null, false, declarations);
 	declarations.sort(
 		(a, b) =>
 			/** @type {AST.NodeWithLocation} */ (a).start - /** @type {AST.NodeWithLocation} */ (b).start,
@@ -4385,24 +4387,25 @@ function validate_directive_body_vars(program, transform_context) {
 
 /**
  * @param {AST.Node} node
- * @param {boolean} in_body Whether `node` is inside a directive body.
+ * @param {AST.Node | null} parent
+ * @param {boolean} in_body Whether `node` is inside a directive body or a nested `@{ … }` block.
  * @param {AST.VariableDeclaration[]} declarations
  * @returns {void}
  */
-function collect_directive_body_vars(node, in_body, declarations) {
+function collect_directive_body_vars(node, parent, in_body, declarations) {
 	if (in_body && node.type === 'VariableDeclaration' && node.kind === 'var' && !node.declare) {
 		declarations.push(node);
 	}
 
-	// A `@{ … }` block runs in a function of its own wherever it is.
-	const children_in_body = is_jsx_control_flow_expression(node)
-		? true
-		: in_body && !is_function_or_class_boundary(node) && node.type !== 'JSXCodeBlock';
+	const children_in_body =
+		is_jsx_control_flow_expression(node) ||
+		(node.type === 'JSXCodeBlock' && !is_code_block_function_body(node, parent)) ||
+		(in_body && !is_function_or_class_boundary(node));
 	for (const child of child_nodes(node)) {
 		// `validate_for_of_head` reports a `var` in an `@for` head.
 		const in_for_head =
 			node.type === 'JSXForExpression' && child !== node.body && child !== node.empty;
-		collect_directive_body_vars(child, children_in_body && !in_for_head, declarations);
+		collect_directive_body_vars(child, node, children_in_body && !in_for_head, declarations);
 	}
 }
 

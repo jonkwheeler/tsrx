@@ -16,6 +16,7 @@ import {
 	DIAGNOSTIC_CODES,
 	error,
 	has_location,
+	IDENTIFIER_OBFUSCATION_PREFIX,
 	is_component_like_element,
 	MERGE_REFS_INTERNAL_NAME,
 	NORMALIZE_SPREAD_PROPS_FOR_REF_ATTR_INTERNAL_NAME,
@@ -24,7 +25,9 @@ import {
 } from '@tsrx/core';
 
 /** The local name of Vue's `computed` in a keyed slot that destructures its item. */
-const VUE_COMPUTED_INTERNAL_NAME = '__vapor_computed';
+const VUE_COMPUTED_INTERNAL_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'vapor_computed';
+/** The `computed` such a slot destructures its item in. */
+const VAPOR_BINDINGS_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'vapor_bindings';
 
 /**
  * Minimal Vue platform descriptor consumed by `createJsxTransform`.
@@ -763,7 +766,7 @@ function create_keyed_vapor_for_slot(loop_params, rendered, transform_context) {
  * @returns {{ params: AST.Pattern[], body: AST.BlockStatement, expression: boolean, rendered: AST.Expression }}
  */
 function create_destructured_keyed_vapor_for_slot(loop_params, rendered, item_ref) {
-	const bindings_ref = create_generated_identifier('__vapor_bindings');
+	const bindings_ref = create_generated_identifier(VAPOR_BINDINGS_NAME);
 	/** @type {Set<string>} */
 	const names = new Set();
 	collect_pattern_names(loop_params[0], names);
@@ -1331,7 +1334,9 @@ function inject_vue_imports(program, transform_context) {
 	}
 
 	if (transform_context.needs_vapor_computed) {
-		ensure_named_import(program, 'vue', 'computed', VUE_COMPUTED_INTERNAL_NAME);
+		// Its own declaration: an authored `import type` or `import * as` from
+		// 'vue' can't take a value specifier.
+		program.body.unshift(b.imports([['computed', VUE_COMPUTED_INTERNAL_NAME, 'value']], 'vue'));
 	}
 
 	if (transform_context.needs_suspense) {

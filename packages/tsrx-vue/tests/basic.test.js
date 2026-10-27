@@ -699,11 +699,33 @@ describe('@tsrx/vue basic', () => {
 		expect(errors).toEqual([]);
 		expect(code).toContain("<VaporFor in={rows} getKey={([first, second = 'none']) => first}>");
 		expect(code).toMatch(
-			/const __vapor_bindings = __vapor_computed\(\(\) => \{\s*const \[first, second = 'none'\] = __vapor_item\.value;\s*return \{ first, second \};/,
+			/const _\$_vapor_bindings = _\$_vapor_computed\(\(\) => \{\s*const \[first, second = 'none'\] = __vapor_item\.value;\s*return \{ first, second \};/,
 		);
-		expect(code).toContain('{__vapor_bindings.value.first}|{__vapor_bindings.value.second}');
+		expect(code).toContain('{_$_vapor_bindings.value.first}|{_$_vapor_bindings.value.second}');
 		expect(code).not.toContain('__vapor_item.value[0]');
-		expect(code).toContain("import { computed as __vapor_computed } from 'vue';");
+		expect(code).toContain("import { computed as _$_vapor_computed } from 'vue';");
+	});
+
+	it('imports computed for a keyed array pattern beside type and namespace imports of vue', () => {
+		for (const authored of [
+			"import type { Ref } from 'vue';",
+			"import * as Vue from 'vue';",
+			"import { type Ref, ref } from 'vue';",
+		]) {
+			const { code, errors } = compile(
+				`${authored}
+				function App({ rows }: { rows: string[][] }) @{
+					@for (const [first] of rows; key first) {
+						<p>{first}</p>
+					}
+				}`,
+				'App.tsrx',
+			);
+
+			expect(errors, authored).toEqual([]);
+			expect(code, authored).toContain(authored);
+			expect(code, authored).toContain("import { computed as _$_vapor_computed } from 'vue';");
+		}
 	});
 
 	it('leaves type parameters and type references in a keyed slot alone (#922)', () => {

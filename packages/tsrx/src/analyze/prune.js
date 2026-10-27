@@ -243,6 +243,13 @@ const case_insensitive_attributes = new Set([
 	'vlink',
 ]);
 
+// HTML attributes whose React prop name is not the attribute name in another case
+// or without its hyphens
+const react_prop_names = new Map([
+	['class', 'classname'],
+	['for', 'htmlfor'],
+]);
+
 /**
  * @param {AST.CSS.ComplexSelector} node
  */
@@ -900,6 +907,24 @@ function test_attribute(operator, expected_value, case_insensitive, value) {
 }
 
 /**
+ * The lowercased JSX prop names that can render the HTML attribute `name`.
+ * React-style targets author `class` as `className`, `for` as `htmlFor`, and a
+ * hyphenated attribute in camelCase (`httpEquiv`, `acceptCharset`, `strokeWidth`).
+ *
+ * @param {string} name
+ * @returns {string[]}
+ */
+function get_attribute_prop_names(name) {
+	const lower_case_name = name.toLowerCase();
+	const names = [lower_case_name, `$${lower_case_name}`];
+	const prop_name = react_prop_names.get(lower_case_name) ?? lower_case_name.replaceAll('-', '');
+	if (prop_name !== lower_case_name) {
+		names.push(prop_name);
+	}
+	return names;
+}
+
+/**
  * @param {AST.TSRXElementNode} node
  * @param {string} name
  * @param {string | null} expected_value
@@ -908,17 +933,13 @@ function test_attribute(operator, expected_value, case_insensitive, value) {
  * @returns {boolean}
  */
 function attribute_matches(node, name, expected_value, operator, case_insensitive) {
+	const accepted_names = get_attribute_prop_names(name);
+
 	for (const attribute of get_element_attributes(node)) {
 		if (attribute.type === 'JSXSpreadAttribute') return true;
 
 		if (attribute.type !== 'JSXAttribute') continue;
 
-		const lowerCaseName = name.toLowerCase();
-		const accepted_names = [lowerCaseName, `$${lowerCaseName}`];
-		if (lowerCaseName === 'class') {
-			// React-style targets author the class attribute as `className`.
-			accepted_names.push('classname');
-		}
 		const attributeName = get_attribute_name(attribute);
 		if (!attributeName || !accepted_names.includes(attributeName.toLowerCase())) {
 			continue;

@@ -278,6 +278,38 @@ export function runSharedScopedStyleTests({
 			expect(css).toContain(`[data-kind="TEXT" I].${hash} {`);
 		});
 
+		it('matches attribute selectors against the React-style props that render them', () => {
+			const { css, cssHash } = compile(
+				`export function App() @{
+					<>
+						<style>
+							meta[http-equiv] { --a: 1; }
+							form[accept-charset] { --b: 1; }
+							label[for="x"] { --c: 1; }
+							a[hreflang] { --d: 1; }
+							circle[stroke-width] { --e: 1; }
+							input[for] { --f: 1; }
+						</style>
+						<meta httpEquiv="refresh" content="5" />
+						<form acceptCharset="utf-8"></form>
+						<label htmlFor="x">{'l'}</label>
+						<a hrefLang="en">{'x'}</a>
+						<svg><circle strokeWidth={2} /></svg>
+						<input />
+					</>
+				}`,
+				'App.tsrx',
+			);
+
+			const hash = hashes_of(cssHash)[0];
+			expect(css).toContain(`meta[http-equiv].${hash} {`);
+			expect(css).toContain(`form[accept-charset].${hash} {`);
+			expect(css).toContain(`label[for="x"].${hash} {`);
+			expect(css).toContain(`a[hreflang].${hash} {`);
+			expect(css).toContain(`circle[stroke-width].${hash} {`);
+			expect(css).toContain('/* (unused) input[for] { --f: 1; }*/');
+		});
+
 		it('splits class attributes on ASCII whitespace only, so a no-break space stays inside its class', () => {
 			const nbsp = '\u00a0';
 			const { code, css, cssHash } = compile(

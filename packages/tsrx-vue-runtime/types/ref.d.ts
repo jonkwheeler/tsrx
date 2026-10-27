@@ -14,7 +14,8 @@ export * from '@tsrx/runtime/ref';
  * accepted on a `<div>`.
  *
  * Vue ignores what a function ref returns and calls it with `null` when it
- * unsets the ref, so the merged callback runs its refs' cleanups on that call.
+ * unsets the ref, so the merged callback runs its refs' cleanups on that call,
+ * or when another merged ref replaces it on the same node.
  */
 export function mergeRefs<T = Element>(
 	...refs: Array<MergeableRef<T>>

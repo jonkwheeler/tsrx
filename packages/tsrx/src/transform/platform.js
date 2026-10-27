@@ -381,10 +381,30 @@ export function merge_platform_definitions(definitions, platform_value, options 
 }
 
 /**
+ * Whether a program has a top-level import or export, which the virtual TSX
+ * keeps, so the virtual TSX is a module without a marker of its own.
+ *
+ * @param {AST.Program | null | undefined} program
+ * @returns {boolean}
+ */
+function has_module_syntax(program) {
+	return !!program?.body.some(
+		(statement) =>
+			(statement.type === 'ImportDeclaration' && statement.source.type === 'Literal') ||
+			statement.type === 'ExportNamedDeclaration' ||
+			statement.type === 'ExportDefaultDeclaration' ||
+			statement.type === 'ExportAllDeclaration',
+	);
+}
+
+/**
  * Add editor-only ambient types for flags retained in virtual TSX (for example
  * a runtime `@if`). The original source is an external module by virtue of
  * using `import.meta`; `export {}` preserves that status if early pruning
- * removed its final import-meta expression.
+ * removed its final import-meta expression and the source has no import or
+ * export. A module that has one gets no marker: Organize Imports and Sort
+ * Imports also rewrite export declarations, and TypeScript 7 drops the whole
+ * action when one of its edits is in generated code.
  *
  * @param {import('../../types/index').VolarMappingsResult} result
  * @param {unknown} platform_value
@@ -395,8 +415,7 @@ export function with_platform_types(result, platform_value) {
 	const value_type = (/** @type {Platform} */ name) =>
 		platform === undefined ? 'boolean' : name === platform ? 'true' : 'false';
 	const declarations = `
-export {};
-declare global {
+${has_module_syntax(result.sourceAst) ? '' : 'export {};\n'}declare global {
 	interface ImportMetaEnv {
 		readonly platform: string & {
 			readonly web: ${value_type('web')};

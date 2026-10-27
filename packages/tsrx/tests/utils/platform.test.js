@@ -5,6 +5,7 @@ import {
 	parseModule,
 	replacePlatformFlags,
 	specializePlatform,
+	withPlatformTypes,
 } from '../../src/index.js';
 
 describe('platform specialization', () => {
@@ -100,6 +101,34 @@ describe('platform specialization', () => {
 		const specialized = specializePlatform(ast, 'web', 'App.tsrx');
 
 		expect(specialized).toBe(ast);
+	});
+
+	it('adds a module marker to the platform types only for a module without imports or exports', () => {
+		/** @param {string} source */
+		const types = (source) =>
+			withPlatformTypes(
+				{
+					code: '',
+					mappings: [],
+					cssMappings: [],
+					scriptMappings: [],
+					errors: [],
+					sourceAst: parseModule(source, 'App.tsrx'),
+				},
+				'web',
+			).code;
+		const flag = 'const web = import.meta.env.platform.web;\n';
+		expect(types(flag)).toMatch(/^\nexport \{\};\ndeclare global \{/);
+		for (const statement of [
+			"import { a } from './a';",
+			"import './side-effect';",
+			'export const value = 1;',
+			'export default function App() {}',
+			"export * from './a';",
+			'export {};',
+		]) {
+			expect(types(`${statement}\n${flag}`), statement).toMatch(/^\ndeclare global \{/);
+		}
 	});
 
 	it('creates exactly one true boolean definition', () => {

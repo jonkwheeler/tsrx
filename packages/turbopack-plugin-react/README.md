@@ -30,6 +30,11 @@ A module that starts with `'use client'` is imported through a small module that
 keeps the directive and re-exports the compiled component, so Next can create the
 client reference for it.
 
+A `'use server'` `.tsrx` module imported by a client component fails when the
+action runs, with "Could not parse module '…/actions.tsrx.tsx', file not found".
+Import the actions in a server component and pass them down, define them inline in
+a server component, or write the actions file as `.ts`.
+
 It also adds `.tsrx` to `turbopack.resolveExtensions`.
 
 ## Options

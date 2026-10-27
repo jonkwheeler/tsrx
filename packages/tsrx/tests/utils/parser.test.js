@@ -12329,6 +12329,150 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		}
 	});
 
+	it('throws first, and records first, the error TypeScript reports first (#1214)', async () => {
+		// Each duplicate parameter at every binding, the first first; a parameter
+		// property outside a constructor before its modifiers' own errors and the
+		// errors in the body; decorators written before `export` and after it at
+		// the first; and a static block's decorators or modifiers before the
+		// errors in the block.
+		/** @type {Array<[source: string, error: ErrorKind, at: string]>} */
+		const cases = [
+			['function f(a, b, b, a) {}', TS_ERRORS.ARGUMENT_NAME_CLASH, 'a, b, b'],
+			['const f = (a, b, b, a) => 1;', TS_ERRORS.ARGUMENT_NAME_CLASH, 'a, b, b'],
+			['class A { m([a, b], { b, a }) {} }', TS_ERRORS.ARGUMENT_NAME_CLASH, 'a, b]'],
+			[
+				'const k = (public public x: number) => x;',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'public public',
+			],
+			[
+				'const k = (readonly public x: number) => x;',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'readonly',
+			],
+			[
+				'function f(public public x: number) {}',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'public public',
+			],
+			[
+				'class A { m(public public x: number) {} }',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'public public',
+			],
+			[
+				'class A { m(public a) { let let = 1; } }',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'public a',
+			],
+			[
+				'const o = { m(readonly a) { let let = 1; } };',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'readonly a',
+			],
+			[
+				'const g = async <T,>(public public x: T) => x;',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'public public',
+			],
+			[
+				'const g = async <T,>(public [a]: T[]) => a;',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'public [a]',
+			],
+			['@a export @b function f() {}', TS_ERRORS.UNEXPECTED_LEADING_DECORATOR, '@a'],
+			['@a @c export @b const x = 1;', TS_ERRORS.UNEXPECTED_LEADING_DECORATOR, '@a'],
+			[
+				'class A { @dec static { abstract interface I {} } }',
+				TS_ERRORS.DECORATORS_NOT_VALID_HERE,
+				'@dec',
+			],
+			[
+				'class A { public static { abstract interface I {} } }',
+				TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE,
+				'public',
+			],
+			[
+				'class A { @dec public static { let let = 1; } }',
+				TS_ERRORS.DECORATORS_NOT_VALID_HERE,
+				'@dec',
+			],
+		];
+		const outcomes = await parse_in_worker_with_ast(
+			cases.flatMap(([source]) => [{ source }, { source, options: { collect: true } }]),
+		);
+
+		for (const [index, [source, error, at]] of cases.entries()) {
+			const strict = outcomes[2 * index];
+			const collected = outcomes[2 * index + 1];
+			expect(strict, source).toEqual(thrown(error, source.indexOf(at)));
+			if (!collected.ok) throw new Error(`${source} threw ${collected.message}`);
+			const first = collected.errors?.[0];
+			expect([first?.code, first?.pos], source).toEqual([code_of(error), source.indexOf(at)]);
+		}
+	});
+
+	it('reports an arrow function’s TS7060 before the errors in it in a .mts file (#1214)', () => {
+		// Those of the arrow functions in its parameters and body, and the
+		// checker errors in its body, in the order TypeScript reports them.
+		const reserved = code_of(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER);
+		const reserved_word = code_of(TS_ERRORS.STRICT_MODE_RESERVED_WORD);
+		const let_name = code_of(TS_ERRORS.LET_DECLARATION_NAME);
+		/** @type {Array<[source: string, errors: Array<[code: string | undefined, at: string]>]>} */
+		const cases = [
+			[
+				'const f = <T>(a = <U>(b: U) => b) => a;',
+				[
+					[reserved, 'T>'],
+					[reserved, 'U>'],
+				],
+			],
+			[
+				'const f = async <T>(a = <U>(b: U) => b) => a;',
+				[
+					[reserved, 'T>'],
+					[reserved, 'U>'],
+				],
+			],
+			[
+				'const f = <A>(a = <B>(b = <C>(c: C) => c) => b) => a;',
+				[
+					[reserved, 'A>'],
+					[reserved, 'B>'],
+					[reserved, 'C>'],
+				],
+			],
+			[
+				'const f = <T>(x: T) => <U>(y: U) => y;',
+				[
+					[reserved, 'T>'],
+					[reserved, 'U>'],
+				],
+			],
+			[
+				'const f = <T>(x: T) => { let let = 1; };',
+				[
+					[reserved, 'T>'],
+					[reserved_word, 'let ='],
+					[let_name, 'let ='],
+				],
+			],
+		];
+		for (const [source, expected] of cases) {
+			const [code, at] = expected[0];
+			expect(() => parseModule(source, 'a.mts'), source).toThrow(
+				expect.objectContaining({ code, pos: source.indexOf(at) }),
+			);
+			/** @type {CompileError[]} */
+			const errors = [];
+			parseModule(source, 'a.mts', { collect: true, errors });
+			expect(
+				errors.map(({ code, pos }) => [code, pos]),
+				source,
+			).toEqual(expected.map(([code, at]) => [code, source.indexOf(at)]));
+		}
+	});
+
 	it('compares them with valid code', async () => {
 		const sources = cases.flatMap(({ valid }) => (valid ? [valid] : []));
 		const outcomes = await parse_in_worker(sources.map((source) => ({ source })));

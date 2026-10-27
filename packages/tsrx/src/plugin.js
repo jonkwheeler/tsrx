@@ -3,6 +3,7 @@
 @import * as ESTreeJSX from 'estree-jsx'
 @import { Parse } from '@tsrx/core/types'
 @import { Diagnostic } from './diagnostics.js'
+@import { CompileError } from '../types/index'
  */
 
 import * as acorn from 'acorn';
@@ -33,12 +34,18 @@ const regex_space_and_comments = /(?:\s|\/\/[^\n\r\u2028\u2029]*|\/\*[\s\S]*?\*\
  * `#parseGenericArrowFunction`): where its type parameters start, where its
  * parameter list starts (known once the type parameters are read), where the
  * arrow function starts (its `(`, or `async`), and the error that the arrow
- * function threw after its `=>`.
+ * function threw after its `=>`. In a `.mts` or `.cts` file, while it's read as
+ * an arrow function whose type parameters are TS7060 (`reserved`), the TS7060
+ * errors of the arrow functions in it, which come after its own (`held`, see
+ * `#reportReservedArrowTypeParameters`), and the expression around it (`outer`).
  * @typedef {{
  *   typeParametersStart: number,
  *   parametersStart: number,
  *   arrowStart: number,
  *   error: SyntaxError | null,
+ *   reserved: AST.TSTypeParameterDeclaration | null,
+ *   held: CompileError[],
+ *   outer: GenericArrowFunction | null,
  * }} GenericArrowFunction
  */
 
@@ -432,6 +439,19 @@ const STATIC_BLOCK_MODIFIER_KEYS = [
 	'override',
 	'abstract',
 	'readonly',
+];
+// The modifiers acorn-typescript reads before a class member
+// (`parseClassElement`).
+const CLASS_ELEMENT_MODIFIERS = [
+	'declare',
+	'private',
+	'public',
+	'protected',
+	'accessor',
+	'override',
+	'abstract',
+	'readonly',
+	'static',
 ];
 // acorn's errors for a word reserved only in strict mode used as a name, and
 // for `let` as the name of a `let` or `const` declaration (see
@@ -1287,6 +1307,18 @@ export function TSRXPlugin(config) {
 			// Where the binding list item being read starts, after its decorators (see
 			// `#parseAssignableListItem`).
 			#assignableListItemStart = -1;
+			// From `parseMethod` until the method's parameter list starts, whether a
+			// parameter property on them is TS2369 whatever follows them: on any
+			// method but a constructor (see `parseBindingList`).
+			/** @type {boolean | null} */
+			#methodParametersOutsideConstructor = null;
+			// While a method's parameters are read, whether a parameter property is
+			// TS2369 on them whatever follows (see `#parseAssignableListItem`).
+			#parametersOutsideConstructor = false;
+			// While `checkParams` checks a parameter list, the bindings of the names
+			// it binds twice (see `checkLValSimple`).
+			/** @type {Array<{ start: number, end: number }> | null} */
+			#parameterClashes = null;
 			// When collecting, the list being read that can be an arrow function's
 			// parameters: a parenthesized expression or the arguments of `async (…)`
 			// (see `#parseArrowParameterProperty`).
@@ -5125,12 +5157,17 @@ export function TSRXPlugin(config) {
 
 			/**
 			 * Records the list's closing token for `parseBindingListItem`: `)` for
-			 * parameters, `]` for an array pattern.
+			 * parameters, `]` for an array pattern, and for a method's parameters
+			 * whether a parameter property on them is TS2369 whatever follows them
+			 * (see `parseMethod`).
 			 * @type {Parse.Parser['parseBindingList']}
 			 */
 			parseBindingList(close, allowEmpty, allowTrailingComma, allowModifiers) {
 				const outer = this.#bindingListClose;
 				const outer_generic_arrow = this.#readingGenericArrowParameters;
+				const outer_outside_constructor = this.#parametersOutsideConstructor;
+				this.#parametersOutsideConstructor = this.#methodParametersOutsideConstructor === true;
+				this.#methodParametersOutsideConstructor = null;
 				this.#bindingListClose = close;
 				// acorn-typescript reads the parameters of `async <T,>(…) =>` with
 				// `parseBindingList` (see `parseBindingListItem`).
@@ -5162,6 +5199,7 @@ export function TSRXPlugin(config) {
 				} finally {
 					this.#bindingListClose = outer;
 					this.#readingGenericArrowParameters = outer_generic_arrow;
+					this.#parametersOutsideConstructor = outer_outside_constructor;
 				}
 			}
 
@@ -5370,23 +5408,67 @@ export function TSRXPlugin(config) {
 				const filename = this.#filename ?? '';
 				const reserved = /\.[cm]ts$/.test(filename);
 				if (!reserved && (async || !this.#collect || filename.endsWith('.ts'))) return;
+				if (!this.#isReservedArrowTypeParameters(node, reserved)) return;
+				if (!reserved) {
+					// At the type parameter, as TypeScript reports it.
+					error(
+						TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER,
+						this.#filename,
+						node.params[0],
+						this.#collect ? this.#errors : undefined,
+					);
+					return;
+				}
+				// In a `.mts` or `.cts` file, TypeScript reports an arrow function's
+				// TS7060 before those of the arrow functions in it, which are read
+				// first: those are held on it while it's read as an arrow function, and
+				// reported after its own, at its `=>` (see `parseArrowExpression`). An
+				// arrow function in another one that's TS7060 too is held on that one
+				// in turn (#1214).
+				const own =
+					this.#genericArrowFunction?.typeParametersStart === node.start
+						? this.#genericArrowFunction
+						: null;
+				// Reported at its `=>` already.
+				if (own && !own.reserved) return;
+				/** @type {CompileError[]} */
+				const reported = [];
+				error(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER, this.#filename, node.params[0], reported);
+				if (own) {
+					reported.push(...own.held);
+					this.parseEffects?.willSet(own, 'reserved');
+					own.reserved = null;
+				}
+				let around = own ? own.outer : this.#genericArrowFunction;
+				while (around && !around.reserved) around = around.outer;
+				for (const compile_error of reported) {
+					const errors = around ? around.held : this.#collect ? this.#errors : undefined;
+					if (!errors) {
+						compile_error.type = 'fatal';
+						throw compile_error;
+					}
+					this.parseEffects?.willAppend(errors);
+					errors.push(compile_error);
+				}
+			}
+
+			/**
+			 * Whether `node`, an arrow function's type parameters, is TS7060: one,
+			 * without a trailing comma or a constraint, and in a `.tsx` or `.tsrx`
+			 * file without a default either (`reserved` is `false`).
+			 * @param {AST.TSTypeParameterDeclaration} node
+			 * @param {boolean} reserved Whether the file is a `.mts` or `.cts` one
+			 */
+			#isReservedArrowTypeParameters(node, reserved) {
 				const [parameter] = node.params;
-				if (
+				return (
 					node.params.length === 1 &&
 					node.extra?.trailingComma === undefined &&
 					!parameter.constraint &&
 					// A default disambiguates it from JSX, which TypeScript doesn't read in a
 					// `.mts` or `.cts` file.
 					(reserved || !parameter.default)
-				) {
-					// At the type parameter, as TypeScript reports it.
-					error(
-						TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER,
-						this.#filename,
-						parameter,
-						this.#collect ? this.#errors : undefined,
-					);
-				}
+				);
 			}
 
 			/**
@@ -7403,12 +7485,14 @@ export function TSRXPlugin(config) {
 			 * does: a strict parse throws it there (#1162). When collecting, record it
 			 * and take them off the decorator stack (see `parseDecorators`). An
 			 * at-sign construct after `export` (`@dec export @if (a) { … }`) is no
-			 * declaration.
+			 * declaration. With decorators before `export` too, as in
+			 * `@a export @b function f() {}`, the first of those is the first
+			 * decorator (#1214).
 			 * @param {number} position Where acorn-typescript raises the error
 			 * @returns {boolean} Whether the error was recorded, and parsing goes on
 			 */
 			#dropLeadingDecorators(position) {
-				const start = this.#leadingDecoratorsStart;
+				let start = this.#leadingDecoratorsStart;
 				if (
 					start === -1 ||
 					!this.#atDeclarationKeyword() ||
@@ -7417,6 +7501,8 @@ export function TSRXPlugin(config) {
 				) {
 					return false;
 				}
+				const first = this.decoratorStack[this.decoratorStack.length - 1]?.[0]?.start;
+				if (first != null && first < start) start = first;
 				if (!this.#collect) this.#throwError(start, TS_ERRORS.UNEXPECTED_LEADING_DECORATOR);
 				this.#recordCheckerLevelError(start, start + 1, TS_ERRORS.UNEXPECTED_LEADING_DECORATOR);
 				this.#droppedDecoratorsError = { position, error: TS_ERRORS.UNEXPECTED_LEADING_DECORATOR };
@@ -7539,24 +7625,93 @@ export function TSRXPlugin(config) {
 			 * (`constructor(public [a] = [1])`), whose output then keeps the pattern
 			 * after the modifier. TypeScript's checker reports both. Raise it for the
 			 * pattern before the default too, at the same place.
+			 *
+			 * A parameter property outside a constructor implementation is TS2369 at
+			 * its first modifier, which TypeScript reports before a modifier's own
+			 * error (`public public x`, TS1028) and before any error in the method's
+			 * body. Where it's TS2369 whatever follows, on a function's or a method's
+			 * parameter, raise it before the modifiers are read: a strict parse
+			 * throws it, and a collecting one records it first (#1214). A strict parse
+			 * of a generic async arrow function's parameters, which
+			 * `parseFunctionBody` reports after the `=>` (see
+			 * `#reportArrowParameterProperties`), reads the parameter as a
+			 * collecting one does, and drops what it records: acorn-typescript takes
+			 * an error there for a sign that the code isn't an arrow function.
 			 * @param {boolean | undefined} allowModifiers
 			 * @returns {AST.Pattern}
 			 */
 			#parseAssignableListItem(allowModifiers) {
-				this.#assignableListItemStart = this.start;
-				const item = /** @type {AST.Node} */ (
-					(allowModifiers !== undefined && this.#parseRestParameterProperty(allowModifiers)) ||
-						super.parseAssignableListItem(allowModifiers)
-				);
-				if (
-					item.type === 'TSParameterProperty' &&
-					item.parameter.type === 'AssignmentPattern' &&
-					item.parameter.left.type !== 'Identifier'
-				) {
-					// UPSTREAM(sveltejs/acorn-typescript#138): remove once a release includes the fix
-					this.raise(/** @type {number} */ (item.start), TS_ERRORS.PATTERN_PARAMETER_PROPERTY);
+				const start = this.start;
+				this.#assignableListItemStart = start;
+				const modified = allowModifiers === undefined ? null : this.#parameterPropertyStart();
+				const read = () => {
+					const item = /** @type {AST.Node} */ (
+						(allowModifiers !== undefined && this.#parseRestParameterProperty(allowModifiers)) ||
+							super.parseAssignableListItem(allowModifiers)
+					);
+					if (
+						item.type === 'TSParameterProperty' &&
+						item.parameter.type === 'AssignmentPattern' &&
+						item.parameter.left.type !== 'Identifier'
+					) {
+						// UPSTREAM(sveltejs/acorn-typescript#138): remove once a release includes the fix
+						this.raise(/** @type {number} */ (item.start), TS_ERRORS.PATTERN_PARAMETER_PROPERTY);
+					}
+					return /** @type {AST.Pattern} */ (item);
+				};
+				if (modified && !this.#collect && this.#readingGenericArrowParameters) {
+					return this.#asCollecting(read);
 				}
-				return /** @type {AST.Pattern} */ (item);
+				// On a method's parameter, TS1187 for a binding pattern comes first, as
+				// it's raised as the parameter is read.
+				if (
+					modified &&
+					(allowModifiers === false ||
+						(this.#parametersOutsideConstructor && modified !== 'pattern'))
+				) {
+					this.#raiseCheckerError(start, TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR);
+				}
+				return read();
+			}
+
+			/**
+			 * Whether the parameter here starts with parameter property modifiers,
+			 * as `tsParseModifiers` reads them, and what follows them: a binding
+			 * pattern (`'pattern'`), or a name (`'name'`). `null` without them, or
+			 * before a rest element, whose modifiers are TS1317 first (see
+			 * `#parseRestParameterProperty`).
+			 * @returns {'pattern' | 'name' | null}
+			 */
+			#parameterPropertyStart() {
+				if (
+					this.containsEsc ||
+					!PARAMETER_MODIFIERS.includes(/** @type {string} */ (this.value)) ||
+					!Parser.acornTypeScript.tokenIsIdentifier(this.type)
+				) {
+					return null;
+				}
+				return this.#asCollecting(() => {
+					const errors = this.#errors;
+					const errors_length = errors?.length ?? 0;
+					try {
+						return this.tsLookAhead(() => {
+							/** @type {{ accessibility?: string, readonly?: boolean, override?: boolean }} */
+							const modified = {};
+							this.tsParseModifiers({ modified, allowedModifiers: PARAMETER_MODIFIERS });
+							if (
+								!(modified.accessibility || modified.readonly || modified.override) ||
+								this.type === tt.ellipsis
+							) {
+								return null;
+							}
+							return this.type === tt.bracketL || this.type === tt.braceL ? 'pattern' : 'name';
+						});
+					} catch {
+						return null;
+					} finally {
+						if (errors) errors.length = errors_length;
+					}
+				});
 			}
 
 			/**
@@ -8518,11 +8673,42 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
-			 * Acorn reports only the second duplicate function parameter. TypeScript
-			 * reports both, the first one first. When collecting, report the first one
-			 * too so editor diagnostics can underline both binding sites. A strict
-			 * parse throws the first one (#1162).
+			 * TypeScript reports each binding of a duplicate parameter name, in the
+			 * order they're written, and acorn only the second. While `checkParams`
+			 * checks the parameters, note both for it to report once the list is
+			 * checked. Otherwise, when collecting, record the first one too so editor
+			 * diagnostics can underline both binding sites, and in a strict parse
+			 * throw the first one (#1162).
 			 *
+			 * @type {Parse.Parser['checkParams']}
+			 */
+			checkParams(node, allowDuplicates) {
+				const outer = this.#parameterClashes;
+				/** @type {Array<{ start: number, end: number }>} */
+				const clashes = [];
+				this.#parameterClashes = clashes;
+				/** @type {{ pos?: number } | null} */
+				let failure = null;
+				try {
+					super.checkParams(node, allowDuplicates);
+				} catch (error) {
+					failure = /** @type {{ pos?: number }} */ (error);
+				} finally {
+					this.#parameterClashes = outer;
+				}
+				// The first binding of a name bound twice comes first, as TypeScript
+				// reports them: `a` in `function f(a, b, b, a) {}` (#1214). A strict
+				// parse throws the first, unless the error the check threw comes first.
+				clashes.sort((a, b) => a.start - b.start);
+				for (const { start, end } of clashes) {
+					if (failure && !this.#collect && !(start < (failure.pos ?? -1))) break;
+					this.#report_recoverable_error_range(start, end, TS_ERRORS.ARGUMENT_NAME_CLASH);
+				}
+				if (failure) throw failure;
+			}
+
+			/**
+			 * See `checkParams`.
 			 * @type {Parse.Parser['checkLValSimple']}
 			 */
 			checkLValSimple(expr, bindingType = BINDING_TYPES.BIND_NONE, checkClashes) {
@@ -8532,27 +8718,24 @@ export function TSRXPlugin(config) {
 					const first_position = first_positions.get(expr.name);
 
 					if (Object.prototype.hasOwnProperty.call(checkClashes, expr.name)) {
-						if (!this.#collect && first_position != null) {
-							this.#report_recoverable_error_range(
-								first_position,
-								first_position + expr.name.length,
-								TS_ERRORS.ARGUMENT_NAME_CLASH,
-							);
+						const clashes = this.#parameterClashes;
+						/**
+						 * @param {number} start
+						 * @param {number} end
+						 */
+						const report = (start, end) =>
+							clashes
+								? clashes.push({ start, end })
+								: this.#report_recoverable_error_range(start, end, TS_ERRORS.ARGUMENT_NAME_CLASH);
+						if (!clashes && !this.#collect && first_position != null) {
+							report(first_position, first_position + expr.name.length);
 						}
 						if (first_position != null && !reported_names.has(expr.name)) {
-							this.#report_recoverable_error_range(
-								first_position,
-								first_position + expr.name.length,
-								TS_ERRORS.ARGUMENT_NAME_CLASH,
-							);
+							report(first_position, first_position + expr.name.length);
 							reported_names.add(expr.name);
 						}
 						const start = /** @type {number} */ (expr.start);
-						this.#report_recoverable_error_range(
-							start,
-							/** @type {number} */ (expr.end ?? start + expr.name.length),
-							TS_ERRORS.ARGUMENT_NAME_CLASH,
-						);
+						report(start, /** @type {number} */ (expr.end ?? start + expr.name.length));
 						return;
 					}
 
@@ -8907,6 +9090,15 @@ export function TSRXPlugin(config) {
 					arrow.parametersStart = this.start;
 					// Without `async`, the arrow function starts at its `(`.
 					if (arrow.arrowStart === -1) arrow.arrowStart = this.start;
+					// acorn-typescript reads it as an arrow function from here, and undoes
+					// this if it isn't one (see `#reportReservedArrowTypeParameters`).
+					if (
+						/\.[cm]ts$/.test(this.#filename ?? '') &&
+						this.#isReservedArrowTypeParameters(node, true)
+					) {
+						this.parseEffects?.willSet(arrow, 'reserved');
+						arrow.reserved = node;
+					}
 				}
 				return node;
 			}
@@ -8941,6 +9133,9 @@ export function TSRXPlugin(config) {
 					parametersStart: -1,
 					arrowStart,
 					error: null,
+					reserved: null,
+					held: [],
+					outer,
 				};
 				this.#genericArrowFunction = arrow;
 				try {
@@ -8968,6 +9163,9 @@ export function TSRXPlugin(config) {
 					this.#reportReservedArrowTypeParameters(type_parameters, true);
 				}
 				const arrow = this.#genericArrowFunction;
+				if (!isAsync && arrow?.reserved && arrow.arrowStart === node.start) {
+					this.#reportReservedArrowTypeParameters(arrow.reserved, false);
+				}
 				if (arrow === null || arrow.arrowStart !== node.start) {
 					return super.parseArrowExpression(node, params, isAsync, forInit);
 				}
@@ -9089,6 +9287,15 @@ export function TSRXPlugin(config) {
 				}
 				const start = this.start;
 				const startLoc = this.startLoc;
+				// TS2369 comes before the modifiers' own errors (#1214, see
+				// `#parseAssignableListItem`).
+				if (this.#parameterPropertyStart()) {
+					this.#recordCheckerLevelError(
+						start,
+						start + 1,
+						TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+					);
+				}
 				/** @type {{ accessibility?: AST.TSParameterProperty['accessibility'], readonly?: boolean, override?: boolean }} */
 				const modified = {};
 				this.tsParseModifiers({ modified, allowedModifiers: PARAMETER_MODIFIERS });
@@ -9204,7 +9411,9 @@ export function TSRXPlugin(config) {
 			 * collecting parse runs it, recording what it reports and then dropping
 			 * it. A checker-level error (`CHECKER_LEVEL_ERRORS`) then doesn't end the
 			 * lookahead in a strict parse, which decides as a collecting one does and
-			 * throws the error when it reads the code for real (#1162).
+			 * throws the error when it reads the code for real (#1162). It also reads
+			 * code whose errors an earlier one throws anyway (see
+			 * `#parseAssignableListItem`).
 			 * @template T
 			 * @param {() => T} read
 			 * @returns {T}
@@ -9220,6 +9429,82 @@ export function TSRXPlugin(config) {
 					this.#collect = false;
 					this.#errors = errors;
 				}
+			}
+
+			/**
+			 * Runs `read` as a collecting parse runs it, recording the errors it
+			 * reports in `held`, for `#releaseErrors` to report after an error that
+			 * TypeScript reports first.
+			 * @template T
+			 * @param {CompileError[]} held
+			 * @param {() => T} read
+			 * @returns {T}
+			 */
+			#holdingErrors(held, read) {
+				const collect = this.#collect;
+				const errors = this.#errors;
+				this.#collect = true;
+				this.#errors = held;
+				try {
+					return read();
+				} finally {
+					this.#collect = collect;
+					this.#errors = errors;
+				}
+			}
+
+			/**
+			 * Report the errors that `#holdingErrors` held: a strict parse throws the
+			 * first, and a collecting one records them.
+			 * @param {CompileError[]} held
+			 */
+			#releaseErrors(held) {
+				for (const error of held) {
+					const position = error.pos ?? 0;
+					if (!this.#collect)
+						this.#throwError(position, { code: error.code, message: error.message });
+					const errors = this.#errors;
+					if (
+						!errors ||
+						errors.some((other) => other.pos === position && other.message === error.message)
+					) {
+						continue;
+					}
+					this.parseEffects?.willAppend(errors);
+					errors.push(error);
+				}
+			}
+
+			/**
+			 * Whether a class `static` block starts here after modifiers, or after the
+			 * decorators just read (`decorated`), which are TypeScript's checker
+			 * errors (see `parseClassElement`).
+			 * @param {boolean} decorated
+			 */
+			#startsStaticBlockWithModifiers(decorated) {
+				if (!decorated && !CLASS_ELEMENT_MODIFIERS.includes(/** @type {string} */ (this.value))) {
+					return false;
+				}
+				return this.#asCollecting(() => {
+					const errors = this.#errors;
+					const errors_length = errors?.length ?? 0;
+					try {
+						return this.tsLookAhead(() => {
+							const start = this.start;
+							this.tsParseModifiers({
+								modified: {},
+								allowedModifiers: CLASS_ELEMENT_MODIFIERS,
+								disallowedModifiers: ['in', 'out'],
+								stopOnStartOfClassStaticBlock: true,
+							});
+							return this.tsIsStartOfStaticBlocks() && (decorated || this.start !== start);
+						});
+					} catch {
+						return false;
+					} finally {
+						if (errors) errors.length = errors_length;
+					}
+				});
 			}
 
 			/**
@@ -12459,11 +12744,12 @@ export function TSRXPlugin(config) {
 			 * errors, TS1206 `Decorators are not valid here.` at the first decorator,
 			 * or else TS1184 `Modifiers cannot appear here.` at the first modifier
 			 * (`reportObviousDecoratorErrors`, `reportObviousModifierErrors`), after
-			 * any syntax error in the block: a strict parse throws them, and a
-			 * collecting one records them and keeps the block without the modifiers,
-			 * as Prettier's `typescript` parser does. acorn-typescript threw its own
-			 * error for modifiers after the block's `{` in every mode, and accepted
-			 * decorators.
+			 * any syntax error in the block, and before the checker errors in it: the
+			 * block's own errors are held until it's read (#1214). A strict parse
+			 * throws them, and a collecting one records them and keeps the block
+			 * without the modifiers, as Prettier's `typescript` parser does.
+			 * acorn-typescript threw its own error for modifiers after the block's `{`
+			 * in every mode, and accepted decorators.
 			 * @type {Parse.Parser['parseClassElement']}
 			 */
 			parseClassElement(constructorAllowsSuper) {
@@ -12475,12 +12761,19 @@ export function TSRXPlugin(config) {
 					this.lastTokEnd === this.#decoratorEnd ? this.#decoratorsStart : -1;
 				const outer_static_block_modifiers = this.#staticBlockModifiers;
 				this.#staticBlockModifiers = false;
+				/** @type {CompileError[] | null} */
+				const held = this.#startsStaticBlockWithModifiers(decorators_start !== -1) ? [] : null;
 				/** @type {ReturnType<Parse.Parser['parseClassElement']>} */
 				let element;
 				let modifiers;
 				try {
-					element = super.parseClassElement(constructorAllowsSuper);
+					element = held
+						? this.#holdingErrors(held, () => super.parseClassElement(constructorAllowsSuper))
+						: super.parseClassElement(constructorAllowsSuper);
 					modifiers = this.#staticBlockModifiers;
+				} catch (error) {
+					if (held && this.#collect) this.#releaseErrors(held);
+					throw error;
 				} finally {
 					this.#staticBlockModifiers = outer_static_block_modifiers;
 				}
@@ -12496,6 +12789,7 @@ export function TSRXPlugin(config) {
 						);
 					}
 				}
+				if (held) this.#releaseErrors(held);
 				// acorn-typescript gives a method without a body this type.
 				const method_type = /** @type {string | undefined} */ (
 					element?.type === 'MethodDefinition' ? element.value.type : undefined
@@ -12535,17 +12829,13 @@ export function TSRXPlugin(config) {
 			 * method's parameters with the modifiers allowed
 			 * (`parseClassFunctionParams`), and reported none of these. A strict parse
 			 * throws it, and a collecting one records it, as for a function's
-			 * parameter (see `parseBindingList`).
+			 * parameter (see `parseBindingList`). On a method other than a
+			 * constructor, it's reported as the parameter is read, before any error
+			 * in the body, which TypeScript reports after it (#1214, see
+			 * `#parseAssignableListItem`).
 			 * @type {Parse.Parser['parseMethod']}
 			 */
 			parseMethod(isGenerator, isAsync, allowDirectSuper, inClassScope, method) {
-				const node = super.parseMethod(
-					isGenerator,
-					isAsync,
-					allowDirectSuper,
-					inClassScope,
-					method,
-				);
 				// TypeScript reads `static constructor() {}` as a constructor, with
 				// TS1089 at `static`, where acorn reads a static method.
 				const static_constructor =
@@ -12553,6 +12843,16 @@ export function TSRXPlugin(config) {
 					!method.computed &&
 					method.key.type === 'Identifier' &&
 					method.key.name === 'constructor';
+				this.#methodParametersOutsideConstructor = !(
+					method?.kind === 'constructor' || static_constructor
+				);
+				/** @type {AST.FunctionExpression} */
+				let node;
+				try {
+					node = super.parseMethod(isGenerator, isAsync, allowDirectSuper, inClassScope, method);
+				} finally {
+					this.#methodParametersOutsideConstructor = null;
+				}
 				// Written with an escape, TS1260 is a syntax error first (see
 				// `parseClassElement`).
 				const key = /** @type {AST.Identifier} */ (method?.key);

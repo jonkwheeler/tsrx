@@ -54,12 +54,18 @@ import {
 	isTemplateSwitchNode as is_template_switch_node,
 	isTemplateTryNode as is_template_try_node,
 	isFunctionOrClassNode as is_function_or_class_boundary,
+	IDENTIFIER_OBFUSCATION_PREFIX,
 } from '@tsrx/core';
 
 import { builders as b } from '@tsrx/core';
 
-/** Local name of the `createMemo` import that holds a `@switch` discriminant. */
-const SWITCH_MEMO_INTERNAL_NAME = '__createMemo';
+/**
+ * Local name of the `createMemo` import that holds a `@switch` discriminant.
+ * The reserved prefix keeps it and {@link SWITCH_VALUE_NAME} clear of authored
+ * names.
+ */
+const SWITCH_MEMO_INTERNAL_NAME = `${IDENTIFIER_OBFUSCATION_PREFIX}createMemo`;
+const SWITCH_VALUE_NAME = `${IDENTIFIER_OBFUSCATION_PREFIX}switch_value`;
 
 /**
  * Solid platform descriptor consumed by `createJsxTransform`. Everything
@@ -1160,7 +1166,7 @@ function switch_statement_to_jsx_child(node, transform_context) {
 	const switch_value =
 		transform_context.typeOnly || is_reference_expression(node.discriminant)
 			? null
-			: create_generated_identifier('__switch_value');
+			: create_generated_identifier(SWITCH_VALUE_NAME);
 
 	/** @type {AST.Expression | null} */
 	let fallback = null;
@@ -1187,7 +1193,9 @@ function switch_statement_to_jsx_child(node, transform_context) {
 		// for editor IntelliSense and don't clone it.
 		const test = b.binary(
 			'===',
-			switch_value ? b.call(clone_identifier(switch_value)) : clone_ast_node(node.discriminant),
+			switch_value
+				? b.member(b.call(clone_identifier(switch_value)), b.literal(0), true)
+				: clone_ast_node(node.discriminant),
 			/** @type {AST.Expression} */ (original_case.test),
 		);
 
@@ -1223,7 +1231,12 @@ function switch_statement_to_jsx_child(node, transform_context) {
 			b.arrow(
 				[],
 				b.block([
-					b.const(switch_value, b.call(SWITCH_MEMO_INTERNAL_NAME, b.arrow([], node.discriminant))),
+					// Boxed, so a thenable discriminant is compared as a value, as a
+					// JavaScript switch compares it, instead of suspending the memo.
+					b.const(
+						switch_value,
+						b.call(SWITCH_MEMO_INTERNAL_NAME, b.arrow([], b.array([node.discriminant]))),
+					),
 					b.return(switch_element),
 				]),
 			),

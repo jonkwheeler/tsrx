@@ -1782,6 +1782,22 @@ function WholeBodyBlockApp() @{
 	</div>
 }
 
+// ── Switch discriminant that is a promise ──
+
+const switch_promise: Promise<string> = Promise.resolve('a');
+
+function SwitchPromiseApp() @{
+	const read = (): unknown => switch_promise;
+	@switch (read()) {
+		@case 'a': {
+			<p class="promise-branch">{'a'}</p>
+		}
+		@default: {
+			<p class="promise-branch">{'default'}</p>
+		}
+	}
+}
+
 describe('tsrx-solid control-flow bodies', () => {
 	it('renders a whole-body @{ } block and runs its setup once', async () => {
 		block_runs.if = block_runs.elseIf = block_runs.case = 0;
@@ -1797,6 +1813,12 @@ describe('tsrx-solid control-flow bodies', () => {
 		// The setup reads `k()` but runs untracked, as a body without `@{ }` does.
 		expect(block_runs).toEqual({ if: 1, elseIf: 1, case: 1 });
 		expect(Array.from(container.querySelectorAll('i'))).toEqual(nodes);
+	});
+
+	it('compares a promise discriminant as a value, as a JavaScript switch does', async () => {
+		await render(SwitchPromiseApp);
+		await flush();
+		expect(text('.promise-branch')).toBe('default');
 	});
 
 	it("renders an element's @{ } child inside @if, @for, @switch and @try bodies", async () => {

@@ -381,16 +381,32 @@ describe('@tsrx/solid basic', () => {
 			}`;
 			const { code } = compile(source, 'App.tsrx');
 			expect(code).toContain(
-				"import { Switch, Match, createMemo as __createMemo } from 'solid-js';",
+				"import { Switch, Match, createMemo as _$_createMemo } from 'solid-js';",
 			);
-			expect(code).toContain('const __switch_value = __createMemo(() => queue.shift());');
-			expect(code).toContain("<Match when={__switch_value() === 'loading'}>");
-			expect(code).toContain("<Match when={__switch_value() === 'ready'}>");
+			// Boxed, so a thenable discriminant is compared rather than awaited.
+			expect(code).toContain('const _$_switch_value = _$_createMemo(() => [queue.shift()]);');
+			expect(code).toContain("<Match when={_$_switch_value()[0] === 'loading'}>");
+			expect(code).toContain("<Match when={_$_switch_value()[0] === 'ready'}>");
 			expect(code.match(/queue\.shift\(\)/g)).toHaveLength(1);
 
 			const type_only = compile_to_volar_mappings(source, 'App.tsrx').code;
 			expect(type_only).toContain("<Match when={queue.shift() === 'loading'}>");
 			expect(type_only).not.toContain('createMemo');
+		});
+
+		it('switch memo names cannot collide with authored names', () => {
+			const { code } = compile(
+				`import { createMemo } from 'solid-js';
+				function App(__switch_value, __createMemo) @{
+					@switch (__switch_value.read()) {
+						@case 1: { <p>{createMemo(() => __createMemo)()}</p> }
+					}
+				}`,
+				'App.tsrx',
+			);
+			expect(code).toContain(
+				'const _$_switch_value = _$_createMemo(() => [__switch_value.read()]);',
+			);
 		});
 
 		it("lowers an element's @{ } child inside a control-flow body to its output", () => {

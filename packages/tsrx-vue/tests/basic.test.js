@@ -91,7 +91,9 @@ describe('@tsrx/vue basic', () => {
 			'App.tsrx',
 		);
 
-		expect(code).toContain('export default defineVaporComponent(function App()');
+		// The declaration also binds `App` in the module, so keep that binding.
+		expect(code).toContain('const App = defineVaporComponent(function App()');
+		expect(code).toContain('export default App;');
 		expect(code).not.toContain('export default const');
 	});
 
@@ -122,6 +124,24 @@ describe('@tsrx/vue basic', () => {
 		expect(code).not.toContain('defineVaporComponent(function Factory');
 	});
 
+	it('wraps a returned local binding that holds JSX anywhere, like a returned expression', () => {
+		const { code } = compile(
+			`function Columns() {
+				return [{ header: <b>Name</b> }];
+			}
+
+			function Config() {
+				const config = { icon: <i />, label: 'x' };
+				return config;
+			}`,
+			'App.tsrx',
+		);
+
+		// The direct return was already wrapped; the local binding follows the same rule.
+		expect(code).toContain('const Columns = defineVaporComponent(function Columns(');
+		expect(code).toContain('const Config = defineVaporComponent(function Config(');
+	});
+
 	it('moves a wrapped component above the first statement that reads it', () => {
 		const { code } = compile(
 			`export { Inner };
@@ -132,9 +152,10 @@ describe('@tsrx/vue basic', () => {
 			}
 
 			export const registry = { inner: Inner };
+			const LABEL = 'label';
 
-			export function Inner(props: { label: string }) @{
-				<span>{props.label}</span>
+			export function Inner({ label = 'fixed' }: { label?: string }) @{
+				<span>{label}{LABEL}</span>
 			}
 
 			function make() {
@@ -156,6 +177,111 @@ describe('@tsrx/vue basic', () => {
 		expect(code.indexOf('const Nested = defineVaporComponent')).toBeLessThan(
 			code.indexOf('return <Nested />'),
 		);
+	});
+
+	it('does not move a component for reads that do not run while the module loads', () => {
+		const { code } = compile(
+			`class Holder {
+				comp = Inner;
+				method() {
+					return Inner;
+				}
+			}
+			const DEBUG = false;
+			if (DEBUG) console.log(Inner);
+			const ready = DEBUG && Inner;
+			{
+				const Inner = 'shadow';
+				console.log(Inner);
+			}
+			try {
+				run();
+			} catch (Inner) {
+				console.log(Inner);
+			}
+			const PREFIX = 'p';
+			export function Inner({ label = PREFIX }: { label?: string }) @{
+				<span>{label}</span>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code.indexOf('export const Inner = defineVaporComponent')).toBeGreaterThan(
+			code.indexOf("const PREFIX = 'p'"),
+		);
+	});
+
+	it('moves a component past a read in a static class field or a reachable branch', () => {
+		const { code } = compile(
+			`class Holder {
+				static comp = Inner;
+			}
+			if (window.debug) console.log(Inner);
+			export function Inner({ label = 'x' }: { label?: string }) @{
+				<span>{label}</span>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code.indexOf('export const Inner = defineVaporComponent')).toBeLessThan(
+			code.indexOf('class Holder'),
+		);
+	});
+
+	it('reports a read above a component whose prop default reads a binding it would move past', () => {
+		for (const [source, read_line] of [
+			[
+				`export const registry = { inner: Inner };
+const PREFIX = 'p';
+export function Inner({ label = PREFIX }: { label?: string }) @{
+	<span>{label}</span>
+}`,
+				1,
+			],
+			[
+				`class Holder {
+	static comp = Inner;
+}
+var PREFIX = 'p';
+export function Inner({ label = PREFIX }: { label?: string }) @{
+	<span>{label}</span>
+}`,
+				2,
+			],
+			[
+				`const registry = { card: Card };
+const DEFAULT = 'x';
+function Card({ title = DEFAULT }: { title?: string }) {
+	const el = <div>{title}</div>;
+	return el;
+}`,
+				1,
+			],
+		]) {
+			/** @type {any} */
+			let thrown = null;
+			try {
+				compile(source, 'App.tsrx');
+			} catch (error) {
+				thrown = error;
+			}
+			const name = source.includes('Card') ? 'Card' : 'Inner';
+			expect(thrown, source).toBeInstanceOf(Error);
+			expect(thrown.code).toBe('TSRX2027');
+			expect(thrown.message).toContain(`'${name}' is read here before its declaration.`);
+			expect(thrown.message).toContain(`Move the declaration of '${name}' above this read.`);
+			expect(thrown.loc.start.line).toBe(read_line);
+		}
+
+		const { errors } = compile_to_volar_mappings(
+			`export const registry = { inner: Inner };
+const PREFIX = 'p';
+export function Inner({ label = PREFIX }: { label?: string }) @{
+	<span>{label}</span>
+}`,
+			'App.tsrx',
+		);
+		expect(errors.map((error) => error.code)).toEqual(['TSRX2027']);
 	});
 
 	it('rejects the removed `&{ ... }` lazy destructuring syntax', () => {

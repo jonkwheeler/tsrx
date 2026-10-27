@@ -1569,6 +1569,42 @@ describe('tsrx-vue runtime', () => {
 	});
 });
 
+const merged_ref_log: string[] = [];
+const merged_ref_object = ref<HTMLInputElement | null>(null);
+
+function MergedRefCleanupApp() @{
+	const shown = ref(true);
+	const withCleanup = (node: HTMLInputElement | null) => {
+		merged_ref_log.push(node ? 'set' : 'null');
+		return () => {
+			merged_ref_log.push('cleanup');
+		};
+	};
+	<>
+		@if (shown.value) {
+			<input class="merged-cleanup" ref={mergeRefs(withCleanup, merged_ref_object)} />
+		}
+		<button class="hide-merged" onClick={() => (shown.value = false)}>
+			{'hide'}
+		</button>
+	</>
+}
+
+describe('tsrx-vue merged refs', () => {
+	it("runs a merged ref's cleanup when Vue unsets the ref", async () => {
+		merged_ref_log.length = 0;
+		await render(MergedRefCleanupApp);
+		expect(merged_ref_log).toEqual(['set']);
+		expect(merged_ref_object.value).toBeInstanceOf(HTMLInputElement);
+
+		await click('.hide-merged');
+		// Vue ignores a function ref's return value and calls it with `null`;
+		// the merged ref runs the stored cleanup on that call instead.
+		expect(merged_ref_log).toEqual(['set', 'cleanup']);
+		expect(merged_ref_object.value).toBeNull();
+	});
+});
+
 runSwitchFallthroughRuntimeTests();
 runTsxExpressionTsrxRuntimeTests();
 runJsxTextWhitespaceRuntimeTests({ nbsp: 'kept' });

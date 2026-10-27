@@ -1366,6 +1366,17 @@ export function TSRXPlugin(config) {
 			// Where the `declare` that `tsTryParseDeclare` reads the declaration after
 			// is, when it's directly in an ambient namespace or module (TS1038), or -1.
 			#ambientDeclareStart = -1;
+			// Where a `declare` after `abstract` is, whose TS1038 TypeScript doesn't
+			// report after `abstract`'s error (see `tsParseDeclaration`), or -1.
+			#declareAfterAbstract = -1;
+			// The rest parameters read after parameter property modifiers on a
+			// method's parameter, with where the modifiers start (see `parseMethod`).
+			/** @type {WeakMap<AST.Node, number>} */
+			#restParameterProperties = new WeakMap();
+			// The `context` of the statement being read: `if`, a loop or a label for
+			// a statement that isn't in a list (see `#inStatementList`).
+			/** @type {string | null} */
+			#statementContext = null;
 
 			/**
 			 * @type {Parse.Parser['finishNode']}
@@ -5475,6 +5486,7 @@ export function TSRXPlugin(config) {
 				// `declare` would be repeated.
 				const after_declare =
 					next && this.input.slice(this.lastTokStart, this.lastTokEnd) === 'declare';
+				const declare_start = after_declare ? this.lastTokStart : -1;
 				if (!this.tsCheckLineTerminator(next)) return undefined;
 				let declaration = this.#declarationAfterModifier(0);
 				if (
@@ -5505,31 +5517,61 @@ export function TSRXPlugin(config) {
 				// parses after `export` when this returns nothing. TypeScript's checker
 				// reports `abstract` only without syntax errors in it.
 				this.#declarationAfterAbstractStart = this.start;
-				const block = !this.#atTopLevel();
-				const statement = this.parseStatement(null, !block);
-				this.#raiseAbstractModifierError(start, statement, block);
+				const block = !this.#inStatementList();
+				const ambient = this.#inAmbientModuleBlock();
+				// TypeScript reports `abstract` there, not a `declare` after it (TS1038).
+				if (declaration[0] === 'declare') this.#declareAfterAbstract = this.start;
+				const statement = this.parseStatement(null, this.#atTopLevel());
+				this.#raiseAbstractModifierError(start, statement, block, declare_start, ambient);
 				return statement;
 			}
 
 			/**
 			 * Report `abstract` at `start` before `declaration`, which isn't a class:
 			 * TS1242, or in a block (`block`) TS1184 `Modifiers cannot appear here.`
-			 * at the declaration's first modifier, which TypeScript's checker reports
-			 * first (`reportObviousModifierErrors`, see `#modifierError`). Both are
-			 * checker errors: a strict parse throws them, and a collecting one records
-			 * them.
+			 * (`reportObviousModifierErrors`, see `#modifierError`). TypeScript's
+			 * checker reports a `declare` before it first: TS1038 in an ambient
+			 * namespace or module (`ambient`), or TS1184 in a block, at the `declare`.
+			 * Then a collecting parse records `abstract`'s own error too, as the tree
+			 * leaves it out, so that the formatter refuses the code (see
+			 * `#raiseModifierErrors`). These are checker errors: a strict parse throws
+			 * the first.
 			 * @param {number} start
 			 * @param {AST.Node | undefined} declaration
 			 * @param {boolean} block
-			 * @param {number} [first_modifier] Where the declaration's modifiers start, if before `abstract`
+			 * @param {number} [declare_start] Where a `declare` before `abstract` is, or -1
+			 * @param {boolean} [ambient]
 			 */
-			#raiseAbstractModifierError(start, declaration, block, first_modifier = start) {
+			#raiseAbstractModifierError(start, declaration, block, declare_start = -1, ambient = false) {
 				const kind = declaration && modified_declaration_kind(declaration);
-				if (block && kind && kind !== 'module' && kind !== 'import') {
-					this.#raiseCheckerError(first_modifier, TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE);
-				} else {
-					this.raise(start, TS_ERRORS.ABSTRACT_MODIFIER_NOT_ALLOWED);
+				const in_block = !!(block && kind && kind !== 'module' && kind !== 'import');
+				const error = in_block
+					? TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE
+					: TS_ERRORS.ABSTRACT_MODIFIER_NOT_ALLOWED;
+				const first =
+					declare_start === -1
+						? null
+						: ambient
+							? TS_ERRORS.DECLARE_MODIFIER_IN_AMBIENT_CONTEXT
+							: in_block
+								? TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE
+								: null;
+				if (!first) {
+					this.#raiseCheckerError(start, error);
+					return;
 				}
+				this.#raiseCheckerError(declare_start, first);
+				if (this.#collect) this.#recordCheckerLevelError(start, start + 1, error);
+			}
+
+			/**
+			 * Whether the statement being read is an item of a statement list at the
+			 * top level of the module or of a namespace's body, where TypeScript's
+			 * checker takes modifiers on a declaration (`reportObviousModifierErrors`),
+			 * and not in a block or the body of an `if`, a loop or a label.
+			 */
+			#inStatementList() {
+				return this.#atTopLevel() && this.#statementContext === null;
 			}
 
 			/**
@@ -5594,18 +5636,17 @@ export function TSRXPlugin(config) {
 						const start = this.start;
 						if (this.containsEsc) this.raise(start, TS_ERRORS.KEYWORD_ESCAPE);
 						// The declaration without `abstract`, then its error.
-						const block = !this.#atTopLevel();
+						const block = !this.#inStatementList();
 						const declare_start = this.lastTokStart;
 						this.next();
 						const declared = super.tsTryParseDeclare(node);
-						if (ambient_declare !== -1) {
-							this.#raiseCheckerError(
-								ambient_declare,
-								TS_ERRORS.DECLARE_MODIFIER_IN_AMBIENT_CONTEXT,
-							);
-						} else {
-							this.#raiseAbstractModifierError(start, declared, block, declare_start);
-						}
+						this.#raiseAbstractModifierError(
+							start,
+							declared,
+							block,
+							declare_start,
+							ambient_declare !== -1,
+						);
 						return declared;
 					}
 				}
@@ -5969,7 +6010,7 @@ export function TSRXPlugin(config) {
 			 * @returns {ModifierContext}
 			 */
 			#modifierContext() {
-				return { block: !this.#atTopLevel(), ambient: this.isAmbientContext };
+				return { block: !this.#inStatementList(), ambient: this.isAmbientContext };
 			}
 
 			/**
@@ -6282,7 +6323,11 @@ export function TSRXPlugin(config) {
 			 */
 			tsParseExpressionStatement(node, expr) {
 				if (expr.start !== node.start) return undefined;
-				if (expr.name === 'declare' && this.#inAmbientModuleBlock()) {
+				if (
+					expr.name === 'declare' &&
+					expr.start !== this.#declareAfterAbstract &&
+					this.#inAmbientModuleBlock()
+				) {
 					// See `tsTryParseDeclare`.
 					this.#ambientDeclareStart = /** @type {number} */ (expr.start);
 				}
@@ -7221,6 +7266,8 @@ export function TSRXPlugin(config) {
 				const rest = this.parseRestBinding();
 				this.parseBindingListItem(rest);
 				this.#reportCommaAfterRestParameter();
+				// On a method's parameter, `parseMethod` reports TS2369 too.
+				if (allowModifiers) this.#restParameterProperties.set(rest, start);
 				return rest;
 			}
 
@@ -11295,9 +11342,23 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
+			 * Records the statement's `context` (see `#inStatementList`).
 			 * @type {Parse.Parser['parseStatement']}
 			 */
 			parseStatement(context, topLevel, exports) {
+				const outer = this.#statementContext;
+				this.#statementContext = context ?? null;
+				try {
+					return this.#parseStatement(context, topLevel, exports);
+				} finally {
+					this.#statementContext = outer;
+				}
+			}
+
+			/**
+			 * @type {Parse.Parser['parseStatement']}
+			 */
+			#parseStatement(context, topLevel, exports) {
 				// A statement without a `context` is the next one in a block, `case`, or
 				// module body (the program's own loop stops at the end of the input): at
 				// the end of the input, the body's `}` is missing. A statement that
@@ -11884,13 +11945,36 @@ export function TSRXPlugin(config) {
 					inClassScope,
 					method,
 				);
-				if (method?.kind === 'constructor' && node.body) return node;
+				// TypeScript reads `static constructor() {}` as a constructor, with
+				// TS1089 at `static`, where acorn reads a static method.
+				const static_constructor =
+					method?.static === true &&
+					!method.computed &&
+					method.key.type === 'Identifier' &&
+					method.key.name === 'constructor';
+				// Written with an escape, TS1260 is a syntax error first (see
+				// `parseClassElement`).
+				const key = /** @type {AST.Identifier} */ (method?.key);
+				if (
+					static_constructor &&
+					this.input.slice(/** @type {number} */ (key.start), key.end) === 'constructor'
+				) {
+					const static_start = this.input.lastIndexOf(
+						'static',
+						/** @type {number} */ (method.key.start),
+					);
+					if (static_start >= /** @type {number} */ (method.start)) {
+						this.#raiseCheckerError(static_start, TS_ERRORS.MODIFIER_ON_CONSTRUCTOR('static'));
+					}
+				}
+				if ((method?.kind === 'constructor' || static_constructor) && node.body) return node;
 				for (const parameter of node.params) {
-					if (/** @type {AST.Node} */ (parameter).type === 'TSParameterProperty') {
-						this.#raiseCheckerError(
-							/** @type {number} */ (parameter.start),
-							TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
-						);
+					const start =
+						/** @type {AST.Node} */ (parameter).type === 'TSParameterProperty'
+							? /** @type {number} */ (parameter.start)
+							: this.#restParameterProperties.get(parameter);
+					if (start !== undefined) {
+						this.#raiseCheckerError(start, TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR);
 					}
 				}
 				return node;

@@ -1403,6 +1403,17 @@ export namespace Parse {
 		tsMatchLeftRelational(): boolean;
 
 		/**
+		 * acorn's own `parseMaybeAssign`, without the attempts that
+		 * acorn-typescript's makes at an expression that starts with `<`: an
+		 * element, then a generic arrow function (@sveltejs/acorn-typescript)
+		 */
+		parseMaybeAssignOrigin(
+			forInit?: ForInit,
+			refDestructuringErrors?: DestructuringErrors,
+			afterLeftParse?: (node: AST.Node, startPos: number, startLoc: AST.Position) => AST.Node,
+		): AST.Expression;
+
+		/**
 		 * Parse type arguments in an expression position, rescanning the `<` that was
 		 * tokenized outside a type context (@sveltejs/acorn-typescript). `undefined`
 		 * when the rescan does not yield a `<`.

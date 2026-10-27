@@ -7469,9 +7469,16 @@ export function TSRXPlugin(config) {
 					// text ending in an identifier character (`hello<div>`) would read as
 					// the start of a type argument list (`hello<T>`).
 					const next = this.input.charCodeAt(this.pos + 1);
+					// `</` starts a closing tag, unless its `/` starts a comment
+					// (`</* c */ T,>`).
+					const after_slash = this.input.charCodeAt(this.pos + 2);
+					const closing_tag =
+						next === CharCode.slash &&
+						after_slash !== CharCode.slash &&
+						after_slash !== CharCode.asterisk;
 					if (
 						afterOptionalMemberName ||
-						(next !== CharCode.slash &&
+						(!closing_tag &&
 							// The rule applies only where an expression can start, as in
 							// TypeScript: not between JSX children, nor where a template's
 							// render node or child starts, where a `<` only opens a tag. In a
@@ -7481,7 +7488,7 @@ export function TSRXPlugin(config) {
 								context !== tstc.tc_expr &&
 								!this.#rereadingTagStart &&
 								looks_like_generic_arrow(this.input, this.pos)) ||
-								this.#canStartTypeParameterOrArgumentList(this.pos)))
+								(next !== CharCode.slash && this.#canStartTypeParameterOrArgumentList(this.pos))))
 					) {
 						++this.pos;
 						return this.finishToken(tt.relational, '<');
@@ -8212,11 +8219,17 @@ export function TSRXPlugin(config) {
 			/**
 			 * acorn-typescript reads an expression that starts with `<` as an element
 			 * first, then as a generic arrow function (see
-			 * `#parseGenericArrowFunction`).
+			 * `#parseGenericArrowFunction`). A `jsxTagStart` is a `<` that TypeScript's
+			 * TSX rule reads as a tag (see `looks_like_generic_arrow`), so it is read
+			 * only as an element: an element that fails to parse is the error, as in
+			 * TSX, not a generic arrow function such as `<T>(x) => x`.
 			 * @type {Parse.Parser['parseMaybeAssign']}
 			 */
 			#parseMaybeAssign(forInit, refDestructuringErrors, afterLeftParse) {
-				if (this.type !== tstt.jsxTagStart && !this.tsMatchLeftRelational()) {
+				if (this.type === tstt.jsxTagStart) {
+					return this.parseMaybeAssignOrigin(forInit, refDestructuringErrors, afterLeftParse);
+				}
+				if (!this.tsMatchLeftRelational()) {
 					return super.parseMaybeAssign(forInit, refDestructuringErrors, afterLeftParse);
 				}
 				return this.#parseGenericArrowFunction(-1, () =>

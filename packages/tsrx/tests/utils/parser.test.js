@@ -9929,10 +9929,23 @@ export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
 			['const f = <Value> (value: Value) => value;', 'Value', 'Value'],
 			['const f = <const T>(x: T) => x;', 'const', 'const T'],
 			['function App() @{\n\tconst f = <T>(x: T) => x;\n\t<b>{f}</b>\n}', 'T', 'T'],
+			// Nested, where acorn-typescript would otherwise try a generic arrow
+			// function once the element failed
+			['const a = <Box fn={<T>(x: T) => x} />;', 'T', 'T'],
+			['const a = <div>{<T>(x: T) => x}</div>;', 'T', 'T'],
+			['export function App() @{\n\t<Box fn={<T>(x: T) => x} />\n}', 'T', 'T'],
+			['export function App() @{\n\t<Box onClick={<T>(x: T) => x} />\n}', 'T', 'T'],
+			['export function App() @{\n\t<Box fn={<const T>(x: T) => x} />\n}', 'const', 'const T'],
+			[
+				'export function App(p) @{\n\t<div>@if (p.a) {\n\t\t<Box fn={<T>(x: T) => x} />\n\t}</div>\n}',
+				'T',
+				'T',
+			],
 		];
 
 		/**
-		 * A matcher for the trailing-comma diagnostic at the first `<` of `source`.
+		 * A matcher for the trailing-comma diagnostic at the lone type parameter's
+		 * `<` in `source`.
 		 * @param {string} source
 		 * @param {string} tag
 		 * @param {string} parameter
@@ -9943,7 +9956,7 @@ export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
 				message: expect.stringContaining(
 					TSRX_ERRORS.UNCLOSED_TAG_GENERIC_ARROW(tag, parameter).message,
 				),
-				pos: source.indexOf('<'),
+				pos: source.search(/<(const )?[A-Z]\w*> ?\(/),
 			});
 		}
 
@@ -9964,6 +9977,32 @@ export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
 				const errors = [];
 				parseModule(source, 'App.tsrx', { ...options, errors, comments: [] });
 				expect(errors, source).toEqual([trailingCommaError(source, tag, parameter)]);
+			}
+		});
+
+		it('never reads it as a generic arrow function, whether strict or collecting', () => {
+			for (const source of [
+				...cases.map(([source]) => source),
+				'export const f = <T>(x: T) => "</T>";',
+				'export function App() @{ <Box fn={<T>(x: T) => { return x; }} /> }',
+			]) {
+				for (const options of [undefined, { collect: true, errors: [], comments: [] }]) {
+					const label = `${source} ${options ? 'collecting' : 'strict'}`;
+					let ast;
+					try {
+						ast = parseModule(source, 'App.tsrx', options);
+					} catch {
+						continue;
+					}
+					expect(options?.errors, label).not.toEqual([]);
+					expect(
+						find_first(
+							ast,
+							(node) => node.type === 'ArrowFunctionExpression' && 'typeParameters' in node,
+						),
+						label,
+					).toBeUndefined();
+				}
 			}
 		});
 

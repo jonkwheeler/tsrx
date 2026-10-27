@@ -6,7 +6,10 @@ import { walk } from 'zimmerframe';
 import { print } from 'esrap';
 import { error } from '../../errors.js';
 import { DIAGNOSTIC_CODES, TSRX_ERRORS } from '../../diagnostics.js';
-import { is_template_value_position } from '../../analyze/validation.js';
+import {
+	get_statement_keyword_node,
+	is_template_value_position,
+} from '../../analyze/validation.js';
 import { analyze_css } from '../../analyze/css-analyze.js';
 import {
 	in_jsx_child_context,
@@ -593,6 +596,8 @@ export function createJsxTransform(platform) {
 			// needs_show / needs_for flags) via `hooks.initialState`.
 			...(platform.hooks?.initialState?.() ?? {}),
 		};
+
+		validate_directive_body_vars(ast, transform_context);
 
 		// Opt-in server-module dialect (`module <name> { … }` plus its boundary
 		// `import … from '<specifier>'`): lower to plain checkable TS before any
@@ -4345,6 +4350,41 @@ export function validate_for_of_head(left, transform_context) {
 			transform_context.errors,
 			transform_context.comments,
 		);
+	}
+}
+
+/**
+ * Every target runs an `@if`, `@for`, `@switch` or `@try` body that declares
+ * something in a function of its own, so a `var` there, or in a plain block or
+ * loop inside it, would not reach the enclosing function. A function or class
+ * in the body scopes its own `var`s. This walks the authored module before any
+ * target lowers a directive, so each `var` is reported once.
+ *
+ * @param {AST.Node} node
+ * @param {TransformContext} transform_context
+ * @param {boolean} [in_body] Whether `node` is inside a directive body.
+ * @returns {void}
+ */
+function validate_directive_body_vars(node, transform_context, in_body = false) {
+	if (in_body && node.type === 'VariableDeclaration' && node.kind === 'var' && !node.declare) {
+		error(
+			TSRX_ERRORS.DIRECTIVE_BODY_VAR,
+			transform_context.filename,
+			get_statement_keyword_node(node, 'var'),
+			transform_context.errors,
+			transform_context.comments,
+		);
+	}
+
+	// A `@{ … }` block runs in a function of its own wherever it is.
+	const children_in_body = is_jsx_control_flow_expression(node)
+		? true
+		: in_body && !is_function_or_class_boundary(node) && node.type !== 'JSXCodeBlock';
+	for (const child of child_nodes(node)) {
+		// `validate_for_of_head` reports a `var` in an `@for` head.
+		const in_for_head =
+			node.type === 'JSXForExpression' && child !== node.body && child !== node.empty;
+		validate_directive_body_vars(child, transform_context, children_in_body && !in_for_head);
 	}
 }
 

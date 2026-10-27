@@ -96,6 +96,8 @@ export const DIAGNOSTIC_CODES = {
 	TARGET_CATCH_RESET_UNSUPPORTED: 'TSRX2026',
 	/** An `@for` head that assigns to existing variables, or declares its loop variable with `var` or `using`. */
 	FOR_HEAD: 'TSRX2027',
+	/** A `var` declared in an `@if`, `@for`, `@switch` or `@try` body, outside any function or class in it. */
+	DIRECTIVE_BODY_VAR: 'TSRX2030',
 
 	/** `<style apply>` carries no expression value. */
 	STYLE_APPLY_VALUE: 'TSRX3001',
@@ -378,6 +380,10 @@ export const TSRX_ERRORS = {
 		'FOR_HEAD',
 		(kind) =>
 			`TSRX \`@for\` does not support \`${kind}\` loop variables. Declare the resource in the loop body instead: \`@for (const item of items) { ${kind} resource = item; ... }\`.`,
+	),
+	DIRECTIVE_BODY_VAR: tsrx(
+		'DIRECTIVE_BODY_VAR',
+		"TSRX does not support `var` declarations in `@if`, `@for`, `@switch` or `@try` bodies, since the variable can't be read outside the body. Declare it with `const` or `let`.",
 	),
 	MULTIPLE_REFS: tsrx(
 		'MULTIPLE_REFS',

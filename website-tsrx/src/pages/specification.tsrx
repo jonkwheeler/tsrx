@@ -605,6 +605,8 @@ const TSRX_ERROR_CODES = [
 	'TSRX2027  TSRX `@for` must declare its loop variable with `const` or `let`, as in `@for (const item of items)`.',
 	'          @for (state.item of xs) { <p /> }  or  @for (var x of xs) { <p /> }',
 	'          or  @for (using x of xs) { <p /> }',
+	"TSRX2030  TSRX does not support `var` declarations in `@if`, `@for`, `@switch` or `@try` bodies, since the variable can't be read outside the body.",
+	'          @for (const x of xs) { var y = x; <p>{y}</p> }',
 	"TSRX3001  The 'apply' attribute of a <style> block requires an expression value.",
 	'          <style apply="a" />',
 	"TSRX3002  'a' is not a style block.",

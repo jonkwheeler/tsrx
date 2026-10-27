@@ -12207,6 +12207,9 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			// A default before a rest element, and a spread of an assignment.
 			'const [a = 1, ...b] = c;',
 			'f(...a = 1, ...(b = 2));',
+			// A private method without a body declares its name (#883).
+			'declare class A {\n\t#m(): void;\n\tget #a(): number;\n\tset #a(v: number);\n\tstatic #s(): void;\n}',
+			'class B {\n\t#m(): void;\n\t#m(a?: number) {}\n\tn() {\n\t\treturn this.#m();\n\t}\n}',
 		];
 		const outcomes = await parse_in_worker(
 			sources.flatMap((source) => collect_modes.map((options) => ({ source, options }))),
@@ -12215,6 +12218,21 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		expect(outcomes).toEqual(
 			sources.flatMap(() => collect_modes.map(() => ({ ok: true, errors: [] }))),
 		);
+		// A strict parse too, where acorn's private-name checks are on.
+		const private_methods = sources.slice(-2);
+		expect(await parse_in_worker(private_methods.map((source) => ({ source })))).toEqual(
+			private_methods.map(() => ({ ok: true, errors: undefined })),
+		);
+	});
+
+	it("records TS1354 over `readonly`, as TypeScript's span is", async () => {
+		const [outcome] = await parse_in_worker_with_ast([
+			{ source: 'type A = readonly string;', options: collect_modes[0] },
+		]);
+		if (!outcome.ok) throw new Error(outcome.message);
+		expect(outcome.errors).toEqual([
+			{ code: TS_ERRORS.READONLY_TYPE_MODIFIER.code, pos: 9, end: 17 },
+		]);
 	});
 
 	it('records an empty declaration list with no width, right after its keyword', async () => {
@@ -13692,6 +13710,24 @@ describe('a generic arrow function with one type parameter (#880)', () => {
 				errors.map((error) => [error.code, error.pos]),
 				filename,
 			).toEqual([[TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER.code, 9]]);
+		}
+		// A default doesn't keep TypeScript from reporting it there, and an async
+		// arrow function gets it too, though neither reads as an element.
+		for (const [other, at] of /** @type {const} */ ([
+			['let g = <T = 1>() => 1;', 9],
+			['let h = async <T>(x: T) => x;', 15],
+		])) {
+			/** @type {CompileError[]} */
+			const errors = [];
+			parseModule(other, 'a.mts', { collect: true, errors, comments: [] });
+			expect(
+				errors.map((error) => [error.code, error.pos]),
+				other,
+			).toEqual([[TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER.code, at]]);
+			/** @type {CompileError[]} */
+			const tsrx_errors = [];
+			parseModule(other, 'App.tsrx', { collect: true, errors: tsrx_errors, comments: [] });
+			expect(tsrx_errors, other).toEqual([]);
 		}
 		for (const filename of ['a.mts', 'a.cts']) {
 			expect(() => parseModule(source, filename), filename).toThrow(

@@ -27,6 +27,15 @@ import {
 } from '@tsrx/core';
 
 /**
+ * Local name for the `VaporFor` the transform imports for `@for`, so an
+ * authored binding named `VaporFor` neither collides with the import nor
+ * replaces the loop. `defineVaporComponent` keeps its public name:
+ * vue-jsx-vapor finds components by that callee name for its macros, HMR,
+ * SSR and interop output.
+ */
+const VAPOR_FOR_INTERNAL_NAME = '__VaporFor';
+
+/**
  * Minimal Vue platform descriptor consumed by `createJsxTransform`.
  *
  * Vue largely reuses the shared JSX lowering while wrapping compiled
@@ -566,8 +575,8 @@ function render_for_of_as_vapor_for(node, loop_params, body_statements, transfor
 
 	return to_jsx_expression_container(
 		b.jsx_element_fresh(
-			b.jsx_opening_element(b.jsx_id('VaporFor'), attributes),
-			b.jsx_closing_element(b.jsx_id('VaporFor')),
+			b.jsx_opening_element(b.jsx_id(VAPOR_FOR_INTERNAL_NAME), attributes),
+			b.jsx_closing_element(b.jsx_id(VAPOR_FOR_INTERNAL_NAME)),
 			[to_jsx_expression_container(create_loop_callback(slot.params, slot.body, slot.expression))],
 		),
 	);
@@ -1206,7 +1215,7 @@ function inject_vue_imports(program, transform_context) {
 	}
 
 	if (transform_context.needs_vapor_for) {
-		ensure_named_import(program, 'vue-jsx-vapor', 'VaporFor');
+		ensure_named_import(program, 'vue-jsx-vapor', 'VaporFor', VAPOR_FOR_INTERNAL_NAME);
 	}
 
 	if (transform_context.needs_suspense) {

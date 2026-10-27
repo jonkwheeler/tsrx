@@ -196,6 +196,21 @@ function get_await_keyword_start(await_node, source) {
 // =====================================================================
 
 /**
+ * Local names for the `solid-js` components the transform imports itself. An
+ * authored binding of a public name (an import, a local, or a `@for` loop
+ * variable named `Match`) then neither collides with the import nor replaces
+ * the generated element.
+ */
+const CONTROL_FLOW_LOCALS = {
+	Show: '__Show',
+	For: '__For',
+	Switch: '__Switch',
+	Match: '__Match',
+	Errored: '__Errored',
+	Loading: '__Loading',
+};
+
+/**
  * Lower one body node to a Solid JSX child. Render sources (see
  * {@link is_solid_render_child}) always come back as a JSX child; anything else
  * is returned untouched.
@@ -979,13 +994,13 @@ function if_statement_to_jsx_child(node, transform_context) {
 
 	const children = match_branches.map((branch) =>
 		create_jsx_element(
-			'Match',
+			CONTROL_FLOW_LOCALS.Match,
 			[b.jsx_attribute(b.jsx_id('when'), to_jsx_expression_container(branch.test))],
 			[jsx_child_wrap(to_function_child(body_to_jsx_child(branch.body, transform_context)))],
 		),
 	);
 
-	return create_jsx_element('Switch', attributes, children);
+	return create_jsx_element(CONTROL_FLOW_LOCALS.Switch, attributes, children);
 }
 
 /**
@@ -1032,7 +1047,9 @@ function build_show_element(test, children, fallback) {
 			b.jsx_attribute(b.jsx_id('fallback'), to_jsx_expression_container(iife_if_arrow(fallback))),
 		);
 	}
-	return create_jsx_element('Show', attributes, [jsx_child_wrap(to_function_child(children))]);
+	return create_jsx_element(CONTROL_FLOW_LOCALS.Show, attributes, [
+		jsx_child_wrap(to_function_child(children)),
+	]);
 }
 
 /**
@@ -1094,7 +1111,9 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 		attributes.push(b.jsx_attribute(b.jsx_id('keyed'), to_jsx_expression_container(b.false)));
 	}
 
-	return create_jsx_element('For', attributes, [to_jsx_expression_container(arrow)]);
+	return create_jsx_element(CONTROL_FLOW_LOCALS.For, attributes, [
+		to_jsx_expression_container(arrow),
+	]);
 }
 
 /**
@@ -1147,7 +1166,7 @@ function switch_statement_to_jsx_child(node, transform_context) {
 
 	const match_children = match_entries.map(({ test, body_jsx }) =>
 		create_jsx_element(
-			'Match',
+			CONTROL_FLOW_LOCALS.Match,
 			[b.jsx_attribute(b.jsx_id('when'), to_jsx_expression_container(test))],
 			[jsx_child_wrap(to_function_child(body_jsx))],
 		),
@@ -1163,7 +1182,7 @@ function switch_statement_to_jsx_child(node, transform_context) {
 				]
 			: [];
 
-	return create_jsx_element('Switch', attributes, match_children);
+	return create_jsx_element(CONTROL_FLOW_LOCALS.Switch, attributes, match_children);
 }
 
 /**
@@ -1212,7 +1231,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 		const fallback_content = body_to_jsx_child(pending_body_nodes, transform_context);
 
 		result = create_jsx_element(
-			'Loading',
+			CONTROL_FLOW_LOCALS.Loading,
 			[
 				b.jsx_attribute(
 					b.jsx_id('fallback'),
@@ -1242,7 +1261,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 		);
 
 		result = create_jsx_element(
-			'Errored',
+			CONTROL_FLOW_LOCALS.Errored,
 			[b.jsx_attribute(b.jsx_id('fallback'), to_jsx_expression_container(fallback_fn))],
 			[result],
 		);
@@ -1900,8 +1919,9 @@ function get_static_property_name(key) {
 }
 
 /**
- * Inject `import { Show, For, Switch, Match, Errored, Loading } from 'solid-js'`
- * specifiers for whichever control-flow primitives the transform emitted.
+ * Inject `import { Show as __Show, For as __For, … } from 'solid-js'`
+ * specifiers for whichever control-flow primitives the transform emitted (see
+ * {@link CONTROL_FLOW_LOCALS}).
  *
  * @param {AST.Program} program
  * @param {TransformContext} transform_context
@@ -1933,6 +1953,7 @@ function inject_solid_imports(program, transform_context) {
 		]);
 	}
 
+	/** @type {Array<keyof typeof CONTROL_FLOW_LOCALS>} */
 	const needed = [];
 	if (transform_context.needs_show) needed.push('Show');
 	if (transform_context.needs_for) needed.push('For');
@@ -1945,7 +1966,7 @@ function inject_solid_imports(program, transform_context) {
 
 	insert_after_directives(program, [
 		b.imports(
-			needed.map((name) => [name, name]),
+			needed.map((name) => [name, CONTROL_FLOW_LOCALS[name]]),
 			'solid-js',
 		),
 	]);

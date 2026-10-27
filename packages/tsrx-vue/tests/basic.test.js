@@ -595,8 +595,10 @@ describe('@tsrx/vue basic', () => {
 			'App.tsrx',
 		);
 
-		expect(code).toContain('<VaporFor in={items}>{(item) => <div>{item}</div>}</VaporFor>');
-		expect(code).toContain("import { defineVaporComponent, VaporFor } from 'vue-jsx-vapor';");
+		expect(code).toContain('<__VaporFor in={items}>{(item) => <div>{item}</div>}</__VaporFor>');
+		expect(code).toContain(
+			"import { defineVaporComponent, VaporFor as __VaporFor } from 'vue-jsx-vapor';",
+		);
 		expect(code).not.toContain('not yet supported in Vue TSRX');
 	});
 
@@ -610,7 +612,7 @@ describe('@tsrx/vue basic', () => {
 			'App.tsrx',
 		);
 
-		expect(code).toContain('<VaporFor in={items} getKey={(item) => item.id}>');
+		expect(code).toContain('<__VaporFor in={items} getKey={(item) => item.id}>');
 		expect(code).toContain('item.value.text');
 	});
 
@@ -643,7 +645,7 @@ describe('@tsrx/vue basic', () => {
 			'App.tsrx',
 		);
 
-		expect(code).toContain('<VaporFor in={items} getKey={(item, i) => item.id}>');
+		expect(code).toContain('<__VaporFor in={items} getKey={(item, i) => item.id}>');
 		expect(code).toContain('{(item, i) => <div>');
 		expect(code).toContain('{i.value}');
 		expect(code).toContain('item.value.text');
@@ -659,7 +661,7 @@ describe('@tsrx/vue basic', () => {
 			'App.tsrx',
 		);
 
-		expect(code).toContain('<VaporFor in={items} getKey={(item, i) => i}>');
+		expect(code).toContain('<__VaporFor in={items} getKey={(item, i) => i}>');
 		expect(code).toContain("{(item, i) => <div>{'test'}</div>}");
 		expect(code).toContain("<div>{'test'}</div>");
 		expect(code).not.toContain('<div key={i}>');
@@ -679,7 +681,7 @@ describe('@tsrx/vue basic', () => {
 			'App.tsrx',
 		);
 
-		expect(code).toContain('<VaporFor in={items} getKey={(item, i) => i}>');
+		expect(code).toContain('<__VaporFor in={items} getKey={(item, i) => i}>');
 		expect(code).toContain('{(item, i) => <>');
 		expect(code).toContain("<div>{'one'}</div>");
 		expect(code).toContain("<div>{'two'}</div>");
@@ -836,6 +838,24 @@ describe('@tsrx/vue basic', () => {
 		expect(code).toContain(generated);
 		expect(code).toContain('<__Suspense v-slots=');
 		expect(code).not.toContain('<Suspense');
+	});
+
+	it('keeps `import type { VaporFor }` type-only and imports the generated names as values', () => {
+		const { code } = compile(
+			`import type { VaporFor } from 'vue-jsx-vapor';
+
+			export function App({ rows }: { rows: string[] }) @{
+				<ul>@for (const row of rows; key row) { <li>{row}</li> }</ul>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code.split('\n').filter((line) => line.includes("from 'vue-jsx-vapor'"))).toEqual([
+			"import { defineVaporComponent, VaporFor as __VaporFor } from 'vue-jsx-vapor';",
+			"import type { VaporFor } from 'vue-jsx-vapor';",
+		]);
+		expect(code).toContain('const App = defineVaporComponent(function App(');
+		expect(code).toContain('<__VaporFor in={rows} getKey={(row) => row}>');
 	});
 
 	it('compiles try/pending into a Vue Suspense slot boundary', () => {

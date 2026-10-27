@@ -107,9 +107,18 @@ function isModifierBeforeExport(error, text) {
  */
 function isAbstractInBlock(error, text) {
 	return (
-		error.code === 'TS1184' && error.pos !== undefined && text.startsWith('abstract', error.pos)
+		error.code === 'TS1184' &&
+		error.pos !== undefined &&
+		text.startsWith('abstract', error.pos) &&
+		// Not modifiers before a class `static` block, which the tree leaves out,
+		// as Prettier's does.
+		!regex_static_block_modifiers.test(text.slice(error.pos))
 	);
 }
+
+/** Modifiers, then a class `static` block's `static {`. */
+const regex_static_block_modifiers =
+	/^(?:(?:abstract|accessor|declare|override|private|protected|public|readonly)\s+)+static\s*\{/u;
 
 /**
  * Whether `error` is for decorators on a class `static` block (`@dec static

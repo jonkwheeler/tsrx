@@ -2367,6 +2367,7 @@ describe('parse errors', () => {
 		await expectFormat('declare import x from "m";', 'import x from "m";\n');
 		// Nor modifiers or decorators before a class `static` block (#885).
 		await expectFormat('class A { public static {} }', 'class A {\n  static {}\n}\n');
+		await expectFormat('class A { abstract static {} }', 'class A {\n  static {}\n}\n');
 		await expectFormat(
 			'class A { @dec static { f(); } }',
 			'class A {\n  static {\n    f();\n  }\n}\n',
@@ -2482,6 +2483,26 @@ describe('parse errors', () => {
 			[
 				'function f() {\n  abstract interface I {}\n}',
 				TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE,
+				'2:3',
+			],
+			// After `declare`, whose error TypeScript reports first, `abstract` is
+			// still refused, as Prettier refuses it, rather than left out.
+			[
+				'{\n  declare abstract function g(): void;\n}',
+				TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE,
+				'2:11',
+			],
+			['{\n  declare abstract interface I {}\n}', TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, '2:11'],
+			['{\n  declare abstract enum E {}\n}', TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, '2:11'],
+			['{\n  declare abstract const x: number;\n}', TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, '2:11'],
+			[
+				'declare namespace N {\n  declare abstract function f(): void;\n}',
+				TS_ERRORS.ABSTRACT_MODIFIER_NOT_ALLOWED,
+				'2:11',
+			],
+			[
+				'declare namespace N {\n  abstract declare interface I {}\n}',
+				TS_ERRORS.ABSTRACT_MODIFIER_NOT_ALLOWED,
 				'2:3',
 			],
 			// A parameter property on a method or a constructor overload (#886).

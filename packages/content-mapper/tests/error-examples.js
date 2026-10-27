@@ -783,6 +783,12 @@ let a = 2;`,
 }`,
 	},
 	{
+		error: TS_ERRORS.MODIFIER_ON_CONSTRUCTOR,
+		source: `class A {
+	static constructor() {}
+}`,
+	},
+	{
 		error: TS_ERRORS.DECORATORS_NOT_VALID_HERE,
 		source: `class A {
 	@dec static {}

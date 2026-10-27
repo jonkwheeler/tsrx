@@ -947,10 +947,13 @@ function attribute_matches(node, name, expected_value, operator, case_insensitiv
 
 		if (expected_value === null) return true;
 
+		// More than one prop can render the attribute (`htmlFor` and `for`), so a
+		// value that does not match leaves the others to decide
 		const text_value = get_text_attribute_value(attribute);
-		if (text_value !== null) {
-			return test_attribute(operator, expected_value, case_insensitive, text_value);
-		} else {
+		if (
+			text_value === null ||
+			test_attribute(operator, expected_value, case_insensitive, text_value)
+		) {
 			return true;
 		}
 	}

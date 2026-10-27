@@ -310,6 +310,31 @@ export function runSharedScopedStyleTests({
 			expect(css).toContain('/* (unused) input[for] { --f: 1; }*/');
 		});
 
+		it('matches an attribute selector when any prop that renders the attribute matches', () => {
+			const { css, cssHash } = compile(
+				`export function App() @{
+					<>
+						<style>
+							[data-foo="x"] { --a: 1; }
+							label[for="x"] { --b: 1; }
+							meta[http-equiv="a"] { --c: 1; }
+							[data-foo="z"] { --d: 1; }
+						</style>
+						<div dataFoo="y" data-foo="x" />
+						<label htmlFor="y" for="x">{'l'}</label>
+						<meta httpEquiv="b" http-equiv="a" />
+					</>
+				}`,
+				'App.tsrx',
+			);
+
+			const hash = hashes_of(cssHash)[0];
+			expect(css).toContain(`[data-foo="x"].${hash} {`);
+			expect(css).toContain(`label[for="x"].${hash} {`);
+			expect(css).toContain(`meta[http-equiv="a"].${hash} {`);
+			expect(css).toContain('/* (unused) [data-foo="z"] { --d: 1; }*/');
+		});
+
 		it('splits class attributes on ASCII whitespace only, so a no-break space stays inside its class', () => {
 			const nbsp = '\u00a0';
 			const { code, css, cssHash } = compile(

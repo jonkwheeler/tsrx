@@ -281,6 +281,83 @@ describe('@tsrx/hono DOM compiler', () => {
 		expect(compileDomToVolarMappings(source, 'App.tsrx').errors).toEqual([async_error]);
 	});
 
+	it.each([
+		'function patch(target: { App: () => any }) { target.App = () => <span />; } patch(UI); <UI.App />;',
+		'const box = { ui: UI }; box.ui.App = () => <span />; <UI.App />;',
+		'const list = [UI]; list[0].App = () => <span />; <UI.App />;',
+		'patch(UI.nested); <UI.nested.App />;',
+		'patch({ ui: UI }); <UI.App />;',
+		'patch(...[UI]); <UI.App />;',
+		'patch(UI[key]); <UI.nested.App />;',
+		'new Patcher(UI); <UI.App />;',
+		'patch`${UI}`; <UI.App />;',
+		'UI.init(); <UI.App />;',
+		'[UI].forEach((registry) => { registry.App = () => <span />; }); <UI.App />;',
+		'for (const registry of [UI]) registry.App = () => <span />; <UI.App />;',
+		'function List() @{ <ul>@for (const registry of [UI]) { registry.App = () => <span />; <li /> }</ul> } <UI.App />;',
+		'const holder = {}; holder.ui = UI; holder.ui.App = () => <span />; <UI.App />;',
+		'globalThis.registry = UI; <UI.App />;',
+		'cache.set("ui", UI); <UI.App />;',
+		'Reflect.set(holder, "ui", UI); <UI.App />;',
+		'Object.assign(holder, { ui: UI }); <UI.App />;',
+		'class Box { ui = UI; } <UI.App />;',
+		'const view = <Patch registry={UI} />; <UI.App />;',
+		'function patch(target = UI) { target.App = () => <span />; } patch(); <UI.App />;',
+		'const { registry = UI } = {}; registry.App = () => <span />; <UI.App />;',
+		'const registry = (load(), UI); registry.App = () => <span />; <UI.App />;',
+		'const get = () => UI; get().App = () => <span />; <UI.App />;',
+		'function get() { return UI; } get().App = () => <span />; <UI.App />;',
+		'(flag ? UI : other).App = () => <span />; <UI.App />;',
+		'[UI][0].App = () => <span />; <UI.App />;',
+		'const console = { log: patch }; console.log(UI); <UI.App />;',
+		'const registry = UI; patch(registry); <UI.App />;',
+		'const { nested } = UI; patch(nested); <UI.nested.App />;',
+		'const box = { ui: UI }; patch(box.ui); <UI.App />;',
+		'const view = <div ref={UI} />; <UI.App />;',
+	])('does not diagnose a registry that escapes to code the check cannot follow: %s', (update) => {
+		const source = `const UI = { App: async () => <div />, nested: { App: async () => <div /> } };
+			${update}`;
+		expect(() => compileDom(source, 'App.tsrx')).not.toThrow();
+		expect(compileDom(source, 'App.tsrx', { collect: true }).errors).toEqual([]);
+		expect(compileDomToVolarMappings(source, 'App.tsrx').errors).toEqual([]);
+	});
+
+	it.each([
+		'console.log(UI, UI.App); <UI.App />;',
+		'JSON.stringify(UI); Object.keys(UI); Array.isArray(UI); String(UI); <UI.App />;',
+		'Object.keys({ ui: UI }); <UI.App />;',
+		'if (UI.App && typeof UI === "object" && "App" in UI) {} <UI.App />;',
+		'const label = `${UI}`; <UI.App />;',
+		'memo(UI.App); <UI.App />;',
+		'patch(UI[key]); <UI.App />;',
+		'UI.App.toString(); UI.hasOwnProperty("App"); <UI.App />;',
+		'const view = <Card render={UI.App} />; <UI.App />;',
+		'const box = { ui: UI }; <box.ui.App />;',
+		'const list = [UI]; console.log(list); <UI.App />;',
+		'patch({ ...UI }); <UI.App />;',
+		'export { UI }; <UI.App />;',
+		'const Page = async () => <div />; register(Page); <Page />;',
+		'const Page = UI.App; register(Page); <Page />;',
+		'const { App } = UI; register(App); <App />;',
+		'const registry = UI; memo(registry.App); <UI.App />;',
+		'const items = UI.items; items.map((item) => item.name); <UI.App />;',
+		'const box = { ui: UI }; patch(box.label); <UI.App />;',
+		'const view = <div title={UI.title} style={{ color: UI.color }}>{UI}</div>; <UI.App />;',
+		'function List() @{ <ul>@for (const item of UI.items) { <li>{item.name}</li> }</ul> } <UI.App />;',
+		'UI.App.displayName = "App"; <UI.App />;',
+		'const Page = async () => <div />; Page.displayName = "Page"; <Page />;',
+		'const Page = async () => <div />; Object.assign(Page, { displayName: "Page" }); <Page />;',
+	])('still diagnoses an async member that is only read or copied: %s', (update) => {
+		const source = `const UI = { App: async () => <div /> };
+			${update}`;
+		const async_error = expect.objectContaining({
+			message: expect.stringContaining('does not support async components'),
+		});
+		expect(() => compileDom(source, 'App.tsrx')).toThrow(/does not support async components/);
+		expect(compileDom(source, 'App.tsrx', { collect: true }).errors).toEqual([async_error]);
+		expect(compileDomToVolarMappings(source, 'App.tsrx').errors).toEqual([async_error]);
+	});
+
 	it('rejects an async component referenced by a dynamic tag', () => {
 		expect(() =>
 			compileDom('const App = async () => <div />; const view = <{App} />;', 'App.tsrx'),

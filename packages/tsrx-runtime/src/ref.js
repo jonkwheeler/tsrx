@@ -129,7 +129,7 @@ export function mergeRefs(...refs) {
 			}
 		}
 		return () => {
-			// Replayed inline at all three sites on purpose: a shared helper
+			// Replayed inline at every site on purpose: a shared helper
 			// call measurably regressed this hot path — do not extract.
 			for (let i = 0; i < cleanups.length; i += 2) {
 				const kind = cleanups[i];
@@ -224,7 +224,7 @@ function apply_ref_array(ref_values, node) {
 	}
 	if (cleanups.length > 0) {
 		return () => {
-			// Replayed inline at all three sites on purpose: a shared helper
+			// Replayed inline at every site on purpose: a shared helper
 			// call measurably regressed this hot path — do not extract.
 			for (let i = 0; i < cleanups.length; i += 2) {
 				const kind = cleanups[i];
@@ -340,7 +340,7 @@ function merge_ref_list(refs) {
 		}
 
 		return () => {
-			// Replayed inline at all three sites on purpose: a shared helper
+			// Replayed inline at every site on purpose: a shared helper
 			// call measurably regressed this hot path — do not extract.
 			for (let i = 0; i < cleanups.length; i += 2) {
 				const kind = cleanups[i];
@@ -359,6 +359,103 @@ function merge_ref_list(refs) {
 	}
 
 	return merged_ref_prop;
+}
+
+/**
+ * @typedef {{
+ *   next: WeakMap<object, MergedRefEntry> | undefined,
+ *   ref: ((node: any) => void | (() => void)) | undefined,
+ * }} MergedRefEntry
+ */
+
+/**
+ * `merge_element_refs` callbacks by their refs, one level per ref.
+ * @type {MergedRefEntry}
+ */
+const merged_element_refs = { next: undefined, ref: undefined };
+
+/**
+ * Merge the refs of one compiled element into its `ref`. A single ref comes back
+ * as itself, and the same refs give back the same callback, so a JSX runtime
+ * that applies a `ref` again whenever its identity changes (React, Preact,
+ * Hono) applies them once rather than on every render.
+ *
+ * Every element given the same refs shares the callback, so it returns a
+ * cleanup only when one of its refs does: Preact keeps a ref's cleanup on the
+ * function itself, where another element's cleanup would replace it.
+ *
+ * @template [T=Element]
+ * @param {...RefValue<T>} refs
+ * @returns {RefValue<T>}
+ */
+export function merge_element_refs(...refs) {
+	const live = refs.filter((ref) => ref != null);
+	if (live.length < 2) {
+		return live[0];
+	}
+
+	let entry = merged_element_refs;
+	for (const ref of live) {
+		// A primitive cannot key a WeakMap.
+		if (typeof ref !== 'object' && typeof ref !== 'function') {
+			return create_element_ref(live);
+		}
+		const next = (entry.next ??= new WeakMap());
+		let child = next.get(ref);
+		if (child === undefined) {
+			child = { next: undefined, ref: undefined };
+			next.set(ref, child);
+		}
+		entry = child;
+	}
+	return (entry.ref ??= create_element_ref(live));
+}
+
+/**
+ * @template [T=Element]
+ * @param {RefValue<T>[]} refs
+ * @returns {(node: T | null) => void | (() => void)}
+ */
+function create_element_ref(refs) {
+	return (node) => {
+		/**
+		 * Flat `[kind, payload]` pairs, same scheme as `collect_ref_cleanups`.
+		 * @type {unknown[]}
+		 */
+		const cleanups = [];
+		for (const ref of refs) {
+			collect_ref_cleanups(ref, node, cleanups);
+		}
+		// Without a cleanup of its own to run, the JSX runtime applies the merged
+		// ref again with `null`, which applies every ref with `null`.
+		let has_cleanup = false;
+		for (let i = 0; i < cleanups.length; i += 2) {
+			if (cleanups[i] === 0) {
+				has_cleanup = true;
+				break;
+			}
+		}
+		if (!has_cleanup) {
+			return;
+		}
+		return () => {
+			// Replayed inline at every site on purpose: a shared helper call
+			// measurably regressed this hot path — do not extract.
+			for (let i = 0; i < cleanups.length; i += 2) {
+				const kind = cleanups[i];
+				const payload = /** @type {any} */ (cleanups[i + 1]);
+				if (kind === 0) {
+					payload();
+				} else if (kind === 1) {
+					payload(null);
+				} else if (kind === 2) {
+					payload.current = null;
+				} else if (kind === 3) {
+					payload.value = null;
+				}
+			}
+		};
+	};
 }
 
 /**

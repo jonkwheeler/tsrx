@@ -6,6 +6,7 @@ import {
 	copy_spread_props,
 	copy_spread_props_for_ref_attr,
 	create_ref_prop,
+	merge_element_refs,
 	merge_ref_props,
 	mergeRefs,
 	normalize_spread_props,
@@ -993,6 +994,98 @@ describe('ref runtime helpers', () => {
 
 		// A bare callback with a null node collects no re-invocation cleanup.
 		expect(apply_ref_value([() => {}], null)).toBeUndefined();
+	});
+});
+
+describe('merge_element_refs', () => {
+	it('returns a single ref as itself', () => {
+		const callback = () => {};
+		const object = { current: null };
+
+		expect(merge_element_refs(null, undefined)).toBeUndefined();
+		expect(merge_element_refs(callback, undefined)).toBe(callback);
+		expect(merge_element_refs(undefined, object, null)).toBe(object);
+	});
+
+	it('returns the same callback for the same refs', () => {
+		const first = () => {};
+		const second = { current: null };
+		const third = () => {};
+
+		const merged = merge_element_refs(first, second);
+		expect(typeof merged).toBe('function');
+		expect(merge_element_refs(first, second)).toBe(merged);
+		expect(merge_element_refs(first, undefined, second)).toBe(merged);
+		expect(merge_element_refs(second, first)).not.toBe(merged);
+		expect(merge_element_refs(first, second, third)).not.toBe(merged);
+		expect(merge_element_refs(first, second, third)).toBe(merge_element_refs(first, second, third));
+	});
+
+	it('applies every ref, and every ref with null when no ref returned a cleanup', () => {
+		/** @type {Array<unknown>} */
+		const events = [];
+		const node = {};
+		/** @type {{ current: object | null }} */
+		const object = { current: null };
+		/** @param {object | null} value */
+		const callback = (value) => {
+			events.push(value);
+		};
+		const merged = /** @type {(node: object | null) => void | (() => void)} */ (
+			merge_element_refs(callback, object)
+		);
+
+		expect(merged(node)).toBeUndefined();
+		expect(events).toEqual([node]);
+		expect(object.current).toBe(node);
+
+		expect(merged(null)).toBeUndefined();
+		expect(events).toEqual([node, null]);
+		expect(object.current).toBeNull();
+	});
+
+	it('returns a cleanup when a ref returns one', () => {
+		/** @type {Array<unknown>} */
+		const events = [];
+		const node = {};
+		/** @param {object | null} value */
+		const legacy = (value) => {
+			events.push(['legacy', value]);
+		};
+		/** @param {object | null} value */
+		const modern = (value) => {
+			events.push(['modern', value]);
+			return () => events.push(['modern cleanup']);
+		};
+		const merged = /** @type {(node: object | null) => void | (() => void)} */ (
+			merge_element_refs(legacy, modern)
+		);
+
+		const cleanup = merged(node);
+		expect(typeof cleanup).toBe('function');
+		cleanup?.();
+		expect(events).toEqual([
+			['legacy', node],
+			['modern', node],
+			['legacy', null],
+			['modern cleanup'],
+		]);
+	});
+
+	it('merges a primitive beside a ref without keying on it', () => {
+		/** @type {Array<unknown>} */
+		const events = [];
+		const node = {};
+		/** @param {object | null} value */
+		const callback = (value) => {
+			events.push(value);
+		};
+		const merged = /** @type {(node: object | null) => void | (() => void)} */ (
+			merge_element_refs(callback, /** @type {any} */ (false))
+		);
+
+		merged(node);
+		expect(events).toEqual([node]);
 	});
 });
 

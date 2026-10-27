@@ -2653,8 +2653,9 @@ function statement_bindings(statement) {
 /**
  * The names `node` binds for the code inside it, or `null` when it binds none:
  * a function's parameters, name, and `var`s, a class's name, a catch clause's
- * parameters, a `@for` index, the declarations of a loop head, and the
- * declarations in any statement list it holds.
+ * parameters, a `@for` index, the declarations of a loop head, the
+ * declarations in any statement list it holds, those of every case of a
+ * `switch`, which share one scope, and the next name of a dotted namespace.
  *
  * @param {AST.Node} node
  * @returns {Set<string> | null}
@@ -2681,6 +2682,18 @@ function scope_names(node) {
 		collect_pattern_bindings(loose.resetParam, bindings);
 	}
 	if (loose.type === 'JSXForExpression') collect_pattern_bindings(loose.index, bindings);
+	if (node.type === 'SwitchStatement') {
+		for (const switch_case of node.cases) {
+			for (const statement of switch_case.consequent) {
+				names.push(...statement_bindings(statement).map(([name]) => name));
+			}
+		}
+	}
+	// `namespace Outer.Foo { … }` holds `Foo` as its body, whose own body can
+	// read `Foo` as `Outer.Foo`
+	if (loose.type === 'TSModuleDeclaration' && loose.body?.type === 'TSModuleDeclaration') {
+		names.push(loose.body.id.name);
+	}
 	for (const key of Object.keys(node)) {
 		if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
 		const value = loose[key];

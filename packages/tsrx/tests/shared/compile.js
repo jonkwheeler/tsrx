@@ -4442,6 +4442,21 @@ export function App() @{
 				"namespace N {\n\texport const Tag = 'ie';\n}\nfunction App() {\n\treturn <Tag>hello</Tag>;\n}\nimport Tag = N.Tag;\nexport const result = () => App().type;",
 				'ie',
 			],
+			[
+				'a const of an earlier case in its switch (#1160)',
+				"const Tag: any = 'outer';\nfunction make(k: number): any {\n\tswitch (k) {\n\t\tcase 1:\n\t\t\tconst Tag: any = 'case';\n\t\tcase 2:\n\t\t\treturn <Tag>ok</Tag>;\n\t}\n}\nexport const result = () => make(1).type;",
+				'case',
+			],
+			[
+				'the inner name of its dotted namespace (#1160)',
+				"const Foo = 'outer';\nnamespace Outer {\n\texport function Foo() {\n\t\treturn null;\n\t}\n}\nnamespace Outer.Foo {\n\texport function App() {\n\t\treturn <Foo>ok</Foo>;\n\t}\n}\nexport const result = () => Outer.Foo.App().type === Outer.Foo;",
+				true,
+			],
+			[
+				'a middle name of its dotted namespace',
+				"const Foo = 'outer';\nnamespace Outer {\n\texport function Foo() {\n\t\treturn null;\n\t}\n}\nnamespace Outer.Foo.Bar {\n\texport function App() {\n\t\treturn <Foo>ok</Foo>;\n\t}\n}\nexport const result = () => Outer.Foo.Bar.App().type === Outer.Foo;",
+				true,
+			],
 		])(
 			'leaves JSX whose tag reads %s in place, reading it at render time',
 			(_case, source, expected) => {

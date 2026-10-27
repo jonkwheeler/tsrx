@@ -546,6 +546,27 @@ function SpreadsRefReactiveApp() @{
 	</button>
 }
 
+// ── Refs of several host spreads across bag updates ──
+
+let set_spreads_churn_first: (bag: Record<string, unknown>) => void = () => {};
+let set_spreads_churn_second: (bag: Record<string, unknown>) => void = () => {};
+const spreads_churn_first_ref = spreadsRef('first');
+const spreads_churn_second_ref = spreadsRef('second');
+
+function SpreadsRefChurnApp() @{
+	const [first, setFirst] = createSignal<Record<string, unknown>>({
+		title: 'a',
+		ref: spreads_churn_first_ref,
+	});
+	const [second, setSecond] = createSignal<Record<string, unknown>>({
+		'data-x': '1',
+		ref: spreads_churn_second_ref,
+	});
+	set_spreads_churn_first = setFirst;
+	set_spreads_churn_second = setSecond;
+	<input ref={spreadsRef('own')} {...first()} {...second()} class="spreads-ref-churn" />
+}
+
 // ── A spread wrapper creates its children once ──
 
 let spread_wrapper_child_runs = 0;
@@ -1473,6 +1494,27 @@ describe('tsrx-solid runtime', () => {
 		expect(spreads_ref_calls).not.toContain('gained');
 		expect(spreads_ref_calls).not.toContain('own');
 		expect(target.hasAttribute('ref')).toBe(false);
+	});
+
+	it("applies a spread's ref again only when that ref changes", async () => {
+		spreads_ref_calls.length = 0;
+		await render(SpreadsRefChurnApp);
+		await flush();
+		const input = container.querySelector('.spreads-ref-churn') as HTMLInputElement;
+		expect(spreads_ref_calls).toEqual(['own', 'first', 'second']);
+
+		spreads_ref_calls.length = 0;
+		set_spreads_churn_second({ 'data-x': '2', ref: spreads_churn_second_ref });
+		await flush();
+		set_spreads_churn_first({ title: 'b', ref: spreads_churn_first_ref });
+		await flush();
+		expect([input.title, input.getAttribute('data-x')]).toEqual(['b', '2']);
+		expect(spreads_ref_calls).toEqual([]);
+
+		set_spreads_churn_second({ 'data-x': '3', ref: spreadsRef('replaced') });
+		await flush();
+		expect(input.getAttribute('data-x')).toBe('3');
+		expect(spreads_ref_calls).toEqual(['replaced']);
 	});
 
 	it('creates the children of a spread wrapper once', async () => {

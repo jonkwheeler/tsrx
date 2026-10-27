@@ -747,6 +747,31 @@ describe('@tsrx/vue basic', () => {
 		expect(code).not.toContain('<item.value>');
 	});
 
+	it('leaves type declarations and qualified type queries in a keyed slot alone (#922)', () => {
+		const { code, errors } = compile(
+			`function List({ items, Types }: { items: { id: string; label: string }[]; Types: { item: string } }) @{
+				<ul>
+					@for (const item of items; key item.id) {
+						<button onClick={() => {
+							type item = string;
+							interface Row { label: item }
+							const typed: typeof Types.item = item.label;
+							return typed satisfies item;
+						}}>{item.label}</button>
+					}
+				</ul>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(errors).toEqual([]);
+		expect(code).toContain('type item = string;');
+		expect(code).toContain('interface Row {');
+		expect(code).toContain('label: item');
+		expect(code).toContain('const typed: typeof Types.item = item.value.label;');
+		expect(code).toContain('return typed satisfies item;');
+	});
+
 	it('falls back without injecting VaporFor for keyed destructuring patterns it cannot rewrite', () => {
 		const { code } = compile(
 			`function App({ items, keyName }: { items: Array<Record<string, string>>, keyName: string }) @{

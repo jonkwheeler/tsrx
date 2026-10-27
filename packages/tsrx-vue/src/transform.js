@@ -877,6 +877,8 @@ function rewrite_vapor_for_keyed_slot_refs(node, loop_params, replacements = new
 					const parent = path.at(-1);
 					if (
 						!state.in_type &&
+						// `typeof Types.item` reads `Types`; `item` is a member name.
+						!(parent?.type === 'TSQualifiedName' && parent.right === identifier) &&
 						(state.loop_param_names.has(identifier.name) || replacements.has(identifier.name)) &&
 						!state.shadowed_names.has(identifier.name) &&
 						parent &&
@@ -902,7 +904,8 @@ function rewrite_vapor_for_keyed_slot_refs(node, loop_params, replacements = new
 
 /**
  * Whether `node` is TypeScript type syntax: a type annotation, type parameters
- * or arguments, or the type of an `as`, `satisfies`, or `<T>` assertion.
+ * or arguments, the type of an `as`, `satisfies`, or `<T>` assertion, or a
+ * type alias or interface declaration.
  *
  * @param {AST.Node} node
  * @returns {boolean}
@@ -910,6 +913,8 @@ function rewrite_vapor_for_keyed_slot_refs(node, loop_params, replacements = new
 function is_type_only_node(node) {
 	return (
 		node.type === 'TSTypeAnnotation' ||
+		node.type === 'TSTypeAliasDeclaration' ||
+		node.type === 'TSInterfaceDeclaration' ||
 		node.type === 'TSTypeParameterDeclaration' ||
 		node.type === 'TSTypeParameterInstantiation' ||
 		node.type === 'TSTypeReference' ||

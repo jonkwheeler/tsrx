@@ -1,6 +1,7 @@
 # @tsrx/turbopack-plugin-react
 
-Turbopack integration for compiling `@tsrx/react` `.tsrx` files in Next.js.
+Turbopack integration for compiling `@tsrx/react` `.tsrx` files in Next.js 16.2 or
+later.
 
 ## Installation
 

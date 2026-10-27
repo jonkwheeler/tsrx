@@ -211,6 +211,24 @@ describe('@tsrx/vue basic', () => {
 		);
 	});
 
+	it('counts a read in a branch whose condition a nested scope redeclares', () => {
+		const { code } = compile(
+			`const DEBUG = false;
+			{
+				const DEBUG = true;
+				if (DEBUG) console.log(Inner);
+			}
+			export function Inner() @{
+				<i />
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code.indexOf('export const Inner = defineVaporComponent')).toBeLessThan(
+			code.indexOf('const DEBUG = true'),
+		);
+	});
+
 	it('moves a component past a read in a static class field or a reachable branch', () => {
 		const { code } = compile(
 			`class Holder {
@@ -256,6 +274,35 @@ function Card({ title = DEFAULT }: { title?: string }) {
 	return el;
 }`,
 				1,
+			],
+			// Assigned, updated or mutated in the statements it would move past.
+			[
+				`let size = 1;
+const registry = { card: Card };
+size = 2;
+function Card({ s = size }: { s?: number }) {
+	const el = <div>{s}</div>;
+	return el;
+}`,
+				2,
+			],
+			[
+				`let size = 1;
+const registry = { card: Card };
+size++;
+export function Card({ s = size }: { s?: number }) @{
+	<div>{s}</div>
+}`,
+				2,
+			],
+			[
+				`const cfg = { size: 1 };
+const registry = { card: Card };
+cfg.size = 2;
+export function Card({ s = cfg.size }: { s?: number }) @{
+	<div>{s}</div>
+}`,
+				2,
 			],
 		]) {
 			/** @type {any} */

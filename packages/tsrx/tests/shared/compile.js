@@ -4327,7 +4327,7 @@ export function App() @{
 		 * Runs compiled output with JSX elements as `{ type, props }` objects
 		 * and returns what its `result` export returns. An import is a string
 		 * that names it when it is capitalized, and otherwise a function that
-		 * returns its argument.
+		 * returns its argument; a default import is a module of the same kind.
 		 * @param {string} code
 		 * @returns {unknown}
 		 */
@@ -4347,15 +4347,22 @@ export function App() @{
 				type,
 				props: { ...props, ...(children.length ? { children } : {}) },
 			});
-			/** @param {string} specifier */
+			/**
+			 * @param {string} specifier
+			 * @returns {object}
+			 */
 			const require = (specifier) =>
 				new Proxy(
 					{},
 					{
 						get: (_, key) =>
-							typeof key === 'string' && /^[A-Z]/.test(key)
-								? `${specifier}.${key}`
-								: (/** @type {unknown} */ value) => value,
+							key === '__esModule'
+								? true
+								: key === 'default'
+									? require(`${specifier}.default`)
+									: typeof key === 'string' && /^[A-Z]/.test(key)
+										? `${specifier}.${key}`
+										: (/** @type {unknown} */ value) => value,
 					},
 				);
 			const module = { exports: /** @type {Record<string, any>} */ ({}) };
@@ -4416,6 +4423,16 @@ export function App() @{
 				'mi',
 			],
 			[
+				'a property assigned to a const declared before it',
+				"const Menu = (props: any) => props;\nfunction App() {\n\treturn <div><Menu.Item>hello</Menu.Item></div>;\n}\n(Menu as any).Item = 'ci';\nexport const result = () => App().props.children[0].type;",
+				'ci',
+			],
+			[
+				'a property that Object.assign gives a const declared before it',
+				"function MenuRoot(props: any) {\n\treturn props;\n}\nconst Menu = Object.assign(MenuRoot, {});\nfunction App() {\n\treturn <div><Menu.Item>hello</Menu.Item></div>;\n}\nObject.assign(Menu, { Item: 'oa' });\nexport const result = () => App().props.children[0].type;",
+				'oa',
+			],
+			[
 				'a property assigned to a class declared before it',
 				"class Menu {}\nfunction App() {\n\treturn <Menu.Item>hello</Menu.Item>;\n}\n(Menu as any).Item = 'cp';\nexport const result = () => App().type;",
 				'cp',
@@ -4452,9 +4469,14 @@ export function App() @{
 				'section',
 			],
 			[
-				'a member of a const declared before it',
-				"const ui = { Button: 'btn' };\nfunction App() {\n\treturn <div><ui.Button>hello</ui.Button></div>;\n}\nexport const result = () => App().props.children[0].type;",
-				'btn',
+				'a member of an import',
+				"import * as ui from './ui';\nfunction App() {\n\treturn <div><ui.Button>hello</ui.Button></div>;\n}\nexport const result = () => App().props.children[0].type;",
+				'./ui.Button',
+			],
+			[
+				'a member of a default import',
+				"import ui from './ui';\nfunction App() {\n\treturn <div><ui.Button>hello</ui.Button></div>;\n}\nexport const result = () => App().props.children[0].type;",
+				'./ui.default.Button',
 			],
 			[
 				'a function declared after it',

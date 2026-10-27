@@ -2500,11 +2500,11 @@ function hoist_static_render_nodes(render_nodes, transform_context) {
  * runs at module level, before the top-level statement it came from. A tag
  * can be read there when that identifier resolves to an import, a function
  * declaration, or a `const` or class declared in an earlier statement. A
- * member tag (`<Menu.Item>`) also reads a property, which a later assignment
- * can add, so one that starts with a function or class declared in the module
- * stays at render time. So does a tag that starts with `this`, `super`, a
- * local binding, a binding that can be reassigned (`let`, `var`, an enum, a
- * namespace, an import alias), or a name the module does not bind.
+ * member tag (`<Menu.Item>`) also reads a property, which the module can still
+ * assign after it loads (`Menu.Item = …`), so only one that starts with an
+ * import is hoisted. A tag that starts with `this`, `super`, a local binding,
+ * a binding that can be reassigned (`let`, `var`, an enum, a namespace, an
+ * import alias), or a name the module does not bind stays at render time.
  *
  * @param {AST.Program} program
  * @returns {Map<number, boolean>}
@@ -2552,9 +2552,8 @@ function collect_hoistable_tags(program) {
 			case 'function':
 				return !member;
 			case 'class':
-				return !member && binding.end <= position;
 			case 'const':
-				return binding.end <= position;
+				return !member && binding.end <= position;
 			default:
 				return false;
 		}

@@ -177,7 +177,7 @@ describe('@tsrx/vue basic', () => {
 	});
 
 	// Vue's `mergeProps` joins `class` across attributes and spreads itself.
-	it('leaves host spreads as written beside the scope classes', () => {
+	it("joins only a host spread's className with the scope classes", () => {
 		const { code, cssHash } = compile(
 			`export function App(props) @{
 				<>
@@ -195,9 +195,22 @@ describe('@tsrx/vue basic', () => {
 			'App.tsrx',
 		);
 
-		expect(code).not.toContain('merge_spread_class');
+		// `mergeProps` joins a spread's `class` itself; its `className` is a DOM
+		// property that replaces the class wherever the spread is written.
+		expect(code).toContain('merge_spread_class as __merge_spread_class');
+		expect(
+			code.match(
+				new RegExp(
+					`__normalize_spread_props_for_ref_attr\\(__merge_spread_class\\(props, "${cssHash}", "className"\\)\\)`,
+					'g',
+				),
+			),
+		).toHaveLength(3);
 		expect(code).toMatch(
-			new RegExp(`<span \\{\\.\\.\\.(\\w+)\\} ref=\\{\\1\\?\\.ref\\} class="${cssHash}" />`),
+			new RegExp(`<span class="${cssHash}" \\{\\.\\.\\.(\\w+)\\} ref=\\{\\1\\?\\.ref\\} />`),
+		);
+		expect(code).toMatch(
+			new RegExp(`<span \\{\\.\\.\\.(\\w+)\\} ref=\\{\\1\\?\\.ref\\} class="last ${cssHash}" />`),
 		);
 	});
 

@@ -17,11 +17,13 @@ import {
 	ERROR_BOUNDARY_INTERNAL_NAME,
 	error,
 	has_location,
+	insertAfterDirectives,
 	is_component_like_element,
 	MERGE_REFS_INTERNAL_NAME,
 	NORMALIZE_SPREAD_PROPS_FOR_REF_ATTR_INTERNAL_NAME,
 	NORMALIZE_SPREAD_PROPS_INTERNAL_NAME,
 	setLocation,
+	SUSPENSE_INTERNAL_NAME,
 } from '@tsrx/core';
 
 /**
@@ -185,7 +187,7 @@ function create_vapor_pending_boundary_from_default_slot(default_slot, fallback_
 
 	const boundary = b.jsx_element_fresh(
 		b.jsx_opening_element(
-			b.jsx_id('Suspense'),
+			b.jsx_id(SUSPENSE_INTERNAL_NAME),
 			[b.jsx_attribute(b.jsx_id('v-slots'), to_jsx_expression_container(slots))],
 			true,
 		),
@@ -1208,7 +1210,7 @@ function inject_vue_imports(program, transform_context) {
 	}
 
 	if (transform_context.needs_suspense) {
-		ensure_named_import(program, 'vue', 'Suspense');
+		ensure_named_import(program, 'vue', 'Suspense', SUSPENSE_INTERNAL_NAME);
 	}
 
 	if (transform_context.needs_error_boundary) {
@@ -1263,6 +1265,7 @@ function ensure_named_import(program, source, name, local = name) {
 		const has_specifier = statement.specifiers.some(
 			(specifier) =>
 				specifier.type === 'ImportSpecifier' &&
+				specifier.importKind !== 'type' &&
 				specifier.imported?.type === 'Identifier' &&
 				specifier.imported.name === name &&
 				specifier.local?.name === local,
@@ -1275,7 +1278,7 @@ function ensure_named_import(program, source, name, local = name) {
 		return;
 	}
 
-	program.body.unshift(b.imports([[name, local, 'value']], source));
+	insertAfterDirectives(program, [b.imports([[name, local, 'value']], source)]);
 }
 
 /**

@@ -2240,6 +2240,56 @@ export function runSharedCompileTests({
 	runSharedScopedStyleTests({ compile, name, classAttrName, generatedClassAttrName });
 	runSharedScopedStyleConformanceTests({ compile, name, classAttrName, generatedClassAttrName });
 
+	describe(`[${name}] directive prologue`, () => {
+		// Each construct below makes the target inject at least one import.
+		const body = `import { label } from './label';
+
+			export function App({ rows, tag }: { rows: string[]; tag: string }) @{
+				<div>
+					@try {
+						<ul>@for (const row of rows; key row) { <><li>{row}</li><li>{label}</li></> }</ul>
+					} @pending {
+						<p>{'loading'}</p>
+					} @catch (error) {
+						<p>{'failed'}</p>
+					}
+					<{tag} />
+				</div>
+			}`;
+
+		/**
+		 * @param {string} code
+		 * @returns {string[]}
+		 */
+		function leading_statements(code) {
+			const source_file = ts.createSourceFile(
+				'out.tsx',
+				code,
+				ts.ScriptTarget.Latest,
+				true,
+				ts.ScriptKind.TSX,
+			);
+			return source_file.statements.map((statement) => statement.getText(source_file));
+		}
+
+		it.each([
+			{ label: "'use client'", directives: [`'use client';`] },
+			{ label: "'use server'", directives: [`'use server';`] },
+			{ label: "'use client' and 'use strict'", directives: [`'use client';`, `'use strict';`] },
+		])('keeps $label first ahead of generated imports', ({ directives }) => {
+			for (const options of [undefined, { collect: true }]) {
+				const { code } = compile(`${directives.join('\n')}\n\n${body}`, 'App.tsrx', options);
+				const statements = leading_statements(code);
+
+				expect(statements.slice(0, directives.length)).toEqual(directives);
+				expect(statements[directives.length]).toMatch(/^import /);
+				expect(
+					statements.slice(directives.length).filter((s) => s.startsWith('import ')).length,
+				).toBeGreaterThan(1);
+			}
+		});
+	});
+
 	describe(`[${name}] import phases`, () => {
 		it('preserves deferred imports in compiled output', () => {
 			const { code } = compile(

@@ -828,7 +828,7 @@ export function createJsxTransform(platform) {
 			transformed_program = { ...transformed_program, body: [...transformed_program.body] };
 		}
 		if (type_only_style_anchors.length > 0) {
-			transformed_program.body.unshift(...type_only_style_anchors);
+			insert_after_directives(transformed_program, type_only_style_anchors);
 		}
 		const expanded = expand_component_helpers(transformed_program);
 
@@ -1039,17 +1039,46 @@ function lower_dynamic_jsx_element(node, transform_context) {
 function inject_dynamic_import(program, transform_context) {
 	const factory = transform_context.platform.imports.dynamicFactory;
 	if (transform_context.needs_dynamic_factory && factory?.name && factory.source) {
-		program.body.unshift(
+		insert_after_directives(program, [
 			b.import_declaration(
 				[b.import_specifier(factory.name, DYNAMIC_FACTORY_LOCAL)],
 				factory.source,
 			),
-		);
+		]);
 	}
 	const source = transform_context.platform.imports.dynamic;
 	if (!transform_context.needs_dynamic_element || !source) return;
-	program.body.unshift(
+	insert_after_directives(program, [
 		b.import_declaration([b.import_specifier('Dynamic', DYNAMIC_IMPORT_LOCAL)], source),
+	]);
+}
+
+/**
+ * Insert generated top-level statements ahead of the module's own code but
+ * after its directive prologue. A statement above `'use client'` (or any
+ * other directive) turns the directive into a plain expression.
+ *
+ * @param {AST.Program} program
+ * @param {AST.Program['body']} statements
+ * @returns {void}
+ */
+export function insert_after_directives(program, statements) {
+	let index = 0;
+	while (index < program.body.length && is_directive_statement(program.body[index])) {
+		index += 1;
+	}
+	program.body.splice(index, 0, ...statements);
+}
+
+/**
+ * @param {AST.Program['body'][number]} statement
+ * @returns {boolean}
+ */
+function is_directive_statement(statement) {
+	return (
+		statement.type === 'ExpressionStatement' &&
+		statement.expression.type === 'Literal' &&
+		typeof statement.expression.value === 'string'
 	);
 }
 
@@ -5146,7 +5175,7 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 	}
 
 	if (imports.length > 0) {
-		program.body.unshift(...imports);
+		insert_after_directives(program, imports);
 	}
 }
 

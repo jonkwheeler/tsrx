@@ -177,6 +177,7 @@ export {
 	createJsxTransform,
 	ERROR_BOUNDARY_INTERNAL_NAME,
 	extract_jsx_setup_declarations as extractJsxSetupDeclarations,
+	insert_after_directives as insertAfterDirectives,
 	is_component_like_element,
 	is_svg_tag_name as isSvgTagName,
 	is_mathml_tag_name as isMathmlTagName,
@@ -185,6 +186,7 @@ export {
 	NORMALIZE_SPREAD_PROPS_FOR_REF_ATTR_INTERNAL_NAME,
 	NORMALIZE_SPREAD_PROPS_INTERNAL_NAME,
 	return_value_body_to_expression as returnValueBodyToExpression,
+	SUSPENSE_INTERNAL_NAME,
 	validate_at_most_one_ref_attribute as validateAtMostOneRefAttribute,
 	wrap_edge_whitespace as wrapEdgeWhitespace,
 } from './transform/jsx/index.js';

@@ -4434,6 +4434,17 @@ export function App() @{
 			},
 		);
 
+		it('leaves the static JSX of a component inside another function in place', () => {
+			// Its statics would go to module level, which only the components a
+			// top-level statement holds outside any other function reach
+			const { code } = compile(
+				'function outer() {\n\tfunction App() {\n\t\treturn <div>hi</div>;\n\t}\n\treturn App();\n}\nexport const result = () => outer().type;',
+				'App.tsrx',
+			);
+			expect(code).not.toContain('__static');
+			expect(run_result(code)).toBe('div');
+		});
+
 		it.each([
 			[
 				'a const declared before it',

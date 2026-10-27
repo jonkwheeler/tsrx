@@ -1518,7 +1518,11 @@ function transform_function(node, context) {
 		});
 	}
 
-	return context.next() ?? node;
+	const saved_inside_plain_function = context.state.inside_plain_function;
+	context.state.inside_plain_function = true;
+	const result = context.next();
+	context.state.inside_plain_function = saved_inside_plain_function;
+	return result ?? node;
 }
 
 /**
@@ -1567,8 +1571,14 @@ function lower_jsx_code_block_function_body(node) {
  * @returns {AST.Node}
  */
 function transform_native_tsrx_function(node, { next, state }, { nativeBody = false } = {}) {
+	// Statics and helper components reach module level through the top-level
+	// statement that holds the component, and `expand_component_helpers` finds
+	// them only through nodes that are not functions. A component inside
+	// another function gets no helper state, so it lowers them in place, as
+	// code outside a component does.
 	const helper_state =
-		state.helper_state || create_helper_state(get_function_helper_base_name(node));
+		state.helper_state ||
+		(state.inside_plain_function ? null : create_helper_state(get_function_helper_base_name(node)));
 	const saved_helper_state = state.helper_state;
 	const saved_bindings = state.available_bindings;
 
@@ -1603,7 +1613,9 @@ function transform_native_tsrx_function(node, { next, state }, { nativeBody = fa
 		...strip_function_transform_metadata(inner.metadata),
 		native_tsrx_function: true,
 		...(nativeBody ? { native_tsrx_body: true } : {}),
-		...(!saved_helper_state ? create_generated_helper_metadata(helper_state) || {} : {}),
+		...(!saved_helper_state && helper_state
+			? create_generated_helper_metadata(helper_state) || {}
+			: {}),
 	};
 
 	return inner;

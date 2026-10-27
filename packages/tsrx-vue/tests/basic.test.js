@@ -1,4 +1,4 @@
-import { TS_ERRORS } from '@tsrx/core';
+import { TS_ERRORS, TSRX_ERRORS } from '@tsrx/core';
 import { describe, expect, it } from 'vitest';
 import {
 	runSharedClassFunctionComponentTests,
@@ -856,6 +856,106 @@ describe('@tsrx/vue basic', () => {
 		]);
 		expect(code).toContain('const App = defineVaporComponent(function App(');
 		expect(code).toContain('<__VaporFor in={rows} getKey={(row) => row}>');
+	});
+
+	describe('authored bindings named defineVaporComponent', () => {
+		const component = `export function App() @{
+	<p>{'text'}</p>
+}`;
+		const compile_modes = /** @type {const} */ ([
+			['collect', (/** @type {string} */ source) => compile(source, 'App.tsrx', { collect: true })],
+			['editor', (/** @type {string} */ source) => compile_to_volar_mappings(source, 'App.tsrx')],
+		]);
+
+		/** @param {string} code */
+		const vue_jsx_vapor_imports = (code) =>
+			code.split('\n').filter((line) => line.includes("from 'vue-jsx-vapor'"));
+
+		it.each([
+			[
+				'an import from another module',
+				`import { defineVaporComponent } from './helpers';\n\n${component}`,
+				true,
+			],
+			[
+				'a module function',
+				`function defineVaporComponent<T>(component: T): T {\n\treturn component;\n}\n\n${component}`,
+				true,
+			],
+			[
+				'a module const',
+				`const defineVaporComponent = <T,>(component: T): T => component;\n\n${component}`,
+				true,
+			],
+			[
+				'a setup local in a component',
+				`export function App() @{\n\tconst defineVaporComponent = 'mine';\n\t<p>{defineVaporComponent}</p>\n}`,
+				false,
+			],
+		])('reports %s with TSRX2032', (_label, source, at_module_level) => {
+			const start = source.indexOf('defineVaporComponent');
+			const end = start + 'defineVaporComponent'.length;
+
+			expect(() => compile(source, 'App.tsrx')).toThrow(
+				expect.objectContaining({
+					code: 'TSRX2032',
+					message: TSRX_ERRORS.DEFINE_VAPOR_COMPONENT_BINDING.message,
+					pos: start,
+				}),
+			);
+			for (const [mode, compile_in_mode] of compile_modes) {
+				const { code, errors } = compile_in_mode(source);
+				expect(
+					errors.map((error) => [error.code, error.pos, error.end]),
+					mode,
+				).toEqual([['TSRX2032', start, end]]);
+				// The module's own binding takes the name, so the compiler adds no
+				// import that would declare it a second time.
+				expect(vue_jsx_vapor_imports(code), mode).toEqual(
+					at_module_level ? [] : ["import { defineVaporComponent } from 'vue-jsx-vapor';"],
+				);
+			}
+		});
+
+		it.each([
+			[
+				`import type { defineVaporComponent } from 'vue-jsx-vapor';`,
+				`import { defineVaporComponent } from 'vue-jsx-vapor';`,
+			],
+			[
+				`import { type defineVaporComponent } from 'vue-jsx-vapor';`,
+				`import { defineVaporComponent } from 'vue-jsx-vapor';`,
+			],
+			[
+				`import type { defineVaporComponent, VaporForProps } from 'vue-jsx-vapor';`,
+				`import { defineVaporComponent, type VaporForProps } from 'vue-jsx-vapor';`,
+			],
+		])('turns `%s` into the value import the compiler needs', (authored, value_import) => {
+			const source = `${authored}\n\n${component}`;
+
+			const { code } = compile(source, 'App.tsrx');
+			expect(vue_jsx_vapor_imports(code)).toEqual([value_import]);
+			expect(code).toContain('const App = defineVaporComponent(function App(');
+			for (const [mode, compile_in_mode] of compile_modes) {
+				const result = compile_in_mode(source);
+				expect(result.errors, mode).toEqual([]);
+				expect(vue_jsx_vapor_imports(result.code), mode).toEqual([value_import]);
+			}
+		});
+
+		it('leaves a type-only import of defineVaporComponent alone in a module without components', () => {
+			const source = `import type { defineVaporComponent } from 'vue-jsx-vapor';\n\nexport type Define = typeof defineVaporComponent;\n`;
+
+			for (const result of [
+				compile(source, 'App.tsrx'),
+				...compile_modes.map(([, compile_in_mode]) => compile_in_mode(source)),
+			]) {
+				expect(result.errors).toEqual([]);
+				expect(vue_jsx_vapor_imports(result.code)).toEqual([
+					"import type { defineVaporComponent } from 'vue-jsx-vapor';",
+				]);
+			}
+		});
 	});
 
 	it('compiles try/pending into a Vue Suspense slot boundary', () => {

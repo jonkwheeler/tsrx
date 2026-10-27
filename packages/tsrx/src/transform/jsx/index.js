@@ -48,6 +48,7 @@ import {
 	MERGE_SPREAD_CLASS_INTERNAL_NAME,
 	prepare_stylesheet_for_render,
 	is_style_element,
+	rewrite_class_name_attributes,
 } from '../scoping.js';
 import { prepare_style_scopes, type_only_style } from './style-scopes.js';
 import {
@@ -609,6 +610,13 @@ export function createJsxTransform(platform) {
 		// same object.
 		if (transform_context.typeOnly && platform.serverModule) {
 			ast = lower_server_module_for_types(ast, platform.serverModule);
+		}
+
+		// Before style scopes stamp it, an authored `className` becomes `class`
+		// on a runtime that reads only `class`. The type-only print keeps the
+		// attribute as written, so its mappings and types stay the author's.
+		if (!transform_context.typeOnly && platform.jsx.rewriteClassNameAttr) {
+			ast = rewrite_class_name_attributes(ast);
 		}
 
 		// Style scopes: which `<style>` blocks scope which template, CSS emission

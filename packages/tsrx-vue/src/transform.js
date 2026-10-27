@@ -56,6 +56,8 @@ const vue_platform = {
 		rewriteClassAttr: false,
 		// `class` also takes an object or a list.
 		classValue: 'list',
+		// A static `className` renders as a `classname` attribute.
+		rewriteClassNameAttr: true,
 		multiRefStrategy: 'merge-refs',
 		hostSpreadRefStrategy: 'explicit-ref-attr',
 		// vue-jsx-vapor escapes a string child into its HTML template, where a

@@ -2438,6 +2438,12 @@ export interface CompileHarness {
 	 * `runSharedCompileTests` defaults it from the target's name.
 	 */
 	classJoin?: ScopeClassJoin;
+	/**
+	 * The attribute an authored `className` compiles to: `class` where the
+	 * platform sets `jsx.rewriteClassNameAttr`. `runSharedCompileTests`
+	 * defaults it from the target's name.
+	 */
+	classNameAttr?: 'class' | 'className';
 }
 
 /** The per-target entry points the shared source-mapping tests run against. */

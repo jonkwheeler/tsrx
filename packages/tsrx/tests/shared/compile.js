@@ -2242,6 +2242,8 @@ export function runSharedCompileTests({
 	classAttrName,
 	generatedClassAttrName = classAttrName,
 	classJoin = CLASS_VALUE_KINDS[name] ?? null,
+	// Solid and Vue compile an authored `className` to `class`.
+	classNameAttr = name === 'solid' || name === 'vue' ? 'class' : 'className',
 }) {
 	const componentClassAttrName = name === 'react' ? 'className' : 'class';
 	const componentClassParam =
@@ -2252,7 +2254,14 @@ export function runSharedCompileTests({
 	runSharedPlatformTests({ compile, name });
 
 	runSharedComponentLoopControlFlowTests({ compile, name });
-	runSharedScopedStyleTests({ compile, name, classAttrName, generatedClassAttrName, classJoin });
+	runSharedScopedStyleTests({
+		compile,
+		name,
+		classAttrName,
+		generatedClassAttrName,
+		classJoin,
+		classNameAttr,
+	});
 	runSharedScopedStyleConformanceTests({
 		compile,
 		name,

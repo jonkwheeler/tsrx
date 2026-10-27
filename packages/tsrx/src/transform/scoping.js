@@ -195,6 +195,106 @@ function class_attribute_base(attr) {
 }
 
 /**
+ * Compile each host element's authored `className` attribute to `class`, for a
+ * runtime that reads a class only from `class` (the platform's
+ * `jsx.rewriteClassNameAttr`). An element with both joins them into the first
+ * one's place: as one string literal when both are string literals, otherwise
+ * as `[class, className]` in written order. Copy-on-write.
+ *
+ * @template {AST.Node} T
+ * @param {T} node
+ * @param {Set<object>} [seen]
+ * @returns {T}
+ */
+export function rewrite_class_name_attributes(node, seen = new Set()) {
+	if (seen.has(node)) return node;
+	seen.add(node);
+
+	const source = /** @type {Record<string, any>} */ (node);
+	/** @type {Record<string, any>} */
+	let out = source;
+	for (const key of Object.keys(source)) {
+		if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;
+		const value = source[key];
+		/** @type {unknown} */
+		let next = value;
+		if (Array.isArray(value)) {
+			const mapped = value.map((entry) =>
+				is_ast_node(entry) ? rewrite_class_name_attributes(entry, seen) : entry,
+			);
+			if (mapped.some((entry, index) => entry !== value[index])) next = mapped;
+		} else if (is_ast_node(value)) {
+			next = rewrite_class_name_attributes(value, seen);
+		}
+		if (next !== value) {
+			if (out === source) out = { ...source };
+			out[key] = next;
+		}
+	}
+
+	if (
+		out.type === 'JSXElement' &&
+		(!is_composite_jsx_element(/** @type {AST.Node} */ (out)) || out.metadata?.dynamicElement)
+	) {
+		const attributes = out.openingElement.attributes ?? [];
+		const merged = merge_class_name_attribute(attributes);
+		if (merged !== attributes) {
+			out = { ...out, openingElement: { ...out.openingElement, attributes: merged } };
+		}
+	}
+	return /** @type {T} */ (out);
+}
+
+/**
+ * @param {ESTreeJSX.JSXAttributeNode[]} attributes
+ * @returns {ESTreeJSX.JSXAttributeNode[]}
+ */
+function merge_class_name_attribute(attributes) {
+	/** @type {number[]} */
+	const indexes = [];
+	let has_class_name = false;
+	for (let i = 0; i < attributes.length; i++) {
+		const attr = attributes[i];
+		if (!is_class_attribute(attr)) continue;
+		indexes.push(i);
+		if (/** @type {ESTreeJSX.JSXIdentifier} */ (attr.name).name === 'className') {
+			has_class_name = true;
+		}
+	}
+	if (!has_class_name) return attributes;
+
+	const first = /** @type {ESTreeJSX.JSXAttribute} */ (attributes[indexes[0]]);
+	/** @param {ESTreeJSX.JSXAttribute['value']} value */
+	const class_attribute = (value) =>
+		/** @type {ESTreeJSX.JSXAttribute} */ ({
+			...first,
+			name: { .../** @type {ESTreeJSX.JSXIdentifier} */ (first.name), name: 'class' },
+			value,
+		});
+	if (indexes.length === 1) {
+		return attributes.map((attr, i) => (i === indexes[0] ? class_attribute(first.value) : attr));
+	}
+
+	const values = indexes
+		.map((i) => class_attribute_base(/** @type {ESTreeJSX.JSXAttribute} */ (attributes[i])))
+		.filter((value) => value !== null);
+	/** @type {ESTreeJSX.JSXAttribute['value']} */
+	let value;
+	if (values.every((value) => value.type === 'Literal' && typeof value.value === 'string')) {
+		const text = values
+			.map((value) => /** @type {string} */ (/** @type {AST.Literal} */ (value).value))
+			.filter(Boolean)
+			.join(' ');
+		value = b.literal(text, JSON.stringify(text));
+	} else {
+		value = b.jsx_expression_container(b.array(values));
+	}
+	return attributes.flatMap((attr, i) =>
+		i === indexes[0] ? [class_attribute(value)] : indexes.includes(i) ? [] : [attr],
+	);
+}
+
+/**
  * Internal name of the `join_scope_class` runtime helper.
  */
 export const JOIN_SCOPE_CLASS_INTERNAL_NAME = '__join_scope_class';

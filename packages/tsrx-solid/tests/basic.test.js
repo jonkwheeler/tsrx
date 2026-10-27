@@ -904,6 +904,30 @@ describe('@tsrx/solid basic', () => {
 		expect(code).toContain(`<span {...__normalize_spread_props(props)} class="last ${cssHash}" />`);
 	});
 
+	it('compiles an authored className on a host element to class', () => {
+		const source = `export function App(props) @{
+				<>
+					<div className="x" />
+					<div className={props.c} />
+					<div class="a" className="b" />
+					<div class="a" className={props.c} />
+					<Child className="kept" />
+				</>
+			}`;
+		const { code } = compile(source, 'App.tsrx');
+
+		expect(code).toContain('<div class="x" />');
+		expect(code).toContain('<div class={props.c} />');
+		expect(code).toContain('<div class="a b" />');
+		expect(code).toContain('<div class={["a", props.c]} />');
+		// A component's prop stays as written.
+		expect(code).toContain('<Child className="kept" />');
+		// So does the type-only print.
+		expect(compile_to_volar_mappings(source, 'App.tsrx').code).toContain(
+			'<div className={props.c} />',
+		);
+	});
+
 	it('joins a dynamic class with the scope classes as a list', () => {
 		const { code, cssHash } = compile(
 			`export function App(props) @{
@@ -928,9 +952,11 @@ describe('@tsrx/solid basic', () => {
 		expect(code).toContain(
 			`<span class={__join_scope_class({ active: props.active }, "${cssHash}", "list")} />`,
 		);
-		expect(code).toContain(`<span class={__join_scope_class(props.c, "${cssHash}", "list")} />`);
-		// An authored `className`, which Solid doesn't read, keeps the text join.
-		expect(code).toContain(`<span className={\`\${props.c} ${cssHash}\`} />`);
+		// Solid doesn't read `className`, so an authored one compiles to `class`.
+		expect(
+			code.match(/<span class=\{__join_scope_class\(props\.c, "tsrx-[0-9a-f]+", "list"\)\} \/>/g),
+		).toHaveLength(2);
+		expect(code).not.toContain('className');
 	});
 
 	it('applies scoped css hashes and keeps type selectors for dynamic tags', () => {

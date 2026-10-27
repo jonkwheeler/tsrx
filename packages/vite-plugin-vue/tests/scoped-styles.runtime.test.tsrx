@@ -52,6 +52,30 @@ function ClassValueApp(props: { value?: unknown }) @{
 	</>
 }
 
+function ScopedClassName(props: { value?: unknown }) @{
+	<>
+		<style>
+			span {
+				color: rgb(0, 128, 0);
+			}
+		</style>
+		<span data-probe="scoped-class" class={props.value} />
+		<span data-probe="scoped-class-name" className={props.value} />
+	</>
+}
+
+function ClassNameApp(props: { value?: unknown }) @{
+	<>
+		<span data-probe="class" class={props.value} />
+		<span data-probe="class-name" className={props.value} />
+		<span data-probe="class-pair" class={['a', props.value]} />
+		<span data-probe="class-name-pair" class="a" className={props.value} />
+		<span data-probe="class-static" class="x" />
+		<span data-probe="class-name-static" className="x" />
+		<ScopedClassName value={props.value} />
+	</>
+}
+
 function class_list(probe: string): string[] {
 	return Array.from((container.querySelector(`[data-probe="${probe}"]`) as HTMLElement).classList);
 }
@@ -116,6 +140,29 @@ describe('sibling-scoped apply runtime (vue)', function () {
 		await flush();
 		expect(classes('spread')).toEqual([SCOPE_HASH]);
 	});
+
+	// An authored `className` compiles to `class`, so React-style source keeps
+	// its class.
+	for (const [label, value] of [
+		['a string', 'b c'],
+		['an undefined', undefined],
+		['an object', { on: true, off: false }],
+	] as const) {
+		it(`renders an authored className of ${label} as class`, async function () {
+			await render(ClassNameApp, { value });
+
+			for (const [probe, expected] of [
+				['class-name', 'class'],
+				['class-name-pair', 'class-pair'],
+				['class-name-static', 'class-static'],
+				['scoped-class-name', 'scoped-class'],
+			]) {
+				expect(class_list(probe)).toEqual(class_list(expected));
+			}
+			expect(class_list('scoped-class-name')).toEqual(expect.arrayContaining([SCOPE_HASH]));
+			expect(container.querySelector('[classname]')).toBeNull();
+		});
+	}
 
 	for (const [label, value] of [
 		['an undefined', undefined],

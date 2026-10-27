@@ -203,6 +203,7 @@ export function runSharedScopedStyleTests({
 	classAttrName,
 	generatedClassAttrName = classAttrName,
 	classJoin = null,
+	classNameAttr = 'className',
 }) {
 	const attr = generatedClassAttrName;
 
@@ -695,7 +696,7 @@ export function runSharedScopedStyleTests({
 			const hash = hashes_of(cssHash)[0];
 			expect(code).toContain(`<span ${attr}="${hash}">`);
 			expect(code).toContain(`class="bold ${hash}"`);
-			expect(code).toContain(`className="italic ${hash}"`);
+			expect(code).toContain(`${classNameAttr}="italic ${hash}"`);
 		});
 
 		it('drops a scope whose only block matches nothing without emitting a style element', () => {

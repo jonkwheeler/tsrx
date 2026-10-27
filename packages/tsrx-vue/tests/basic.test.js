@@ -177,6 +177,30 @@ describe('@tsrx/vue basic', () => {
 	});
 
 	// Vue's `mergeProps` joins `class` across attributes and spreads itself.
+	it('compiles an authored className on a host element to class', () => {
+		const source = `export function App(props) @{
+				<>
+					<div className="x" />
+					<div className={props.c} />
+					<div class="a" className="b" />
+					<div class="a" className={props.c} />
+					<Child className="kept" />
+				</>
+			}`;
+		const { code } = compile(source, 'App.tsrx');
+
+		expect(code).toContain('<div class="x" />');
+		expect(code).toContain('<div class={props.c} />');
+		expect(code).toContain('<div class="a b" />');
+		expect(code).toContain('<div class={["a", props.c]} />');
+		// A component's prop stays as written.
+		expect(code).toContain('<Child className="kept" />');
+		// So does the type-only print.
+		expect(compile_to_volar_mappings(source, 'App.tsrx').code).toContain(
+			'<div className={props.c} />',
+		);
+	});
+
 	it('leaves host spreads as written beside the scope classes', () => {
 		const { code, cssHash } = compile(
 			`export function App(props) @{

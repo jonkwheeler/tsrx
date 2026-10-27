@@ -418,6 +418,16 @@ export interface JsxPlatform {
 		 */
 		rewriteClassAttr: boolean;
 		/**
+		 * Compile an authored `className` attribute on a host element to
+		 * `class`, for a runtime that reads a class only from `class` (Solid,
+		 * Vue), so React-style source keeps its class. An element with both
+		 * joins them into one `class`: their text when both are string
+		 * literals, otherwise `[class, className]` in written order, which
+		 * needs a runtime whose `class` takes a list. Props of components and
+		 * spread bags are left as written, and so is the type-only print.
+		 */
+		rewriteClassNameAttr?: boolean;
+		/**
 		 * Attribute name to use when TSRX injects scoped CSS classes. This does
 		 * not rewrite authored attributes.
 		 */

@@ -1356,6 +1356,10 @@ export function TSRXPlugin(config) {
 			// Whether acorn-typescript raised its error for modifiers before the class
 			// `static` block being read (see `parseClassElement`).
 			#staticBlockModifiers = false;
+			// The private names of a class's methods without a body, by the class's
+			// private-name scope (see `exitClassBody`).
+			/** @type {WeakMap<object, string[]>} */
+			#bodilessPrivateMethods = new WeakMap();
 			// How many classes the parser is in (see `parseClass`).
 			#classDepth = 0;
 			// Where the import alias being read starts (see `raise`).
@@ -4551,6 +4555,11 @@ export function TSRXPlugin(config) {
 			exitClassBody() {
 				const scope = this.privateNameStack[this.privateNameStack.length - 1];
 				const parent = this.privateNameStack.at(-2);
+				// acorn-typescript declares no private name for a method without a body
+				// (`declare class A { #m(): void; }`), which declares it in TypeScript.
+				for (const name of this.#bodilessPrivateMethods.get(scope) ?? []) {
+					if (!Object.hasOwn(scope.declared, name)) scope.declared[name] = 'true';
+				}
 				super.exitClassBody();
 				if (!this.#collect) return;
 				for (const used of scope.used) {
@@ -5278,21 +5287,36 @@ export function TSRXPlugin(config) {
 			 * @param {AST.TSTypeParameterDeclaration} node
 			 */
 			reportReservedArrowTypeParam(node) {
+				this.#reportReservedArrowTypeParameters(node, false);
+			}
+
+			/**
+			 * TS7060 for the type parameters of an arrow function (`async` or not):
+			 * one, without a trailing comma or a constraint, as TypeScript reports it
+			 * in a `.mts` or `.cts` file. Elsewhere, a collecting parse records it for
+			 * one without a default either, unless the arrow function is async or the
+			 * file a `.ts` one (see `reportReservedArrowTypeParam`).
+			 * @param {AST.TSTypeParameterDeclaration} node
+			 * @param {boolean} async
+			 */
+			#reportReservedArrowTypeParameters(node, async) {
 				const filename = this.#filename ?? '';
 				const reserved = /\.[cm]ts$/.test(filename);
-				if (!reserved && (!this.#collect || filename.endsWith('.ts'))) return;
-				// Constraints and defaults already disambiguate a generic arrow from JSX.
+				if (!reserved && (async || !this.#collect || filename.endsWith('.ts'))) return;
+				const [parameter] = node.params;
 				if (
 					node.params.length === 1 &&
 					node.extra?.trailingComma === undefined &&
-					!node.params[0].constraint &&
-					!node.params[0].default
+					!parameter.constraint &&
+					// A default disambiguates it from JSX, which TypeScript doesn't read in a
+					// `.mts` or `.cts` file.
+					(reserved || !parameter.default)
 				) {
 					// At the type parameter, as TypeScript reports it.
 					error(
 						TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER,
 						this.#filename,
-						node.params[0],
+						parameter,
 						this.#collect ? this.#errors : undefined,
 					);
 				}
@@ -5311,8 +5335,12 @@ export function TSRXPlugin(config) {
 					// Valid readonly usage, no error needed
 					return;
 				}
-				this.#raiseCheckerError(
-					/** @type {number} */ (node.start),
+				// Over `readonly`, as TypeScript reports it.
+				const start = /** @type {number} */ (node.start);
+				if (!this.#collect) this.#throwError(start, TS_ERRORS.READONLY_TYPE_MODIFIER);
+				this.#recordCheckerLevelError(
+					start,
+					start + 'readonly'.length,
 					TS_ERRORS.READONLY_TYPE_MODIFIER,
 				);
 			}
@@ -8773,6 +8801,13 @@ export function TSRXPlugin(config) {
 			 * @type {Parse.Parser['parseArrowExpression']}
 			 */
 			parseArrowExpression(node, params, isAsync, forInit) {
+				const type_parameters = /** @type {{ typeParameters?: AST.TSTypeParameterDeclaration }} */ (
+					node
+				).typeParameters;
+				// See `#reportReservedArrowTypeParameters`.
+				if (isAsync && type_parameters) {
+					this.#reportReservedArrowTypeParameters(type_parameters, true);
+				}
 				const arrow = this.#genericArrowFunction;
 				if (arrow === null || arrow.arrowStart !== node.start) {
 					return super.parseArrowExpression(node, params, isAsync, forInit);
@@ -12097,6 +12132,21 @@ export function TSRXPlugin(config) {
 							/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (element))[modifier]
 						);
 					}
+				}
+				// acorn-typescript gives a method without a body this type.
+				const method_type = /** @type {string | undefined} */ (
+					element?.type === 'MethodDefinition' ? element.value.type : undefined
+				);
+				if (
+					element?.type === 'MethodDefinition' &&
+					element.key.type === 'PrivateIdentifier' &&
+					method_type === 'TSDeclareMethod'
+				) {
+					// See `exitClassBody`.
+					const scope = this.privateNameStack[this.privateNameStack.length - 1];
+					const names = this.#bodilessPrivateMethods.get(scope) ?? [];
+					this.#bodilessPrivateMethods.set(scope, names);
+					names.push(element.key.name);
 				}
 				// UPSTREAM(sveltejs/acorn-typescript#147): remove once a release includes the fix
 				if (

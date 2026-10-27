@@ -443,8 +443,8 @@ function get_default_exported_component(statement) {
  * component above that statement, but only when that changes nothing else:
  * vue-jsx-vapor evaluates a destructured prop default that names a binding
  * (`{ label = PREFIX }`) when the component is defined, so a default that
- * reads a binding declared in the statements the component would move past
- * is reported instead (TSRX2028).
+ * reads a binding declared, assigned or mutated in the statements the
+ * component would move past is reported instead (TSRX2028).
  *
  * Reads that run later or not at all do not count: inside a function, a class
  * instance field or method, a type, an `export { … }` specifier, a branch a
@@ -581,6 +581,20 @@ const RUNTIME_TS_NODE_TYPES = new Set([
 function find_eager_read(root, name, constants) {
 	/** @type {AST.Node | null} */
 	let found = null;
+	// The literal constants visible where the walk is: a scope that declares
+	// its own binding of a name forgets that name's value.
+	let visible = constants;
+
+	/**
+	 * @param {AST.Node[]} bindings patterns or declarations a scope introduces
+	 * @param {() => void} walk_scope
+	 */
+	const in_scope = (bindings, walk_scope) => {
+		const saved = visible;
+		visible = forget_declared(visible, bindings);
+		walk_scope();
+		visible = saved;
+	};
 
 	/**
 	 * @param {unknown} value
@@ -616,46 +630,51 @@ function find_eager_read(root, name, constants) {
 			case 'BlockStatement':
 			case 'StaticBlock':
 				if (declares_lexically(node.body, name)) return;
-				break;
-			case 'SwitchStatement':
+				in_scope(node.body, () => visit(node.body, node));
+				return;
+			case 'SwitchStatement': {
 				visit(node.discriminant, node);
-				if (!node.cases.some((c) => declares_lexically(c.consequent, name))) {
-					visit(node.cases, node);
+				const declarations = node.cases.flatMap((c) => c.consequent);
+				if (!declares_lexically(declarations, name)) {
+					in_scope(declarations, () => visit(node.cases, node));
 				}
 				return;
+			}
 			case 'ForStatement':
 			case 'ForInStatement':
 			case 'ForOfStatement': {
 				const head = node.type === 'ForStatement' ? node.init : node.left;
-				if (
-					head?.type === 'VariableDeclaration' &&
-					head.kind !== 'var' &&
-					declares_lexically([head], name)
-				) {
+				if (head?.type === 'VariableDeclaration' && head.kind !== 'var') {
+					if (declares_lexically([head], name)) return;
+					in_scope([head], () => visit_children(node));
 					return;
 				}
 				break;
 			}
 			case 'CatchClause':
 				if (node.param && get_pattern_names([node.param]).has(name)) return;
+				if (node.param) {
+					in_scope([node.param], () => visit(node.body, node));
+					return;
+				}
 				break;
 			case 'IfStatement': {
 				visit(node.test, node);
-				const truthy = constant_truthiness(node.test, constants);
+				const truthy = constant_truthiness(node.test, visible);
 				if (truthy !== false) visit(node.consequent, node);
 				if (truthy !== true) visit(node.alternate, node);
 				return;
 			}
 			case 'ConditionalExpression': {
 				visit(node.test, node);
-				const truthy = constant_truthiness(node.test, constants);
+				const truthy = constant_truthiness(node.test, visible);
 				if (truthy !== false) visit(node.consequent, node);
 				if (truthy !== true) visit(node.alternate, node);
 				return;
 			}
 			case 'LogicalExpression': {
 				visit(node.left, node);
-				const truthy = constant_truthiness(node.left, constants);
+				const truthy = constant_truthiness(node.left, visible);
 				if (
 					!(node.operator === '&&' && truthy === false) &&
 					!(node.operator === '||' && truthy === true)
@@ -676,6 +695,11 @@ function find_eager_read(root, name, constants) {
 		}
 
 		if (node.type.startsWith('TS') && !RUNTIME_TS_NODE_TYPES.has(node.type)) return;
+		visit_children(node);
+	};
+
+	/** @param {AST.Node} node */
+	const visit_children = (node) => {
 		const record = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (node));
 		for (const key of Object.keys(record)) {
 			if (key === 'metadata' || key === 'loc' || key === 'start' || key === 'end') continue;
@@ -685,6 +709,40 @@ function find_eager_read(root, name, constants) {
 
 	visit(root, undefined);
 	return found;
+}
+
+/**
+ * `constants` without the names `bindings` declare, which a nested scope
+ * shadows with values this pass does not know.
+ *
+ * @param {Map<string, AST.Literal['value']>} constants
+ * @param {AST.Node[]} bindings statements, declarations or patterns
+ * @returns {Map<string, AST.Literal['value']>}
+ */
+function forget_declared(constants, bindings) {
+	if (constants.size === 0) return constants;
+	/** @type {Set<string>} */
+	const declared = new Set();
+	for (const binding of bindings) {
+		const node =
+			binding.type === 'ExportNamedDeclaration' && binding.declaration
+				? binding.declaration
+				: binding;
+		if (node.type === 'VariableDeclaration') {
+			for (const declarator of node.declarations) collect_pattern_names(declarator.id, declared);
+		} else if (
+			(node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') &&
+			node.id
+		) {
+			declared.add(node.id.name);
+		} else {
+			collect_pattern_names(node, declared);
+		}
+	}
+	if (![...declared].some((name) => constants.has(name))) return constants;
+	const visible = new Map(constants);
+	for (const name of declared) visible.delete(name);
+	return visible;
 }
 
 /**
@@ -714,7 +772,7 @@ function declares_lexically(statements, name) {
 
 /**
  * Whether defining the component reads a binding that `passed`, the
- * statements it would move above, declares. vue-jsx-vapor evaluates a
+ * statements it would move above, declares, assigns or mutates. vue-jsx-vapor evaluates a
  * destructured prop default that names a binding when the component is
  * defined; every name read in the props pattern's defaults is counted.
  *
@@ -747,11 +805,50 @@ function initializer_reads_declared(declaration, passed) {
 			declared.add(node.id.name);
 		}
 		collect_function_var_names(statement, declared);
+		collect_assigned_names(statement, declared);
 	}
 	for (const read of reads) {
 		if (declared.has(read)) return true;
 	}
 	return false;
+}
+
+/**
+ * The bindings `node` assigns, updates or mutates the properties of, at any
+ * depth: a default that reads one of them could see a different value once
+ * the component moves above the assignment.
+ *
+ * @param {unknown} value
+ * @param {Set<string>} names
+ * @returns {void}
+ */
+function collect_assigned_names(value, names) {
+	if (!value || typeof value !== 'object') return;
+	if (Array.isArray(value)) {
+		for (const child of value) collect_assigned_names(child, names);
+		return;
+	}
+	const node = /** @type {AST.Node} */ (value);
+	if (typeof node.type !== 'string') return;
+	/** @type {AST.Node | null} */
+	let target = null;
+	if (node.type === 'AssignmentExpression') target = node.left;
+	else if (node.type === 'UpdateExpression') target = node.argument;
+	else if (
+		(node.type === 'ForInStatement' || node.type === 'ForOfStatement') &&
+		node.left.type !== 'VariableDeclaration'
+	) {
+		target = node.left;
+	}
+	if (target) {
+		while (target.type === 'MemberExpression') target = target.object;
+		collect_pattern_names(target, names);
+	}
+	const record = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (node));
+	for (const key of Object.keys(record)) {
+		if (key === 'metadata' || key === 'loc' || key === 'start' || key === 'end') continue;
+		collect_assigned_names(record[key], names);
+	}
 }
 
 /**

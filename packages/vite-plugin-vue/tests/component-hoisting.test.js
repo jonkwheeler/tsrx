@@ -70,6 +70,27 @@ export const result = log;`,
 export { Card };
 export const result = typeof Card;`,
 
+	'unsafe-assign.tsrx': `let size = 1;
+const registry = { card: Card };
+size = 2;
+function Card({ s = size }: { s?: number }) {
+	const el = <div>{s}</div>;
+	return el;
+}
+export { registry };`,
+
+	'shadowed-constant.tsrx': `const log: string[] = [];
+const DEBUG = false;
+{
+	const DEBUG = true;
+	if (DEBUG) log.push(typeof Inner);
+}
+function Inner() {
+	const el = <i />;
+	return el;
+}
+export const result = log;`,
+
 	'unsafe.tsrx': `export const registry = { inner: Inner };
 const PREFIX = 'p';
 export function Inner({ label = PREFIX }: { label?: string }) @{
@@ -108,6 +129,8 @@ describe('[vue] components read above their declaration', () => {
 	it('moves a component above a read that runs while the module loads', async () => {
 		expect((await load('registry.tsrx')).result).toBe('object');
 		expect((await load('block.tsrx')).result).toEqual(['object']);
+		// A nested scope's own `DEBUG` hides the outer constant, so the read counts.
+		expect((await load('shadowed-constant.tsrx')).result).toEqual(['object']);
 	});
 
 	it('leaves a component in place for reads that do not run at load', async () => {
@@ -128,6 +151,10 @@ describe('[vue] components read above their declaration', () => {
 	it('reports TSRX2028 instead of moving a component past a binding its prop default reads', async () => {
 		await expect(load('unsafe.tsrx')).rejects.toThrow(
 			"'Inner' is read here before its declaration.",
+		);
+		// `size = 2` in between would change the default the component captures.
+		await expect(load('unsafe-assign.tsrx')).rejects.toThrow(
+			"'Card' is read here before its declaration.",
 		);
 	});
 });

@@ -570,10 +570,11 @@ const TS_SCOPE_TS_MODULE = 1 << 21;
 // `var` in a block below them is declared: a module or script, a function, and
 // a class static block. A namespace's body is one too (see `#isSymbolTable`).
 const TABLE_SCOPE_FLAGS = SCOPE_TOP | SCOPE_FUNCTION | SCOPE_CLASS_STATIC_BLOCK;
-// acorn-typescript's binding type for a type alias's name, and its flag for an
-// enum's.
+// acorn-typescript's binding type for a type alias's name, its flag for an
+// enum's, and its flag for a name that only an export specifier can see.
 const BIND_TS_TYPE = 6;
 const BIND_FLAGS_TS_ENUM = 256;
+const BIND_FLAGS_TS_EXPORT_ONLY = 1024;
 // acorn's flags for `parseFunction`: a function declaration, whose name is
 // optional (after `export default`).
 const FUNC_STATEMENT = 1;
@@ -5165,6 +5166,14 @@ export function TSRXPlugin(config) {
 			 * A function declaration that isn't exported: TypeScript binds it before
 			 * the other statements of its list (see `declareName`). One after
 			 * `export default` (`FUNC_NULLABLE_ID`) or `export` is exported.
+			 *
+			 * acorn-typescript declares the name of an ambient function declaration,
+			 * which has no body, only at the top level, so in a `declare namespace` or
+			 * `declare module` body no scope had it and `export { f }` there failed as
+			 * undefined. Declare it in the scope it's in, as acorn-typescript does at
+			 * the top level, where only an export specifier sees it. Upstream's fix,
+			 * sveltejs/acorn-typescript#110, skips its own `checkLocalExport` in a
+			 * nested scope instead, which TSRX's override replaces.
 			 * @type {Parse.Parser['parseFunction']}
 			 */
 			parseFunction(node, statement, allowExpressionBody, isAsync, forInit) {
@@ -5176,11 +5185,26 @@ export function TSRXPlugin(config) {
 				) {
 					this.#declaration = { kind: 'function', scope: this.currentScope() };
 				}
+				/** @type {AST.FunctionDeclaration | AST.FunctionExpression} */
+				let parsed;
 				try {
-					return super.parseFunction(node, statement, allowExpressionBody, isAsync, forInit);
+					parsed = super.parseFunction(node, statement, allowExpressionBody, isAsync, forInit);
 				} finally {
 					this.#declaration = outer;
 				}
+				if (
+					statement & FUNC_STATEMENT &&
+					this.isAmbientContext &&
+					parsed.id &&
+					!(this.currentScope().flags & SCOPE_TOP)
+				) {
+					this.declareName(
+						parsed.id.name,
+						/** @type {Parse.BindingType[keyof Parse.BindingType]} */ (BIND_FLAGS_TS_EXPORT_ONLY),
+						/** @type {number} */ (parsed.id.start),
+					);
+				}
+				return parsed;
 			}
 
 			/**

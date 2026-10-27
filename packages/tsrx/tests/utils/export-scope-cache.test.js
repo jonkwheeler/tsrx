@@ -62,12 +62,43 @@ export { second };`,
 		);
 	});
 
+	// A strict TypeScript 5.9 program reports none of these.
+	it('sees an ambient function declared in a namespace or module body', async () => {
+		const sources = [
+			'declare namespace Q { function f(): void; export { f }; }',
+			"declare module 'm' { function f(): void; export { f }; }",
+			'declare namespace Q { function f(): void; function f(x: number): void; export { f }; }',
+			"declare module 'm' { function f(): void; function f(x: number): void; export { f }; }",
+			'declare namespace A { namespace B { function f(): void; export { f }; } }',
+			'declare namespace A.B { function f(): void; export { f }; }',
+			"declare module 'm' { namespace N { function f(): void; export { f }; } export { N }; }",
+			'declare namespace Q { function f(): void; export { f as g }; }',
+			"declare module 'm' { function f(): void; export { f as default }; }",
+			"declare module 'm' { export function f(): void; export { f as g }; }",
+			'declare function f(): void;\nexport { f as g };',
+		];
+
+		const outcomes = await parse_in_worker(in_every_mode(sources));
+
+		expect(outcomes).toEqual(
+			sources.flatMap(() => [
+				{ ok: true, errors: undefined },
+				{ ok: true, errors: [] },
+				{ ok: true, errors: [] },
+			]),
+		);
+	});
+
 	it('still rejects names that no scope in view declares', async () => {
 		const sources = [
 			['export { Missing };', 'Missing'],
 			['namespace A { export const n = 42; }\nexport { B };', 'B'],
 			['namespace Outer { type T = 1; }\nexport { T };', 'T'],
 			['namespace Outer { interface I {} }\nexport { I };', 'I'],
+			['declare namespace Q { export { nope }; }', 'nope'],
+			["declare module 'm' { function f(): void; export { f, nope }; }", 'nope'],
+			['declare namespace Q { function f(): void; }\nexport { f };', 'f'],
+			['declare namespace Q { function f(): void; }\ndeclare namespace R { export { f }; }', 'f'],
 		];
 
 		const outcomes = await parse_in_worker(in_every_mode(sources.map(([source]) => source)));

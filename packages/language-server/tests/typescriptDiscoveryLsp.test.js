@@ -23,7 +23,8 @@ import {
 } from '../../content-mapper/tests/fixture-utils.js';
 import { NativeLspClient } from '../../content-mapper/tests/lsp-client.js';
 
-vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+const test_timeout = 60_000;
+vi.setConfig({ testTimeout: test_timeout, hookTimeout: test_timeout });
 
 // CI builds before testing; locally: `pnpm --filter @tsrx/language-server build`.
 const server_path = fileURLToPath(new URL('../dist/language-server.js', import.meta.url));
@@ -77,15 +78,23 @@ async function session({ extra_files = {}, dependencies = [], initializationOpti
 		workspace.cleanup();
 	});
 	// Listen before initializing: the warnings come right after `initialized`. The
-	// predicate records every warning and never matches; the waiter's timeout is ignored.
+	// predicate records every warning and never matches, so the waiter stays registered
+	// until its timeout, which starts after the test's and is as long.
 	/** @type {Array<{ type: number, message: string }>} */
 	const warnings = [];
+	let recording = true;
 	client
-		.wait_for_notification('window/showMessage', (params) => {
-			warnings.push(params);
-			return false;
-		})
-		.catch(() => {});
+		.wait_for_notification(
+			'window/showMessage',
+			(params) => {
+				warnings.push(params);
+				return false;
+			},
+			test_timeout,
+		)
+		.catch(() => {
+			recording = false;
+		});
 	const { capabilities } = await client.initialize({ initializationOptions });
 	client.open('Panel.tsrx', files['app/Panel.tsrx']);
 	// The server sends its warnings while it handles `initialized`, so all of them
@@ -93,6 +102,7 @@ async function session({ extra_files = {}, dependencies = [], initializationOpti
 	const symbols = await client.request('textDocument/documentSymbol', {
 		textDocument: { uri: client.uri('Panel.tsrx') },
 	});
+	expect(recording, 'stopped recording warnings before the server answered').toBe(true);
 	return {
 		capabilities,
 		warnings,

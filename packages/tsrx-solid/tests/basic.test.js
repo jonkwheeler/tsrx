@@ -710,8 +710,12 @@ describe('@tsrx/solid basic', () => {
 
 		// A statement that throws lowers into Solid's reactive render forms, which
 		// have no `finally` (#1202: these used messages outside the error tables).
-		it('rejects a JavaScript try/finally that throws with the core try errors', () => {
-			const body = (handler) => `export function App(props: { bad: boolean }) @{
+		it.each([
+			['try/catch/finally', ' catch {}'],
+			// Without `catch` it has no handler either, but one error is enough.
+			['try/finally', ''],
+		])('rejects a JavaScript %s that throws with one core try error', (_label, handler) => {
+			const source = `export function App(props: { bad: boolean }) @{
 				try {
 					if (props.bad) throw new Error('bad');
 				}${handler} finally {
@@ -719,13 +723,13 @@ describe('@tsrx/solid basic', () => {
 				}
 				<p>ok</p>
 			}`;
-			const TRY_FINALLY = expect.objectContaining(TSRX_ERRORS.TEMPLATE_TRY_FINALLY('Solid'));
-			const TRY_HANDLER = expect.objectContaining(TSRX_ERRORS.TEMPLATE_TRY_HANDLER);
-			expect(() => compile(body(' catch {}'), 'App.tsrx')).toThrow(TRY_FINALLY);
-			expect(compile(body(''), 'App.tsrx', { collect: true }).errors).toEqual([
-				TRY_FINALLY,
-				TRY_HANDLER,
-			]);
+			const TRY_FINALLY = expect.objectContaining({
+				...TSRX_ERRORS.TEMPLATE_TRY_FINALLY('Solid'),
+				pos: source.indexOf('finally') + 'finally '.length,
+			});
+			expect(() => compile(source, 'App.tsrx')).toThrow(TRY_FINALLY);
+			expect(compile(source, 'App.tsrx', { collect: true }).errors).toEqual([TRY_FINALLY]);
+			expect(compile_to_volar_mappings(source, 'App.tsrx').errors).toEqual([TRY_FINALLY]);
 		});
 
 		it('rejects return statements inside template @if branches', () => {

@@ -1187,13 +1187,17 @@ function try_statement_to_jsx_child(node, transform_context) {
 	}
 
 	if (!pending && !handler) {
-		error(
-			TSRX_ERRORS.TEMPLATE_TRY_HANDLER,
-			transform_context.filename,
-			node,
-			transform_context.errors,
-			transform_context.comments,
-		);
+		// A JavaScript `try` without `catch` has a `finally`, reported above;
+		// one error is enough for the statement.
+		if (!finalizer) {
+			error(
+				TSRX_ERRORS.TEMPLATE_TRY_HANDLER,
+				transform_context.filename,
+				node,
+				transform_context.errors,
+				transform_context.comments,
+			);
+		}
 		return to_jsx_expression_container(create_null_literal());
 	}
 

@@ -843,7 +843,7 @@ export const WITHOUT_EXAMPLE = new Map(
 		],
 		[
 			TSRX_ERRORS.TEMPLATE_TRY_HANDLER,
-			'The parser reports an `@try` without `@catch` or `@pending` (TSRX1010) first. Solid also reports it for a JavaScript `try`/`finally` that throws, but always beside TEMPLATE_TRY_FINALLY for its `finally`.',
+			'The parser reports an `@try` without `@catch` or `@pending` (TSRX1010) first. A JavaScript `try` that Solid lowers has a `catch` or a `finally`, and without `catch` Solid reports only TEMPLATE_TRY_FINALLY for it.',
 		],
 		[
 			TSRX_ERRORS.TOP_LEVEL_AWAIT_USE_SERVER,

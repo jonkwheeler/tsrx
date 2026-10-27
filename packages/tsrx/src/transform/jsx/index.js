@@ -1339,14 +1339,16 @@ function create_helper_name(helper_state, suffix) {
 
 /**
  * @param {string} base_name
+ * @param {boolean} [local] whether the component is inside another function
  * @returns {JsxHelperState}
  */
-function create_helper_state(base_name) {
+function create_helper_state(base_name, local = false) {
 	return {
 		base_name,
 		next_id: 0,
 		helpers: [],
 		statics: [],
+		local,
 	};
 }
 
@@ -1574,11 +1576,10 @@ function transform_native_tsrx_function(node, { next, state }, { nativeBody = fa
 	// Statics and helper components reach module level through the top-level
 	// statement that holds the component, and `expand_component_helpers` finds
 	// them only through nodes that are not functions. A component inside
-	// another function gets no helper state, so it lowers them in place, as
-	// code outside a component does.
+	// another function gets a local helper state, which keeps them in place.
 	const helper_state =
 		state.helper_state ||
-		(state.inside_plain_function ? null : create_helper_state(get_function_helper_base_name(node)));
+		create_helper_state(get_function_helper_base_name(node), !!state.inside_plain_function);
 	const saved_helper_state = state.helper_state;
 	const saved_bindings = state.available_bindings;
 
@@ -1613,9 +1614,7 @@ function transform_native_tsrx_function(node, { next, state }, { nativeBody = fa
 		...strip_function_transform_metadata(inner.metadata),
 		native_tsrx_function: true,
 		...(nativeBody ? { native_tsrx_body: true } : {}),
-		...(!saved_helper_state && helper_state
-			? create_generated_helper_metadata(helper_state) || {}
-			: {}),
+		...(!saved_helper_state ? create_generated_helper_metadata(helper_state) || {} : {}),
 	};
 
 	return inner;
@@ -2459,7 +2458,7 @@ function references_scope_bindings(node, scope_bindings, referenced_bindings) {
  * @param {TransformContext} transform_context
  */
 function hoist_static_render_nodes(render_nodes, transform_context) {
-	if (!transform_context.helper_state) return;
+	if (!transform_context.helper_state || transform_context.helper_state.local) return;
 
 	for (let i = 0; i < render_nodes.length; i++) {
 		const node = render_nodes[i];
@@ -3693,7 +3692,11 @@ export function create_hook_safe_helper(body_nodes, source_node, transform_conte
 	const helper_id = create_generated_identifier(
 		create_local_statement_component_name(transform_context),
 	);
-	const helper_state = transform_context.helper_state;
+	// A local helper state can't reach module level, so the helper is declared
+	// in place, as outside a component
+	const helper_state = transform_context.helper_state?.local
+		? null
+		: transform_context.helper_state;
 	const component_id = helper_state
 		? create_module_scoped_hook_component_id(helper_id, transform_context)
 		: helper_id;
@@ -5749,12 +5752,29 @@ function normalize_host_ref_spreads(attrs, is_host, transform_context) {
  * @returns {string}
  */
 function create_spread_props_name(transform_context) {
-	if (transform_context.helper_state) {
-		return create_helper_name(transform_context.helper_state, 'spread_props');
-	}
+	/** @type {string} */
+	let name;
+	do {
+		if (transform_context.helper_state) {
+			name = create_helper_name(transform_context.helper_state, 'spread_props');
+		} else {
+			transform_context.local_statement_component_index += 1;
+			name = `_tsrx_spread_props_${transform_context.local_statement_component_index}`;
+		}
+	} while (source_mentions_identifier(transform_context.source, name));
+	return name;
+}
 
-	transform_context.local_statement_component_index += 1;
-	return `_tsrx_spread_props_${transform_context.local_statement_component_index}`;
+/**
+ * Whether `source` has `name` as a whole identifier anywhere, so a generated
+ * binding of that name could shadow or redeclare one the author wrote.
+ *
+ * @param {string} source
+ * @param {string} name a name of identifier characters only
+ * @returns {boolean}
+ */
+function source_mentions_identifier(source, name) {
+	return new RegExp(`(?<![\\w$])${name}(?![\\w$])`).test(source);
 }
 
 /**

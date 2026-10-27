@@ -4462,6 +4462,29 @@ export function App() @{
 			expect(run_result(code)).toBe('div');
 		});
 
+		it.each(['_tsrx_spread_props_1', 'App__spread_props1'])(
+			'names the spread temporary of a component inside a method apart from a %s the author wrote',
+			(user_name) => {
+				const { code } = compile(
+					'export class Holder {\n' +
+						'\tmake() {\n' +
+						'\t\tfunction App(props: any) {\n' +
+						`\t\t\tconst ${user_name} = 'mine';\n` +
+						`\t\t\treturn <div {...props.rest} ref={props.r} title={${user_name}} />;\n` +
+						'\t\t}\n' +
+						'\t\treturn App;\n' +
+						'\t}\n' +
+						'}\n' +
+						'export const result = () => {\n' +
+						"\tconst element = new Holder().make()({ rest: { id: 'spread' }, r: null });\n" +
+						'\treturn [element.props.id, element.props.title];\n' +
+						'};',
+					'App.tsrx',
+				);
+				expect(run_result(code)).toEqual(['spread', 'mine']);
+			},
+		);
+
 		it.each([
 			[
 				'a const declared before it',

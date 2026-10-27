@@ -1,6 +1,6 @@
 import type { MockInstance } from 'vitest';
 import { useState, use } from 'react';
-import { mergeRefs } from '@tsrx/react/ref';
+import { create_ref_prop, mergeRefs } from '@tsrx/react/ref';
 import { runSwitchFallthroughRuntimeTests } from '@tsrx/core/test-harness/runtime/switch-fallthrough';
 import { runTsxExpressionTsrxRuntimeTests } from '@tsrx/core/test-harness/runtime/tsx-expression-tsrx';
 import { runJsxTextWhitespaceRuntimeTests } from '@tsrx/core/test-harness/runtime/jsx-text-whitespace';
@@ -807,6 +807,39 @@ function SpreadRefRenderApp() @{
 	</>
 }
 
+const bag_first_ref = log_spread_ref('bag-first');
+const bag_second_ref = log_spread_ref('bag-second');
+const bag_replaced_ref = log_spread_ref('bag-replaced');
+const own_refs_ref = log_spread_ref('own-refs');
+const named_ref = create_ref_prop(() => log_spread_ref('named'));
+const stable_ref_list = [bag_first_ref, bag_second_ref];
+
+function SpreadRefsRenderApp() @{
+	const [count, setCount] = useState(0);
+	const [replaced, setReplaced] = useState(false);
+	const bag_ref = replaced ? bag_replaced_ref : bag_first_ref;
+
+	<>
+		<input
+			className="own-refs"
+			ref={own_refs_ref}
+			{...{ 'data-count': count, ref: bag_ref, extra: named_ref }}
+		/>
+		<input className="bag-refs" {...{ 'data-count': count, ref: bag_ref, extra: named_ref }} />
+		<input
+			className="ref-list"
+			ref={own_refs_ref}
+			{...{ 'data-count': count, ref: stable_ref_list }}
+		/>
+		<button className="spread-refs-rerender" onClick={() => setCount(count + 1)}>
+			{count}
+		</button>
+		<button className="spread-refs-replace" onClick={() => setReplaced(true)}>
+			{'replace'}
+		</button>
+	</>
+}
+
 // ── Conditional host spreads ──
 
 let conditional_spread_and_node: HTMLInputElement | null = null;
@@ -1448,6 +1481,42 @@ describe('tsrx-react runtime', () => {
 
 		await click('.spread-ref-swap');
 		expect(spread_ref_render_log).toEqual(['swap-first:detach', 'swap-second:attach']);
+	});
+
+	it("applies a spread bag's several refs again only when one of them changes", async () => {
+		spread_ref_render_log.length = 0;
+		await render(SpreadRefsRenderApp);
+		expect(spread_ref_render_log).toEqual([
+			'own-refs:attach',
+			'bag-first:attach',
+			'named:attach',
+			'bag-first:attach',
+			'named:attach',
+			'own-refs:attach',
+			'bag-first:attach',
+			'bag-second:attach',
+		]);
+
+		spread_ref_render_log.length = 0;
+		await click('.spread-refs-rerender');
+		await click('.spread-refs-rerender');
+		expect(text('.spread-refs-rerender')).toBe('2');
+		expect(container.querySelector('.bag-refs')!.getAttribute('data-count')).toBe('2');
+		expect(spread_ref_render_log).toEqual([]);
+
+		await click('.spread-refs-replace');
+		expect(spread_ref_render_log).toEqual([
+			'own-refs:detach',
+			'bag-first:detach',
+			'named:detach',
+			'bag-first:detach',
+			'named:detach',
+			'own-refs:attach',
+			'bag-replaced:attach',
+			'named:attach',
+			'bag-replaced:attach',
+			'named:attach',
+		]);
 	});
 
 	for (const enabled of [false, true]) {

@@ -95,6 +95,10 @@ export function merge_spread_class<T extends object | SpreadFalsy>(
 	list?: boolean,
 ): T;
 
+// Joins an element's authored class with its scope classes, leaving out a
+// class the runtime would not render.
+export function join_scope_class(value: unknown, scope_class: unknown): unknown;
+
 export function normalize_spread_props<T extends object | SpreadFalsy>(
 	props: T,
 	...outer_refs: Array<RefValue<Element>>

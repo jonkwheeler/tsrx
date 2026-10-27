@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	apply_ref_value,
 	create_ref_prop,
+	join_scope_class,
 	merge_ref_props,
 	merge_spread_class,
 	mergeRefs,
@@ -1912,6 +1913,20 @@ describe('spread ref normalization', () => {
 			['second', node],
 			['outer', node],
 		]);
+	});
+});
+
+describe('join_scope_class', () => {
+	it('leaves out a class the runtime would not render and joins any other as text', () => {
+		for (const value of [undefined, null, false, '']) {
+			expect(join_scope_class(value, 'tsrx-a')).toBe('tsrx-a');
+		}
+		expect(join_scope_class('x y', 'tsrx-a tsrx-b')).toBe('x y tsrx-a tsrx-b');
+		expect(join_scope_class(0, 'tsrx-a')).toBe('0 tsrx-a');
+		expect(join_scope_class(['a', 'b'], 'tsrx-a')).toBe('a,b tsrx-a');
+		expect(join_scope_class({ toString: () => 'css-1' }, 'tsrx-a')).toBe('css-1 tsrx-a');
+		const thenable = Promise.resolve('css-2');
+		expect(join_scope_class(thenable, 'tsrx-a')).toBe(thenable);
 	});
 });
 

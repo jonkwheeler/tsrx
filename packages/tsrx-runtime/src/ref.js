@@ -635,6 +635,21 @@ export function merge_spread_class(props, scope_class, key, alias, list) {
 }
 
 /**
+ * Join an element's authored class with the scope classes TSRX adds to it, for
+ * a runtime whose class is text: the class is left out when it is `null`,
+ * `undefined`, `false` or empty, as the runtime would leave it out, and any
+ * other value joins as text, as the runtime would render it. A thenable class
+ * (Hono's server `css`) applies unchanged.
+ *
+ * @param {unknown} value the authored class
+ * @param {unknown} scope_class the element's scope hashes and applied classes
+ * @returns {unknown}
+ */
+export function join_scope_class(value, scope_class) {
+	return join_class(value, scope_class, false);
+}
+
+/**
  * Of a bag's class props, the last one with a value, as a runtime that reads
  * either renders it.
  *

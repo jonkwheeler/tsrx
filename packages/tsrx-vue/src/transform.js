@@ -1037,11 +1037,15 @@ const USE_SLOTS_INTERNAL_NAME = `${IDENTIFIER_OBFUSCATION_PREFIX}useSlots`;
  * `children` prop otherwise, so the same source renders its children on every
  * target. Nested children win over a `children` prop, as on React.
  *
- * The slot is rendered once, when the component is set up, and every read
- * shares that block: rendering it again for each read would run the
- * children's setup again, and a block rendered inside a branch is disposed
- * with it. So the block exists, and is truthy, whenever the caller writes
- * nested children, even when they render nothing.
+ * Each place that renders the children renders the slot there
+ * (`_$_Card_slots.default?.() ?? props.children`), so the children are set up
+ * when that place shows them and torn down when it hides them, as React
+ * mounts and unmounts them. A read that only tests the children (the
+ * condition of `?:` or `if`, an operand of `!`, the left side of `&&`) checks
+ * whether the slot exists instead (`_$_Card_slots.default ?? props.children`),
+ * so `props.children ? <div>{props.children}</div> : …` sets them up once.
+ * A slot exists whenever the caller writes nested children, even when they
+ * render nothing.
  *
  * @param {AST.Function} fn
  * @param {string} name the component's name
@@ -1056,8 +1060,8 @@ function read_children_from_default_slot(fn, name, ctx) {
 		children_names: new Set(),
 		children_defaults: new Map(),
 		shadowed_names: new Set(),
-		slot_id: create_generated_identifier(
-			`${IDENTIFIER_OBFUSCATION_PREFIX}${name.replace(/[^\w$]/g, '_')}_children`,
+		slots_id: create_generated_identifier(
+			`${IDENTIFIER_OBFUSCATION_PREFIX}${name.replace(/[^\w$]/g, '_')}_slots`,
 		),
 		// Shared by reference: the scope visitors copy the state for each scope.
 		rewrites: { count: 0 },
@@ -1115,13 +1119,13 @@ function read_children_from_default_slot(fn, name, ctx) {
 					node.expression.type === 'MemberExpression' &&
 					is_props_children_read(node.expression, path.at(-1), state)
 				) {
-					return read_children_or_default_slot(node, state);
+					return read_children_or_default_slot(node, path.at(-1), state);
 				}
 				return next();
 			},
 			MemberExpression(node, { path, state, next }) {
 				if (is_props_children_read(node, path.at(-1), state)) {
-					return read_children_or_default_slot(node, state);
+					return read_children_or_default_slot(node, path.at(-1), state);
 				}
 				return next();
 			},
@@ -1133,7 +1137,11 @@ function read_children_from_default_slot(fn, name, ctx) {
 					value.type === 'Identifier' &&
 					is_children_binding(value, state)
 				) {
-					return { ...node, shorthand: false, value: read_children_or_default_slot(value, state) };
+					return {
+						...node,
+						shorthand: false,
+						value: read_children_or_default_slot(value, node, state),
+					};
 				}
 				return next();
 			},
@@ -1146,7 +1154,7 @@ function read_children_from_default_slot(fn, name, ctx) {
 					!is_assignment_target(node, parent) &&
 					!is_binding_position(node, parent, path.at(-2))
 				) {
-					return read_children_or_default_slot(node, state);
+					return read_children_or_default_slot(node, parent, state);
 				}
 				return next();
 			},
@@ -1170,11 +1178,8 @@ function read_children_from_default_slot(fn, name, ctx) {
 	}
 
 	ctx.needs_use_slots = true;
-	// `const _$_Card_children = _$_useSlots().default?.();`
-	const slot_declaration = b.const(
-		state.slot_id,
-		b.maybe_call(b.member(b.call(USE_SLOTS_INTERNAL_NAME), 'default')),
-	);
+	// `const _$_Card_slots = _$_useSlots();`
+	const slot_declaration = b.const(state.slots_id, b.call(USE_SLOTS_INTERNAL_NAME));
 	const statements =
 		body.type === 'BlockStatement' ? body.body : [b.return(/** @type {AST.Expression} */ (body))];
 	return /** @type {AST.Function} */ ({
@@ -1194,7 +1199,7 @@ function read_children_from_default_slot(fn, name, ctx) {
  *   children_names: Set<string>,
  *   children_defaults: Map<string, AST.Expression>,
  *   shadowed_names: Set<string>,
- *   slot_id: AST.Identifier,
+ *   slots_id: AST.Identifier,
  *   rewrites: { count: number },
  * }} ChildrenReadState
  */
@@ -1302,17 +1307,51 @@ function is_assignment_target(node, parent) {
 }
 
 /**
- * `_$_Card_children ?? <read>`, then the destructured default if there is one.
+ * `_$_Card_slots.default?.() ?? <read>` where the read renders the children,
+ * `_$_Card_slots.default ?? <read>` where it only tests them, then the
+ * destructured default if there is one.
  *
  * @param {AST.Expression} read
+ * @param {AST.Node | undefined} parent
  * @param {ChildrenReadState} state
  * @returns {AST.Expression}
  */
-function read_children_or_default_slot(read, state) {
+function read_children_or_default_slot(read, parent, state) {
 	state.rewrites.count += 1;
-	const slot_or_prop = b.logical('??', clone_identifier(state.slot_id), read);
+	const slot = b.member(clone_identifier(state.slots_id), 'default');
+	const slot_or_prop = b.logical(
+		'??',
+		is_test_position(read, parent) ? slot : b.maybe_call(slot),
+		read,
+	);
 	const fallback = read.type === 'Identifier' ? state.children_defaults.get(read.name) : undefined;
 	return fallback ? b.logical('??', slot_or_prop, clone_ast_node(fallback)) : slot_or_prop;
+}
+
+/**
+ * Whether only the truthiness of `node` is used: the condition of `?:`, `if`
+ * or a loop, the operand of `!`, or the left side of `&&` (whose value is
+ * used only when it is falsy, and a slot never is).
+ *
+ * @param {AST.Node} node
+ * @param {AST.Node | undefined} parent
+ * @returns {boolean}
+ */
+function is_test_position(node, parent) {
+	switch (parent?.type) {
+		case 'ConditionalExpression':
+		case 'IfStatement':
+		case 'WhileStatement':
+		case 'DoWhileStatement':
+		case 'ForStatement':
+			return parent.test === node;
+		case 'UnaryExpression':
+			return parent.operator === '!';
+		case 'LogicalExpression':
+			return parent.operator === '&&' && parent.left === node;
+		default:
+			return false;
+	}
 }
 
 /**

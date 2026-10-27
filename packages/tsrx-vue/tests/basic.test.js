@@ -354,15 +354,29 @@ export function Inner({ label = PREFIX }: { label?: string }) @{
 		);
 
 		expect(code).toContain("import { useSlots as _$_useSlots } from 'vue';");
-		// The slot renders once, at setup; nested children win over the prop.
+		// Each render site renders the slot; nested children win over the prop.
 		expect(code).toContain(
-			'const Card = defineVaporComponent(function Card(props: { title: string; children?: JSX.Element }) {\n\tconst _$_Card_children = _$_useSlots().default?.();',
+			'const Card = defineVaporComponent(function Card(props: { title: string; children?: JSX.Element }) {\n\tconst _$_Card_slots = _$_useSlots();',
 		);
-		expect(code).toContain('{_$_Card_children ?? props.children}');
-		expect(code).toContain('{_$_Box_children ?? kids}');
+		expect(code).toContain('{_$_Card_slots.default?.() ?? props.children}');
+		expect(code).toContain('{_$_Box_slots.default?.() ?? kids}');
 		expect(code).toContain('const { children } = props;');
-		expect(code).toContain('<aside>{_$_Panel_children ?? children}</aside>');
+		expect(code).toContain('<aside>{_$_Panel_slots.default?.() ?? children}</aside>');
 		expect(code.match(/_\$_useSlots\(\)/g)).toHaveLength(3);
+	});
+
+	it('tests whether the slot exists where a read only tests the children', () => {
+		const { code } = compile(
+			`function Maybe(props: { children?: JSX.Element }) @{
+				<div>{props.children ? <p>{props.children}</p> : null}{!props.children && 'empty'}</div>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain(
+			'{_$_Maybe_slots.default ?? props.children\n\t\t\t? <p>{_$_Maybe_slots.default?.() ?? props.children}</p>',
+		);
+		expect(code).toContain("{!(_$_Maybe_slots.default ?? props.children) && 'empty'}");
 	});
 
 	it('falls back from the slot to the prop to a destructured children default', () => {
@@ -374,7 +388,7 @@ export function Inner({ label = PREFIX }: { label?: string }) @{
 		);
 
 		expect(code).toContain('function Card({ children }: { children?: string })');
-		expect(code).toContain("<p>{_$_Card_children ?? children ?? 'none'}</p>");
+		expect(code).toContain("<p>{_$_Card_slots.default?.() ?? children ?? 'none'}</p>");
 	});
 
 	it('names the slot per component, so a nested component reads its own and the outer slot', () => {
@@ -389,7 +403,7 @@ export function Inner({ label = PREFIX }: { label?: string }) @{
 		);
 
 		expect(code).toContain(
-			'{_$_Inner_children ?? p.children}{_$_Outer_children ?? props.children}',
+			'{_$_Inner_slots.default?.() ?? p.children}{_$_Outer_slots.default?.() ?? props.children}',
 		);
 	});
 
@@ -419,10 +433,10 @@ export function Inner({ label = PREFIX }: { label?: string }) @{
 		expect(code).toContain("import { useSlots as _$_useSlots } from 'vue';");
 		expect(code).toContain("import type { useSlots } from 'vue';");
 		expect(code).toContain('delete props.children;');
-		expect(code).toContain('{_$_Card_children ?? props.children}{__slots.default()}');
+		expect(code).toContain('{_$_Card_slots.default?.() ?? props.children}{__slots.default()}');
 		expect(code).toContain('} catch(children) {\n\t\tconsole.log(children);');
 		expect(code).toContain('for (const children of [1]) console.log(children);');
-		expect(code).toContain('<i>{_$_Other_children ?? children}</i>');
+		expect(code).toContain('<i>{_$_Other_slots.default?.() ?? children}</i>');
 	});
 
 	it('leaves children reads alone when props is shadowed', () => {

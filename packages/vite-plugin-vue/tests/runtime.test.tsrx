@@ -1,5 +1,15 @@
 import type { MockInstance } from 'vitest';
-import { defineVaporAsyncComponent, inject, provide, reactive, ref, watch, watchEffect } from 'vue';
+import {
+	defineVaporAsyncComponent,
+	inject,
+	onMounted,
+	onUnmounted,
+	provide,
+	reactive,
+	ref,
+	watch,
+	watchEffect,
+} from 'vue';
 import { mergeRefs } from '@tsrx/vue/ref';
 import { runSwitchFallthroughRuntimeTests } from '@tsrx/core/test-harness/runtime/switch-fallthrough';
 import { runTsxExpressionTsrxRuntimeTests } from '@tsrx/core/test-harness/runtime/tsx-expression-tsrx';
@@ -1738,6 +1748,62 @@ function SpreadChildren(props: { children?: JSX.Element }) @{
 	</>
 }
 
+const child_life = { setups: 0, mounted: 0, unmounted: 0 };
+
+function LifecycleChild() @{
+	child_life.setups++;
+	onMounted(() => child_life.mounted++);
+	onUnmounted(() => child_life.unmounted++);
+	const clicks = ref(0);
+	<button class="life-child" onClick={() => clicks.value++}>{`n=${clicks.value}`}</button>
+}
+
+const children_open = ref(false);
+
+function TernaryChildren(props: { children?: JSX.Element }) @{
+	<div class="toggled">{children_open.value ? props.children : null}</div>
+}
+
+function AndChildren(props: { children?: JSX.Element }) @{
+	<div class="toggled">{children_open.value && props.children}</div>
+}
+
+function IfChildren(props: { children?: JSX.Element }) @{
+	<div class="toggled">
+		@if (children_open.value) {
+			<section>{props.children}</section>
+		}
+	</div>
+}
+
+function TernaryChildrenApp() @{
+	<TernaryChildren>
+		<LifecycleChild />
+	</TernaryChildren>
+}
+
+function AndChildrenApp() @{
+	<AndChildren>
+		<LifecycleChild />
+	</AndChildren>
+}
+
+function IfChildrenApp() @{
+	<IfChildren>
+		<LifecycleChild />
+	</IfChildren>
+}
+
+function HiddenChildren(props: { children?: JSX.Element }) @{
+	<div class="hidden-children">{false ? props.children : 'hidden'}</div>
+}
+
+function HiddenChildrenApp() @{
+	<HiddenChildren>
+		<LifecycleChild />
+	</HiddenChildren>
+}
+
 function SpreadChildrenApp() @{
 	<SpreadChildren>
 		<em>{'forwarded'}</em>
@@ -1802,6 +1868,45 @@ describe('tsrx-vue component children', () => {
 		expect(container.querySelector('.inner-children')?.innerHTML).toContain(
 			'<b>inner</b><u>outer</u>',
 		);
+	});
+
+	it.each([
+		['a ternary', TernaryChildrenApp],
+		['an && expression', AndChildrenApp],
+		['an @if body', IfChildrenApp],
+	])(
+		'sets the children up when %s shows them and tears them down when it hides them',
+		async (_name, App) => {
+			Object.assign(child_life, { setups: 0, mounted: 0, unmounted: 0 });
+			children_open.value = false;
+			await render(App);
+			expect(child_life).toEqual({ setups: 0, mounted: 0, unmounted: 0 });
+
+			children_open.value = true;
+			await flush();
+			await click('.life-child');
+			expect(text('.life-child')).toBe('n=1');
+
+			children_open.value = false;
+			await flush();
+			expect(container.querySelector('.life-child')).toBeNull();
+			expect(child_life).toEqual({ setups: 1, mounted: 1, unmounted: 1 });
+
+			// Shown again, the children are a fresh instance that keeps updating.
+			children_open.value = true;
+			await flush();
+			expect(text('.life-child')).toBe('n=0');
+			await click('.life-child');
+			expect(text('.life-child')).toBe('n=1');
+			expect(child_life).toEqual({ setups: 2, mounted: 2, unmounted: 1 });
+		},
+	);
+
+	it('never sets up children that are not shown', async () => {
+		Object.assign(child_life, { setups: 0, mounted: 0, unmounted: 0 });
+		await render(HiddenChildrenApp);
+		expect(text('.hidden-children')).toBe('hidden');
+		expect(child_life).toEqual({ setups: 0, mounted: 0, unmounted: 0 });
 	});
 
 	it('does not forward nested children through a props spread', async () => {

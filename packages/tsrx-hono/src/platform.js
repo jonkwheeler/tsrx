@@ -27,30 +27,42 @@ const HONO_PROPERTY_WRITERS = new Map([
 	['Object', new Set(['assign', 'defineProperty', 'defineProperties'])],
 	['Reflect', new Set(['set', 'defineProperty'])],
 ]);
-// Built-ins that read their arguments without keeping or returning them.
-// Every `console` method qualifies.
+// Built-ins that don't write their arguments or keep them. Some return their
+// members, which, like a spread copy, are not the registry itself; `freeze`
+// returns it frozen. Every `console` method qualifies.
 const HONO_READ_ONLY_CALLS = new Map([
 	[
 		'Object',
 		new Set([
-			'keys',
+			'entries',
+			'freeze',
+			'getOwnPropertyDescriptor',
+			'getOwnPropertyDescriptors',
 			'getOwnPropertyNames',
 			'getOwnPropertySymbols',
+			'getPrototypeOf',
 			'hasOwn',
 			'is',
 			'isExtensible',
 			'isFrozen',
 			'isSealed',
+			'keys',
+			'values',
 		]),
 	],
-	['Reflect', new Set(['has', 'ownKeys', 'isExtensible'])],
+	[
+		'Reflect',
+		new Set(['getOwnPropertyDescriptor', 'getPrototypeOf', 'has', 'isExtensible', 'ownKeys']),
+	],
 	['JSON', new Set(['stringify'])],
 	['Array', new Set(['isArray'])],
 ]);
 const HONO_READ_ONLY_FUNCTIONS = new Set(['String', 'Number', 'Boolean']);
-// Alias chains can repeat member paths; deeper exposures are cut to this
-// depth, which only makes them cover more.
+// Alias chains can repeat member paths. Deeper exposures are cut to this
+// depth, and a binding with more paths keeps one that covers them all; both
+// only make them cover more.
 const HONO_MAX_EXPOSED_DEPTH = 16;
+const HONO_MAX_EXPOSED_PATHS = 16;
 // `Object.prototype` methods that read the object they are called on.
 const HONO_READ_ONLY_METHODS = new Set([
 	'hasOwnProperty',
@@ -300,19 +312,25 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 
 	/**
 	 * Record that members of a binding's value below `path` can be replaced.
-	 * A recorded shorter path can already cover it, and long paths are cut,
-	 * which only widens them, so alias cycles end.
+	 * A recorded path can already cover it, and it replaces the paths it
+	 * covers. Aliases reassigned from each other can make a path for every
+	 * order of their members, so long paths are cut, and past a few paths a
+	 * binding keeps one that covers them all. Both only widen what is exposed,
+	 * and each widening covers more, so alias cycles end quickly.
 	 *
 	 * @param {import('@tsrx/core/types').Binding} binding
 	 * @param {string[]} path
-	 * @returns {boolean} whether the binding's exposure grew
+	 * @returns {string[] | null} the path the binding's exposure grew by
 	 */
 	function add_hono_exposure(binding, path) {
-		const prefix = path.slice(0, HONO_MAX_EXPOSED_DEPTH);
+		const added = path.slice(0, HONO_MAX_EXPOSED_DEPTH);
 		const known = exposed.get(binding) ?? [];
-		if (known.some((other) => covers_hono_path(other, prefix))) return false;
-		exposed.set(binding, [...known, prefix]);
-		return true;
+		if (known.some((other) => covers_hono_path(other, added))) return null;
+		const kept = known.filter((other) => !covers_hono_path(added, other));
+		const grown =
+			kept.length < HONO_MAX_EXPOSED_PATHS ? added : get_hono_covering_path([...kept, added]);
+		exposed.set(binding, grown === added ? [...kept, added] : [grown]);
+		return grown;
 	}
 
 	/**
@@ -411,24 +429,36 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	}
 
 	/**
+	 * @param {AST.Node} node
+	 * @returns {AST.Function | null}
+	 */
+	function resolve_async_component(node) {
+		const value = resolve_hono_function(node, [], new Set(), false);
+		if (!value?.async) return null;
+		if (is_custom_diagnostic_candidate && !is_custom_diagnostic_candidate(value)) return null;
+		return value;
+	}
+
+	/**
+	 * The function a static reference resolves to through known initializers.
+	 * With `ignore_exposure`, a member that a write or other code may replace
+	 * still resolves to its initializer.
+	 *
 	 * @param {AST.Node | null | undefined} node
 	 * @param {string[]} property_path
 	 * @param {Set<AST.Node>} seen
+	 * @param {boolean} ignore_exposure
 	 * @returns {AST.Function | null}
 	 */
-	function resolve_async_component(node, property_path, seen) {
+	function resolve_hono_function(node, property_path, seen, ignore_exposure) {
 		if (!node || seen.has(node)) return null;
 		const next_seen = new Set(seen).add(node);
 		const expression = unwrap_hono_transparent_expression(node);
-		if (expression !== node) return resolve_async_component(expression, property_path, next_seen);
-
-		if (isFunctionNode(node)) {
-			if (property_path.length || !node.async) return null;
-			if (is_custom_diagnostic_candidate && !is_custom_diagnostic_candidate(node)) {
-				return null;
-			}
-			return node;
+		if (expression !== node) {
+			return resolve_hono_function(expression, property_path, next_seen, ignore_exposure);
 		}
+
+		if (isFunctionNode(node)) return property_path.length ? null : node;
 
 		if (node.type === 'ObjectExpression' && property_path.length) {
 			// Later properties replace earlier ones. A spread or dynamic key can
@@ -447,7 +477,12 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 				// Accessors also replace data properties, but resolving their return
 				// values would require execution rather than static reference lookup.
 				return property.kind === 'init'
-					? resolve_async_component(property.value, property_path.slice(1), next_seen)
+					? resolve_hono_function(
+							property.value,
+							property_path.slice(1),
+							next_seen,
+							ignore_exposure,
+						)
 					: null;
 			}
 			return null;
@@ -457,18 +492,32 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 		if (
 			!reference ||
 			reference.binding.reassigned ||
-			is_hono_exposed(reference.binding, [...reference.path, ...property_path]) ||
+			(!ignore_exposure &&
+				is_hono_exposed(reference.binding, [...reference.path, ...property_path])) ||
 			!reference.binding.initial
 		) {
 			return null;
 		}
 
 		// Combine destructuring and member segments in root-to-leaf order.
-		return resolve_async_component(
+		return resolve_hono_function(
 			reference.binding.initial,
 			[...(destructured_paths.get(reference.binding) ?? []), ...reference.path, ...property_path],
 			next_seen,
+			ignore_exposure,
 		);
+	}
+
+	/**
+	 * Whether a method call's callee is an arrow function, which can't reach
+	 * the object it's called on through `this`. Writes don't matter: one that
+	 * could replace the method exposes the object anyway.
+	 *
+	 * @param {AST.MemberExpression} callee
+	 * @returns {boolean}
+	 */
+	function is_hono_arrow_method(callee) {
+		return resolve_hono_function(callee, [], new Set(), true)?.type === 'ArrowFunctionExpression';
 	}
 
 	/**
@@ -493,25 +542,31 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 		for (const binding of scope.declarations.values()) {
 			for (const reference of binding.references) {
 				if (reference.node === binding.node) continue;
-				const path = get_hono_exposed_path(reference.node, reference.path, scopes);
+				const path = get_hono_exposed_path(
+					reference.node,
+					reference.path,
+					scopes,
+					is_hono_arrow_method,
+				);
 				if (path) add_hono_exposure(binding, path);
 			}
 		}
 	}
 	// An exposed alias exposes the part of each root it can reach.
-	const exposed_aliases = [...exposed.keys()];
-	for (let alias = exposed_aliases.pop(); alias; alias = exposed_aliases.pop()) {
+	/** @type {Array<[import('@tsrx/core/types').Binding, string[]]>} */
+	const pending = [...exposed].flatMap(([binding, paths]) =>
+		paths.map((path) => /** @type {[typeof binding, string[]]} */ ([binding, path])),
+	);
+	for (let entry = pending.pop(); entry; entry = pending.pop()) {
+		const [alias, path] = entry;
 		for (const link of alias_roots.get(alias) ?? []) {
-			for (const path of exposed.get(alias) ?? []) {
-				const root_path = get_hono_root_exposure(link, path);
-				if (root_path && add_hono_exposure(link.root, root_path)) {
-					exposed_aliases.push(link.root);
-				}
-			}
+			const root_path = get_hono_root_exposure(link, path);
+			const grown = root_path && add_hono_exposure(link.root, root_path);
+			if (grown) pending.push([link.root, grown]);
 		}
 	}
 	for (const reference of jsx_references) {
-		const found = resolve_async_component(reference.node, [], new Set());
+		const found = resolve_async_component(reference.node);
 		if (found) return found;
 	}
 	return null;
@@ -571,9 +626,9 @@ function is_hono_transparent_expression_wrapper(parent, child) {
 
 /**
  * Collect the bindings an alias of `node[path]` can reach, and where. A
- * holder (an object or array literal) holds each value at its key, and a
- * dynamic key, an array index or an iteration step is `*`. A spread copies
- * members, so it holds nothing.
+ * holder (an object or array literal) holds each value at its key or index.
+ * A dynamic key, a member read by number, an element after a spread and an
+ * iteration step are `*`. A spread copies members, so it holds nothing.
  *
  * @param {AST.Node | null | undefined} node
  * @param {import('@tsrx/core/types').ScopeInterface | null} scope
@@ -606,16 +661,22 @@ function collect_hono_alias_roots(node, scope, links, path = [], held = []) {
 			collect_hono_alias_roots(expression.right, scope, links, path, held);
 		}
 	} else if (expression.type === 'ObjectExpression' || expression.type === 'ArrayExpression') {
-		const entries =
-			expression.type === 'ObjectExpression'
-				? expression.properties.flatMap((property) =>
-						property.type === 'Property'
-							? [{ key: get_hono_property_key(property), value: property.value }]
-							: [],
-					)
-				: expression.elements.flatMap((element) =>
-						element && element.type !== 'SpreadElement' ? [{ key: '*', value: element }] : [],
-					);
+		/** @type {Array<{ key: string, value: AST.Node }>} */
+		const entries = [];
+		if (expression.type === 'ObjectExpression') {
+			for (const property of expression.properties) {
+				if (property.type === 'Property') {
+					entries.push({ key: get_hono_property_key(property), value: property.value });
+				}
+			}
+		} else {
+			// A spread moves every later element to an index that is not known.
+			let spread = false;
+			expression.elements.forEach((element, index) => {
+				if (element?.type === 'SpreadElement') spread = true;
+				else if (element) entries.push({ key: spread ? '*' : String(index), value: element });
+			});
+		}
 		for (const { key, value } of entries) {
 			if (!path.length) {
 				collect_hono_alias_roots(value, scope, links, [], [...held, key]);
@@ -656,6 +717,20 @@ function covers_hono_path(prefix, path) {
 	return (
 		prefix.length <= path.length &&
 		prefix.every((segment, index) => segment === '*' || segment === path[index])
+	);
+}
+
+/**
+ * The longest path that covers every one of `paths`, with `*` where they
+ * differ.
+ *
+ * @param {string[][]} paths
+ * @returns {string[]}
+ */
+function get_hono_covering_path(paths) {
+	const length = Math.min(...paths.map((path) => path.length));
+	return Array.from({ length }, (_, index) =>
+		paths.every((path) => path[index] === paths[0][index]) ? paths[0][index] : '*',
 	);
 }
 
@@ -703,9 +778,10 @@ function is_hono_logical_operator(operator) {
  * @param {AST.Identifier} identifier
  * @param {AST.Node[]} ancestors
  * @param {Map<AST.Node, import('@tsrx/core/types').ScopeInterface | null>} scopes
+ * @param {(callee: AST.MemberExpression) => boolean} is_arrow_method
  * @returns {string[] | null}
  */
-function get_hono_exposed_path(identifier, ancestors, scopes) {
+function get_hono_exposed_path(identifier, ancestors, scopes, is_arrow_method) {
 	/** @type {string[]} */
 	const path = [];
 	// Inside a holder, member steps act on the holder, not on the reference.
@@ -779,10 +855,12 @@ function get_hono_exposed_path(identifier, ancestors, scopes) {
 			case 'TaggedTemplateExpression': {
 				const callee = parent.type === 'CallExpression' ? parent.callee : parent.tag;
 				if (callee === child) {
-					// A method call passes its object as `this`.
+					// A method call passes its object as `this`, which an arrow function
+					// ignores.
 					if (!step) return null;
 					const method = get_hono_member_name(step.node);
-					return method !== null && HONO_READ_ONLY_METHODS.has(method) ? null : step.object_path;
+					if (method !== null && HONO_READ_ONLY_METHODS.has(method)) return null;
+					return is_arrow_method(step.node) ? null : step.object_path;
 				}
 				if (parent.type === 'TaggedTemplateExpression') return null;
 				if (is_hono_read_only_call(callee, scopes.get(parent) ?? null)) return null;
@@ -849,8 +927,9 @@ function get_hono_exposed_path(identifier, ancestors, scopes) {
 
 /**
  * The names a pattern binds to its value or to a part of it, each with the
- * member path it takes; an array element or a dynamic key is `*`. A rest
- * element binds a new object or array, so it is left out.
+ * member path it takes: an array element's is its index, and a dynamic
+ * key's is `*`. A rest element binds a new object or array, so it is left
+ * out.
  *
  * @param {AST.Node | null} node
  * @param {string[]} [path]
@@ -868,10 +947,10 @@ function get_hono_alias_targets(node, path = []) {
 		);
 	}
 	if (pattern?.type === 'ArrayPattern') {
-		return pattern.elements.flatMap((element) =>
+		return pattern.elements.flatMap((element, index) =>
 			!element || element.type === 'RestElement'
 				? []
-				: get_hono_alias_targets(element, [...path, '*']),
+				: get_hono_alias_targets(element, [...path, String(index)]),
 		);
 	}
 	return [];

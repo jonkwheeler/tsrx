@@ -314,6 +314,9 @@ describe('@tsrx/hono DOM compiler', () => {
 		'const { nested } = UI; patch(nested); <UI.nested.App />;',
 		'const box = { ui: UI }; patch(box.ui); <UI.App />;',
 		'const view = <div ref={UI} />; <UI.App />;',
+		'const [, registry] = [other, UI]; patch(registry); <UI.App />;',
+		'const [, registry] = [...others, UI]; patch(registry); <UI.App />;',
+		'const Reg = { App: async () => <div />, init() { this.App = () => <span />; } }; Reg.init(); <Reg.App />;',
 	])('does not diagnose a registry that escapes to code the check cannot follow: %s', (update) => {
 		const source = `const UI = { App: async () => <div />, nested: { App: async () => <div /> } };
 			${update}`;
@@ -347,6 +350,9 @@ describe('@tsrx/hono DOM compiler', () => {
 		'UI.App.displayName = "App"; <UI.App />;',
 		'const Page = async () => <div />; Page.displayName = "Page"; <Page />;',
 		'const Page = async () => <div />; Object.assign(Page, { displayName: "Page" }); <Page />;',
+		'export const result = UI.App(); <UI.App />;',
+		'const [, registry] = [UI, other]; patch(registry); <UI.App />;',
+		'Object.freeze(UI); Object.values(UI); Object.entries(UI); Reflect.getPrototypeOf(UI); <UI.App />;',
 	])('still diagnoses an async member that is only read or copied: %s', (update) => {
 		const source = `const UI = { App: async () => <div /> };
 			${update}`;
@@ -356,6 +362,34 @@ describe('@tsrx/hono DOM compiler', () => {
 		expect(() => compileDom(source, 'App.tsrx')).toThrow(/does not support async components/);
 		expect(compileDom(source, 'App.tsrx', { collect: true }).errors).toEqual([async_error]);
 		expect(compileDomToVolarMappings(source, 'App.tsrx').errors).toEqual([async_error]);
+	});
+
+	it('finishes quickly when aliases are reassigned from each other', () => {
+		// Each reassignment adds a member path per element to the other alias, so
+		// unbounded paths multiply with every round.
+		/** @param {number} count */
+		const source = (count) => {
+			const members = ['a.a', 'b.b', 'c.c', 'd.d'].slice(0, count);
+			return `const UI: any = { App: async () => <div /> };
+let a: any = UI;
+let b: any = UI;
+a = [${members.map((member) => `b.${member}`).join(', ')}];
+b = [${members.map((member) => `a.${member}`).join(', ')}];
+sink(a.x.x);
+<UI.App />;`;
+		};
+		/** @param {number} count */
+		const time = (count) => {
+			let best = Infinity;
+			for (let run = 0; run < 3; run++) {
+				const start = performance.now();
+				expect(compileDom(source(count), 'App.tsrx', { collect: true }).errors).toHaveLength(1);
+				best = Math.min(best, performance.now() - start);
+			}
+			return best;
+		};
+		time(1);
+		expect(time(4)).toBeLessThan(10 * Math.max(time(1), 1));
 	});
 
 	it('rejects an async component referenced by a dynamic tag', () => {

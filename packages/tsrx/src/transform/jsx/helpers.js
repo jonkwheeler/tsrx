@@ -626,11 +626,11 @@ const arrow_type_parameters = new WeakSet();
 const STATEMENT_LISTS = new Set(['Program', 'BlockStatement', 'StaticBlock', 'TSModuleBlock']);
 
 /**
- * Statements that print starting with a keyword, a name or `{`, which no
- * statement before them continues into across a line break.
+ * Statements that print starting with a keyword or a name, which no statement
+ * before them continues into across a line break. Not a block: TypeScript
+ * reads `(c)` and a `{` on the next line as an arrow function without `=>`.
  */
 const WORD_STATEMENTS = new Set([
-	'BlockStatement',
 	'BreakStatement',
 	'ClassDeclaration',
 	'ContinueStatement',
@@ -733,8 +733,8 @@ function starts_with_word(node) {
 
 /**
  * Whether the printed expression starts with a keyword or a name: `new`,
- * `await`, `typeof`, or a chain of member accesses and calls on a name, also
- * as the left operand of an operator.
+ * `await`, `typeof`, `true`, or a chain of member accesses and calls on a
+ * name, also as the left operand of an operator.
  * @param {AST.Node} node
  * @returns {boolean}
  */
@@ -758,7 +758,10 @@ function expression_starts_with_word(node) {
 		case 'UpdateExpression':
 			return !node.prefix && is_name_chain(node.argument);
 		case 'ChainExpression':
+		case 'TSInstantiationExpression':
 			return is_name_chain(node.expression);
+		case 'Literal':
+			return /^(?:true|false|null)$/.test(node.raw ?? '');
 	}
 	return is_name_chain(node);
 }

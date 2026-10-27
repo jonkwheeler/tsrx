@@ -3717,11 +3717,13 @@ export function create_hook_safe_helper(body_nodes, source_node, transform_conte
 		create_local_statement_component_name(transform_context),
 	);
 	// A local helper state can't reach module level, so the helper is declared
-	// in place, as outside a component
+	// in place, as outside a component. Inside a component it still takes the
+	// component's prefix, so it neither collides with nor shadows an authored
+	// `StatementBodyHook1`.
 	const helper_state = transform_context.helper_state?.local
 		? null
 		: transform_context.helper_state;
-	const component_id = helper_state
+	const component_id = transform_context.helper_state
 		? create_module_scoped_hook_component_id(helper_id, transform_context)
 		: helper_id;
 	const helper_bindings = get_referenced_helper_bindings(
@@ -3734,7 +3736,7 @@ export function create_hook_safe_helper(body_nodes, source_node, transform_conte
 		: helper_bindings.map((binding) =>
 				transient_bindings.has(binding.name)
 					? null
-					: create_helper_type_alias_declaration(helper_id, binding),
+					: create_helper_type_alias_declaration(component_id, binding),
 			);
 	const props_type =
 		helper_bindings.length > 0 && !helper_state
@@ -3776,7 +3778,7 @@ export function create_hook_safe_helper(body_nodes, source_node, transform_conte
 		return {
 			setup_statements: [
 				...aliases.flatMap((alias) => (alias ? [alias.declaration] : [])),
-				create_helper_declaration(helper_id, helper_fn, source_node, transform_context),
+				create_helper_declaration(component_id, helper_fn, source_node, transform_context),
 			],
 			component_element,
 		};

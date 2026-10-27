@@ -24,8 +24,6 @@ const visitorKeys: Record<string, string[]> = {
 	JSXClosingFragment: [],
 	JSXExpressionContainer: ['expression'],
 	JSXAttribute: ['name', 'value'],
-	// The name is the value's expression, so only the value is visited.
-	JSXShorthandAttribute: ['value'],
 	JSXSpreadAttribute: ['argument'],
 	JSXIdentifier: [],
 	JSXMemberExpression: ['object', 'property'],
@@ -192,12 +190,6 @@ function normalize_tsrx_ast_for_eslint(ast: any, code: string): Span[] {
 		// enumerable, so traversal still visits each parameter once.
 		if (SIGNATURE_TYPES.has(node.type) && node.parameters) {
 			Object.defineProperty(node, 'params', { value: node.parameters, configurable: true });
-		}
-
-		// A `{name}` shorthand attribute has no `=`, and its name lies inside its
-		// value, which rules such as `indent` do not expect of a `JSXAttribute`.
-		if (node.type === 'JSXAttribute' && node.shorthand) {
-			node.type = 'JSXShorthandAttribute';
 		}
 
 		// Like espree, a template element spans its delimiters: `` `a${ ``, `` }b` ``.

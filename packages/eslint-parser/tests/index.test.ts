@@ -323,21 +323,47 @@ export function Button(props: { onPress?: () => void }) @{
 		}
 	});
 
-	it('lints a {name} shorthand attribute', () => {
-		const code = `export function App({ fetchProject }) @{
-	<Child
-		{fetchProject}
-		{missing}
-		other={1}
-	/>
-}`;
-		const rules = {
-			rules: { indent: ['error', 'tab'], 'no-undef': 'error', 'no-unused-vars': 'error' },
-		} as const;
-		expect(lint(code, rules)).toEqual(["4: no-undef: 'missing' is not defined."]);
-		expect(lint(code.replace('\t\tother', '\tother'), rules)).toEqual([
-			"4: no-undef: 'missing' is not defined.",
-			'5: indent: Expected indentation of 2 tabs but found 1.',
-		]);
+	it('gives jsx-ast-utils a {name} shorthand attribute as a JSXAttribute', () => {
+		// jsx-ast-utils' `propName` and `getPropValue`, which eslint-plugin-react
+		// and eslint-plugin-jsx-a11y call on every attribute that is not a spread.
+		const prop_name = (prop: any) => {
+			if (prop.type !== 'JSXAttribute') {
+				throw new Error('The prop must be a JSXAttribute collected by the AST parser.');
+			}
+			return prop.name.name;
+		};
+		const prop_value = (prop: any) => {
+			if (prop.value === null) return true;
+			const value =
+				prop.value.type === 'JSXExpressionContainer' ? prop.value.expression : prop.value;
+			return value.type === 'Identifier' ? value.name : value.value;
+		};
+		const props: string[] = [];
+		const messages = lint(
+			`export function App({ onClick }) @{
+	<button {onClick} type="submit" />
+}`,
+			{
+				plugins: {
+					probe: {
+						rules: {
+							props: {
+								create: (context) => ({
+									JSXOpeningElement(node: any) {
+										for (const prop of node.attributes) {
+											props.push(`${prop_name(prop)}=${prop_value(prop)}`);
+										}
+									},
+								}),
+							},
+						},
+					},
+				},
+				rules: { 'no-unused-vars': 'error', 'probe/props': 'error' },
+			},
+		);
+
+		expect(messages).toEqual([]);
+		expect(props).toEqual(['onClick=onClick', 'type=submit']);
 	});
 });

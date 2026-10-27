@@ -2060,6 +2060,64 @@ export function App() @{
 		});
 	});
 
+	describe(`[${name}] statement ends as written`, () => {
+		it('ends a statement without ; in the editor output when the source does (#1064)', () => {
+			// TypeScript 7 offers a completion at the end of a name only inside text
+			// that is the same in both files, and TypeScript writes the code of an edit
+			// with or without `;` as most statements of the file do.
+			const source = `import { useState } from 'react'
+export const top = 1
+let plain = top
+plain++
+export function App() @{
+	const [n] = useState(0)
+	const m = useMem
+	useMem
+	n.toFixed()
+	<p>{n}{m}</p>
+}
+export function Plain() {
+	const a = 1
+	return a
+}
+`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			expect(result.errors).toEqual([]);
+			for (const line of [
+				'export const top = 1\n',
+				'let plain = top\n',
+				'plain++\n',
+				'const [n] = useState(0)\n',
+				'const m = useMem\n',
+				'useMem\n',
+				'n.toFixed()\n',
+				'const a = 1\n',
+				'return a\n',
+			]) {
+				expect(result.code).toContain(line);
+			}
+			// The output of a template has no `;` in the source either.
+			expect(result.code).toContain('return <p>{n}{m}</p>\n');
+			// The build keeps the printer's `;`.
+			expect(compile(source, 'App.tsrx').code).toContain('const m = useMem;');
+		});
+
+		it.each([
+			[
+				'the next statement is written in parentheses',
+				"const a = 1\n\t'not a directive'",
+				'const a = 1;',
+			],
+			['the statement is written in parentheses', '(plain)\n\tplain', '(plain);'],
+		])('keeps the ; of a statement when %s', (_name, statements, expected) => {
+			// A `(` on the next line would continue the statement.
+			const source = `let plain = 1;\nexport function Plain() {\n\t${statements}\n}\n`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain(expected);
+		});
+	});
+
 	describe(`[${name}] destructured parameter mappings`, () => {
 		it('maps pattern keys, aliases, shorthand bindings, and body references identity-style', () => {
 			const source = `function Hello({ a: value, b }) @{
@@ -2592,14 +2650,15 @@ export function* View() @{
 		});
 
 		it.each([
-			['an authored ;', 'x = <div></div>;'],
-			['an authored ; after a self-closing tag', 'x = <br />;'],
-			['a ; the printer adds', 'x = <span>x</span>'],
-			['a call', 'foo();'],
-		])('maps the ; that ends a statement with %s', (_kind, statement) => {
+			['an authored ;', 'x = <div></div>;', ''],
+			['an authored ; after a self-closing tag', 'x = <br />;', ''],
+			// The next statement is written in parentheses, which could continue it.
+			['a ; the printer adds', 'x = <span>x</span>', "\n\t'next';"],
+			['a call', 'foo();', ''],
+		])('maps the ; that ends a statement with %s', (_kind, statement, after) => {
 			// TypeScript reports unreachable code (TS7027) on the whole statement, up
 			// to its `;`.
-			const source = `let x: unknown;\ndeclare function foo(): void;\nexport function f() {\n\treturn;\n\t${statement}\n}`;
+			const source = `let x: unknown;\ndeclare function foo(): void;\nexport function f() {\n\treturn;\n\t${statement}${after}\n}`;
 			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
 			expect(result.errors).toEqual([]);
 			const start = source.indexOf(statement);

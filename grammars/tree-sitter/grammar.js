@@ -145,6 +145,7 @@ module.exports = grammar({
 		[$.jsx_try_expression],
 		[$.jsx_element_name, $.jsx_non_namespaced_element_name, $.type_parameter],
 		[$.expression, $._type_arguments_callee],
+		[$.template_string, $.template_literal_type],
 	],
 
 	rules: {
@@ -1596,7 +1597,9 @@ module.exports = grammar({
 				$.union_type,
 				$.intersection_type,
 				$.function_type,
+				$.constructor_type,
 				$.literal_type,
+				$.template_literal_type,
 				$.parenthesized_type,
 				$.type_query,
 				$.index_type_query,
@@ -1646,7 +1649,24 @@ module.exports = grammar({
 
 		function_type: ($) => seq(optional($.type_parameters), $.formal_parameters, '=>', $.type),
 
-		literal_type: ($) => choice($.number, $.string, $.true, $.false, $.null),
+		constructor_type: ($) =>
+			seq(
+				optional('abstract'),
+				'new',
+				optional($.type_parameters),
+				$.formal_parameters,
+				'=>',
+				$.type,
+			),
+
+		// A negative number is a literal type too: `0 | -1`.
+		literal_type: ($) => choice(seq('-', $.number), $.number, $.string, $.true, $.false, $.null),
+
+		// `` `id-${number}` ``: a template whose substitutions are types.
+		template_literal_type: ($) =>
+			seq('`', repeat(choice($._template_chars, $.escape_sequence, $.template_type)), '`'),
+
+		template_type: ($) => seq('${', $.type, '}'),
 
 		parenthesized_type: ($) => seq('(', $.type, ')'),
 

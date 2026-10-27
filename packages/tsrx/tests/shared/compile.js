@@ -634,6 +634,25 @@ export function App() @{
 			expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
 		});
 
+		it('reports `var`s in directive bodies in source order (#1208)', () => {
+			const source = `export function App({ items, c }: any) @{
+				<div title={@if (c) { var first = 1; <b>{first}</b> }}>
+					@for (const item of items) {
+						var second = item;
+						<p>{second}</p>
+					}
+				</div>
+			}`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+			expect(result.errors.map((error) => [error.code, error.pos])).toEqual(
+				['var first', 'var second'].map((text) => [
+					TSRX_ERRORS.DIRECTIVE_BODY_VAR.code,
+					source.indexOf(text),
+				]),
+			);
+		});
+
 		it('preserves deferred imports in type-only output', () => {
 			const result = compile_to_volar_mappings(
 				`import defer * as feature from './feature.js';

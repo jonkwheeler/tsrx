@@ -4358,22 +4358,40 @@ export function validate_for_of_head(left, transform_context) {
  * something in a function of its own, so a `var` there, or in a plain block or
  * loop inside it, would not reach the enclosing function. A function or class
  * in the body scopes its own `var`s. This walks the authored module before any
- * target lowers a directive, so each `var` is reported once.
+ * target lowers a directive, so each `var` is reported once, in source order.
  *
- * @param {AST.Node} node
+ * @param {AST.Program} program
  * @param {TransformContext} transform_context
- * @param {boolean} [in_body] Whether `node` is inside a directive body.
  * @returns {void}
  */
-function validate_directive_body_vars(node, transform_context, in_body = false) {
-	if (in_body && node.type === 'VariableDeclaration' && node.kind === 'var' && !node.declare) {
+function validate_directive_body_vars(program, transform_context) {
+	/** @type {AST.VariableDeclaration[]} */
+	const declarations = [];
+	collect_directive_body_vars(program, false, declarations);
+	declarations.sort(
+		(a, b) =>
+			/** @type {AST.NodeWithLocation} */ (a).start - /** @type {AST.NodeWithLocation} */ (b).start,
+	);
+	for (const declaration of declarations) {
 		error(
 			TSRX_ERRORS.DIRECTIVE_BODY_VAR,
 			transform_context.filename,
-			get_statement_keyword_node(node, 'var'),
+			get_statement_keyword_node(declaration, 'var'),
 			transform_context.errors,
 			transform_context.comments,
 		);
+	}
+}
+
+/**
+ * @param {AST.Node} node
+ * @param {boolean} in_body Whether `node` is inside a directive body.
+ * @param {AST.VariableDeclaration[]} declarations
+ * @returns {void}
+ */
+function collect_directive_body_vars(node, in_body, declarations) {
+	if (in_body && node.type === 'VariableDeclaration' && node.kind === 'var' && !node.declare) {
+		declarations.push(node);
 	}
 
 	// A `@{ … }` block runs in a function of its own wherever it is.
@@ -4384,7 +4402,7 @@ function validate_directive_body_vars(node, transform_context, in_body = false) 
 		// `validate_for_of_head` reports a `var` in an `@for` head.
 		const in_for_head =
 			node.type === 'JSXForExpression' && child !== node.body && child !== node.empty;
-		validate_directive_body_vars(child, transform_context, children_in_body && !in_for_head);
+		collect_directive_body_vars(child, children_in_body && !in_for_head, declarations);
 	}
 }
 

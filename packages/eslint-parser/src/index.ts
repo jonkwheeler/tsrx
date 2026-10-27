@@ -123,6 +123,14 @@ const LOOP_FIELDS: Record<string, string[]> = {
 	ForOfStatement: ['await', 'left', 'right', 'body'],
 };
 
+const SIGNATURE_TYPES = new Set([
+	'TSFunctionType',
+	'TSConstructorType',
+	'TSCallSignatureDeclaration',
+	'TSConstructSignatureDeclaration',
+	'TSMethodSignature',
+]);
+
 /**
  * Keep this hook for small ESLint-only AST normalizations. Returns the `JSXText`
  * nodes, which each get a token of their own.
@@ -175,6 +183,13 @@ function normalize_tsrx_ast_for_eslint(ast: any, code: string): Span[] {
 				delete node[key];
 			}
 			node.loop = loop;
+		}
+
+		// typescript-eslint names the parameters of a function type or signature
+		// `params`, and rules such as `max-params` read that name. It is not
+		// enumerable, so traversal still visits each parameter once.
+		if (SIGNATURE_TYPES.has(node.type) && node.parameters) {
+			Object.defineProperty(node, 'params', { value: node.parameters, configurable: true });
 		}
 
 		// Like espree, a template element spans its delimiters: `` `a${ ``, `` }b` ``.

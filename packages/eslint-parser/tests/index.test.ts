@@ -302,4 +302,24 @@ export function A({ items }) @{
 			});
 		}
 	});
+
+	it('gives TypeScript function types the params ESLint reads', () => {
+		const code = `type Fn = (a: number, b: string, c: boolean) => void;
+type Ctor = new (a, b, c) => object;
+interface Api {
+	(a, b, c): void;
+	new (a, b, c): Api;
+	method(a, b, c): void;
+}
+export function Button(props: { onPress?: () => void }) @{
+	<button onClick={props.onPress}>{'ok'}</button>
+}`;
+		expect(lint(code, { rules: { 'max-params': ['error', 2] } })).toEqual([
+			'1: max-params: Function has too many parameters (3). Maximum allowed is 2.',
+		]);
+		const [fn, ctor, api] = (parseForESLint(code, { filePath: 'App.tsrx' }).ast as any).body;
+		for (const node of [fn.typeAnnotation, ctor.typeAnnotation, ...api.body.body]) {
+			expect(node.params.map((param: any) => param.name)).toEqual(['a', 'b', 'c']);
+		}
+	});
 });

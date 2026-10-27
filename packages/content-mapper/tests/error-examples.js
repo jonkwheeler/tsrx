@@ -322,6 +322,23 @@ export function Card({ s = cfg.size }: { s?: number }) @{
 		compiler: '@tsrx/vue',
 	},
 	{
+		error: TSRX_ERRORS.TARGET_PROP_KEY_COMPUTED,
+		source: `const k = 's';
+export function Card({ [k]: v }: { s?: number }) @{
+	<div>{v}</div>
+}
+`,
+		compiler: '@tsrx/vue',
+	},
+	{
+		error: TSRX_ERRORS.TARGET_PROP_KEY_UNSUPPORTED,
+		source: `export function Card({ 'a-b': v, t }: { 'a-b'?: number; t?: number }) @{
+	<div>{v}{t}</div>
+}
+`,
+		compiler: '@tsrx/vue',
+	},
+	{
 		error: TSRX_ERRORS.TARGET_YIELD_UNSUPPORTED,
 		source: `export function* C(props: { items: string[] }) @{
 	<ul>

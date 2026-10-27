@@ -98,6 +98,8 @@ export const DIAGNOSTIC_CODES = {
 	TARGET_COMPONENT_READ_BEFORE_DECLARATION: 'TSRX2028',
 	/** A destructured prop default the target's component compiler drops. */
 	TARGET_PROP_DEFAULT_UNSUPPORTED: 'TSRX2029',
+	/** A destructured prop key the target's component compiler reads as another prop, or leaves out. */
+	TARGET_PROP_KEY_UNSUPPORTED: 'TSRX2031',
 
 	/** `<style apply>` carries no expression value. */
 	STYLE_APPLY_VALUE: 'TSRX3001',
@@ -427,6 +429,25 @@ export const TSRX_ERRORS = {
 		'TARGET_PROP_DEFAULT_UNSUPPORTED',
 		(target, name, example) =>
 			`${target} TSRX cannot keep this default for '${name}': vue-jsx-vapor turns destructured prop defaults into prop options and drops any default that is not a literal, an identifier, an object or array literal, or a function, so '${name}' would be undefined. Read the prop in the body instead${example ? `, for example \`${example}\`` : ''}.`,
+	),
+	/**
+	 * `target` is the target's name, `name` the computed key, and `example`,
+	 * which can be empty, a statement that reads the prop. Only Vue's
+	 * vue-jsx-vapor reads a destructured prop by its key's name.
+	 */
+	TARGET_PROP_KEY_COMPUTED: tsrx_with_values(
+		'TARGET_PROP_KEY_UNSUPPORTED',
+		(target, name, example) =>
+			`${target} TSRX cannot read this computed prop key: vue-jsx-vapor reads \`[${name}]\` as the prop '${name}', whatever '${name}' holds. Declare the component with a props parameter and read the prop in the body instead${example ? `, for example \`${example}\`` : ''}.`,
+	),
+	/**
+	 * `target` is the target's name, `key` the key as written, and `example`,
+	 * which can be empty, a statement that reads the prop.
+	 */
+	TARGET_PROP_KEY_UNSUPPORTED: tsrx_with_values(
+		'TARGET_PROP_KEY_UNSUPPORTED',
+		(target, key, example) =>
+			`${target} TSRX cannot read the prop at \`${key}\`: vue-jsx-vapor reads only the destructured props whose key is a name and leaves this one out, so its bindings would be undefined. Declare the component with a props parameter and read the prop in the body instead${example ? `, for example \`${example}\`` : ''}.`,
 	),
 
 	// TSRX3xxx

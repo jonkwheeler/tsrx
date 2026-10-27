@@ -98,6 +98,19 @@ function Card({ s = cfg.size }: { s?: number }) {
 }
 export { Card };`,
 
+	'computed-key.tsrx': `const k = 's';
+function Card({ [k]: v = 3 }: { s?: number }) {
+	const el = <div>{v}</div>;
+	return el;
+}
+export { Card };`,
+
+	'literal-key.tsrx': `function Card({ ['s']: v = 3 }: { s?: number }) {
+	const el = <div>{v}</div>;
+	return el;
+}
+export const result = [typeof Card, (Card as any).props];`,
+
 	'kept-default.tsrx': `const SIZE = 3;
 function Card({ s = SIZE, t = [1] }: { s?: number; t?: number[] }) {
 	const el = <div>{s}</div>;
@@ -148,6 +161,19 @@ describe('[vue] destructured prop defaults', () => {
 		await expect(load('dropped-default.tsrx')).rejects.toThrow(
 			"Vue TSRX cannot keep this default for 's'",
 		);
+	});
+});
+
+describe('[vue] destructured prop keys', () => {
+	it('reports TSRX2031 for a computed key vue-jsx-vapor reads as another prop', async () => {
+		await expect(load('computed-key.tsrx')).rejects.toThrow(
+			"vue-jsx-vapor reads `[k]` as the prop 'k'",
+		);
+	});
+
+	it('leaves a pattern with no key vue-jsx-vapor reads as a parameter', async () => {
+		// No prop options: vue-jsx-vapor kept the destructuring parameter.
+		expect((await load('literal-key.tsrx')).result).toEqual(['object', undefined]);
 	});
 });
 

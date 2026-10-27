@@ -404,6 +404,87 @@ export function Card({ s = cfg.size }: { s?: number }) @{
 		);
 		expect(errors.map((error) => error.code)).toEqual(['TSRX2029']);
 		expect(errors[0].message).toContain('for example `const s = props.s ?? cfg.size`');
+
+		const renamed = compile_to_volar_mappings(
+			`const cfg = { size: 1 };
+export function Card({ s: size = cfg.size }: { s?: number }) @{
+	<div>{size}</div>
+}`,
+			'App.tsrx',
+		);
+		expect(renamed.errors[0].message).toContain('for example `const size = props.s ?? cfg.size`');
+	});
+
+	it('reports a destructured prop key vue-jsx-vapor reads as another prop or leaves out', () => {
+		for (const [params, key, message, example] of [
+			// vue-jsx-vapor reads a computed name as the prop with that name.
+			[
+				'{ [k]: v = cfg.size }',
+				'k',
+				"reads `[k]` as the prop 'k'",
+				'const v = props[k] ?? cfg.size',
+			],
+			['{ [k]: v = 3 }', 'k', "reads `[k]` as the prop 'k'", 'const v = props[k] ?? 3'],
+			['{ [k]: v }', 'k', "reads `[k]` as the prop 'k'", 'const v = props[k]'],
+			['{ t, [k]: v }', 'k', "reads `[k]` as the prop 'k'", 'const v = props[k]'],
+			['{ [k]: { a: v } }', 'k', "reads `[k]` as the prop 'k'", null],
+			['{ t: { [k]: v } }', 'k', "reads `[k]` as the prop 'k'", 'const v = props.t[k]'],
+			['{ t: [{ [k]: v }] }', 'k', "reads `[k]` as the prop 'k'", 'const v = props.t[0][k]'],
+			// It leaves out any other key once it reads a prop from the pattern.
+			["{ ['s']: v, t }", "'s'", "the prop at `['s']`", "const v = props['s']"],
+			["{ 'a-b': v = 1, t }", "'a-b'", "the prop at `'a-b'`", "const v = props['a-b'] ?? 1"],
+			['{ [1]: v, t }', '1', 'the prop at `[1]`', 'const v = props[1]'],
+			['{ [`s`]: v, ...rest }', '`s`', 'the prop at `[`s`]`', 'const v = props[`s`]'],
+			["{ t: { 's': v } }", "'s'", "the prop at `'s'`", "const v = props.t['s']"],
+		]) {
+			const source = `const cfg = { size: 1 };
+const k = 's';
+export function Card(${params}: any) @{
+	<div>{String(v)}</div>
+}`;
+			/** @type {any} */
+			let thrown = null;
+			try {
+				compile(source, 'App.tsrx');
+			} catch (error) {
+				thrown = error;
+			}
+			expect(thrown, params).toBeInstanceOf(Error);
+			expect(thrown.code, params).toBe('TSRX2031');
+			expect(thrown.message, params).toContain(message);
+			expect(thrown.message, params).toContain('read the prop in the body instead');
+			if (example) expect(thrown.message, params).toContain(`for example \`${example}\``);
+			else expect(thrown.message, params).not.toContain('for example');
+			expect(thrown.loc.start, params).toEqual({
+				line: 3,
+				column: 'export function Card('.length + params.indexOf(key),
+			});
+
+			const { errors } = compile_to_volar_mappings(source, 'App.tsrx');
+			expect(
+				errors.map((error) => error.code),
+				params,
+			).toEqual(['TSRX2031']);
+		}
+	});
+
+	it('accepts destructured prop keys vue-jsx-vapor reads or leaves to the parameter', () => {
+		// With no key vue-jsx-vapor reads, it keeps the destructuring parameter.
+		for (const params of [
+			"{ ['s']: v = cfg.size }",
+			"{ 's': v }",
+			'{ [1]: v }',
+			"{ ['a-b']: v, [`c`]: w = cfg.size }",
+			'{ s: v, t = 1 }',
+			'{ s: [v, w] }',
+			'{ s: { a: v = cfg.size } }',
+		]) {
+			const source = `const cfg = { size: 1 };
+export function Card(${params}: any) @{
+	<div>{String(v)}</div>
+}`;
+			expect(() => compile(source, 'App.tsrx'), params).not.toThrow();
+		}
 	});
 
 	it('rejects the removed `&{ ... }` lazy destructuring syntax', () => {

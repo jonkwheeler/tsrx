@@ -926,6 +926,9 @@ function wrap_native_function_component(fn, source, ctx, path) {
 
 	ctx.needs_define_vapor_component = true;
 	validate_prop_defaults(fn, ctx);
+	if (fn.params[0]?.type === 'ObjectPattern') {
+		validate_prop_keys(fn.params[0], 'props', false, ctx);
+	}
 
 	const call = setLocation(
 		create_define_vapor_component_call(
@@ -980,21 +983,120 @@ function validate_prop_defaults(fn, ctx) {
 			continue;
 		}
 		const name = property.key.name;
-		const fallback = property.value.right;
-		const written =
-			ctx.source && fallback.start != null && fallback.end != null
-				? ctx.source.slice(fallback.start, fallback.end)
-				: null;
-		const example =
-			written && !written.includes('\n') ? `const ${name} = props.${name} ?? ${written}` : null;
 		error(
-			TSRX_ERRORS.TARGET_PROP_DEFAULT_UNSUPPORTED(ctx.platform.name, name, example ?? ''),
+			TSRX_ERRORS.TARGET_PROP_DEFAULT_UNSUPPORTED(
+				ctx.platform.name,
+				name,
+				get_prop_read_example(property.value, `props.${name}`, ctx),
+			),
 			ctx.filename,
-			fallback,
+			property.value.right,
 			ctx.errors,
 			ctx.comments,
 		);
 	}
+}
+
+/**
+ * vue-jsx-vapor reads a destructured prop by its key's name, and ignores
+ * whether the key is computed: it reads `{ [k]: v }` as the prop `k`,
+ * whatever `k` holds. It leaves out a key that is not a name (`{ 'a-b': v }`,
+ * `{ [1]: v }`), so its bindings are undefined, once it reads any prop from
+ * the pattern, and always in a nested pattern. A top-level pattern with no
+ * key it reads stays an ordinary destructuring parameter, which works.
+ * Report each key it misreads (TSRX2031).
+ *
+ * @param {AST.ObjectPattern} pattern
+ * @param {string} object how the body reads the object the pattern destructures
+ * @param {boolean} nested
+ * @param {TransformContext} ctx
+ * @returns {void}
+ */
+function validate_prop_keys(pattern, object, nested, ctx) {
+	const read =
+		nested ||
+		pattern.properties.some((property) =>
+			property.type === 'RestElement'
+				? property.argument.type === 'Identifier'
+				: property.key.type === 'Identifier',
+		);
+	for (const property of pattern.properties) {
+		if (property.type !== 'Property') continue;
+		const key = property.key;
+		if (!property.computed && key.type === 'Identifier') {
+			validate_nested_prop_keys(property.value, `${object}.${key.name}`, ctx);
+			continue;
+		}
+		if (!read) continue;
+		const key_source = get_source_text(key, ctx);
+		const example =
+			key_source === null
+				? ''
+				: get_prop_read_example(property.value, `${object}[${key_source}]`, ctx);
+		error(
+			property.computed && key.type === 'Identifier'
+				? TSRX_ERRORS.TARGET_PROP_KEY_COMPUTED(ctx.platform.name, key.name, example)
+				: TSRX_ERRORS.TARGET_PROP_KEY_UNSUPPORTED(
+						ctx.platform.name,
+						property.computed ? `[${key_source}]` : (key_source ?? ''),
+						example,
+					),
+			ctx.filename,
+			key,
+			ctx.errors,
+			ctx.comments,
+		);
+	}
+}
+
+/**
+ * Check the object patterns vue-jsx-vapor follows inside a prop's pattern.
+ *
+ * @param {AST.Pattern} pattern
+ * @param {string} object
+ * @param {TransformContext} ctx
+ * @returns {void}
+ */
+function validate_nested_prop_keys(pattern, object, ctx) {
+	if (pattern.type === 'AssignmentPattern') {
+		validate_nested_prop_keys(pattern.left, object, ctx);
+	} else if (pattern.type === 'ObjectPattern') {
+		validate_prop_keys(pattern, object, true, ctx);
+	} else if (pattern.type === 'ArrayPattern') {
+		pattern.elements.forEach((element, index) => {
+			if (element) validate_nested_prop_keys(element, `${object}[${index}]`, ctx);
+		});
+	}
+}
+
+/**
+ * A statement that reads a prop at `access` into the name a pattern binds,
+ * with its default, or an empty string when the pattern binds more than a
+ * name or the default spans lines.
+ *
+ * @param {AST.Pattern} value
+ * @param {string} access
+ * @param {TransformContext} ctx
+ * @returns {string}
+ */
+function get_prop_read_example(value, access, ctx) {
+	if (value.type === 'Identifier') return `const ${value.name} = ${access}`;
+	if (value.type !== 'AssignmentPattern' || value.left.type !== 'Identifier') return '';
+	const fallback = get_source_text(value.right, ctx);
+	return fallback === null ? '' : `const ${value.left.name} = ${access} ?? ${fallback}`;
+}
+
+/**
+ * @param {AST.Node} node
+ * @param {TransformContext} ctx
+ * @returns {string | null} the node's source text, when it is on one line
+ */
+function get_source_text(node, ctx) {
+	const text =
+		ctx.source && node.start != null && node.end != null
+			? ctx.source.slice(node.start, node.end)
+			: null;
+	return text && !text.includes('\n') ? text : null;
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { MockInstance } from 'vitest';
 import type { JSX } from '@solidjs/web';
-import { createSignal, lazy } from 'solid-js';
+import { createMemo, createSignal, lazy } from 'solid-js';
 import { runSwitchFallthroughRuntimeTests } from '@tsrx/core/test-harness/runtime/switch-fallthrough';
 import { runTsxExpressionTsrxRuntimeTests } from '@tsrx/core/test-harness/runtime/tsx-expression-tsrx';
 import { runJsxTextWhitespaceRuntimeTests } from '@tsrx/core/test-harness/runtime/jsx-text-whitespace';
@@ -1868,6 +1868,66 @@ function PendingSetupApp() @{
 	</div>
 }
 
+// ── @try and @catch bodies with setup ──
+
+const try_runs = { body: 0, catch: 0 };
+let try_should_throw = false;
+
+function TrySetupApp() @{
+	const [k, setK] = createSignal(0);
+	<div>
+		@try {
+			try_runs.body++;
+			if (try_should_throw) {
+				throw new Error(`boom ${k()}`);
+			}
+			const label = `body ${k()}`;
+			<p class="try-body">
+				{label}
+				<i class="try-live">{k()}</i>
+			</p>
+		} @catch (err, reset) {
+			try_runs.catch++;
+			const label = `caught ${k()}`;
+			<>
+				<p class="try-caught">{label}</p>
+				<p class="try-caught-live">{`${(err() as Error).message} / ${k()}`}</p>
+				<button
+					class="try-reset"
+					onClick={() => {
+						try_should_throw = false;
+						reset();
+					}}
+				>
+					{'reset'}
+				</button>
+			</>
+		}
+		<button class="try-bump" onClick={() => setK(k() + 1)}>
+			{'bump'}
+		</button>
+	</div>
+}
+
+let resolve_try_async: (value: string) => void = () => {};
+
+function TryAsyncSetupApp() @{
+	const value = createMemo(
+		() =>
+			new Promise<string>((resolve) => {
+				resolve_try_async = resolve;
+			}),
+	);
+	<div>
+		@try {
+			const v = value();
+			<p class="try-async">{v}</p>
+		} @pending {
+			<p class="try-async-pending">{'loading'}</p>
+		}
+	</div>
+}
+
 describe('tsrx-solid control-flow bodies', () => {
 	it('renders a whole-body @{ } block and runs its setup once', async () => {
 		block_runs.if = block_runs.elseIf = block_runs.case = 0;
@@ -1915,6 +1975,54 @@ describe('tsrx-solid control-flow bodies', () => {
 		expect(pending_runs).toEqual(['pending']);
 		expect(text('.pending-fallback')).toBe('pending 0');
 		expect(container.querySelector('.pending-fallback')).toBe(node);
+	});
+
+	it('runs the setup of a @try body once', async () => {
+		try_runs.body = try_runs.catch = 0;
+		try_should_throw = false;
+		await render(TrySetupApp);
+		expect(text('.try-body')).toBe('body 00');
+		const node = container.querySelector('.try-body');
+
+		await click('.try-bump');
+		await click('.try-bump');
+		// The setup reads `k()` but runs untracked; the rendered `k()` updates.
+		expect(try_runs).toEqual({ body: 1, catch: 0 });
+		expect(text('.try-body')).toBe('body 02');
+		expect(container.querySelector('.try-body')).toBe(node);
+	});
+
+	it('runs the setup of a @catch body once, and reset() runs the @try body again', async () => {
+		try_runs.body = try_runs.catch = 0;
+		try_should_throw = true;
+		await render(TrySetupApp);
+		expect(try_runs).toEqual({ body: 1, catch: 1 });
+		expect(text('.try-caught')).toBe('caught 0');
+		expect(text('.try-caught-live')).toBe('boom 0 / 0');
+		const node = container.querySelector('.try-caught');
+
+		await click('.try-bump');
+		await click('.try-bump');
+		expect(try_runs).toEqual({ body: 1, catch: 1 });
+		expect(text('.try-caught')).toBe('caught 0');
+		expect(text('.try-caught-live')).toBe('boom 0 / 2');
+		expect(container.querySelector('.try-caught')).toBe(node);
+
+		await click('.try-reset');
+		expect(try_runs).toEqual({ body: 2, catch: 1 });
+		expect(container.querySelector('.try-caught')).toBeNull();
+		expect(text('.try-body')).toBe('body 22');
+	});
+
+	it('shows a @try body whose setup reads an async value once it resolves', async () => {
+		await render(TryAsyncSetupApp);
+		await flush();
+		expect(text('.try-async-pending')).toBe('loading');
+
+		resolve_try_async('ready');
+		await flush();
+		expect(text('.try-async')).toBe('ready');
+		expect(container.querySelector('.try-async-pending')).toBeNull();
 	});
 
 	it('compares a promise discriminant as a value, as a JavaScript switch does', async () => {

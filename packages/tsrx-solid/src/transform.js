@@ -372,11 +372,11 @@ function tsrx_node_to_jsx_expression(node, transform_context, in_jsx_child = fal
  *   - `<Show>` / `<Match>` children: invoked as function children via
  *     {@link to_function_child} which ensures `length > 0` so Solid's
  *     runtime calls them with a condition accessor.
- *   - `<For>` / `<Errored fallback>`: the outer iteration/fallback arrow's
- *     body is merged with the branch arrow's body via
- *     {@link merge_branch_body_into_arrow}.
+ *   - `<For>`: the iteration arrow's body is merged with the branch arrow's
+ *     body via {@link merge_branch_body_into_arrow}.
  *   - Fallback props (`<Show fallback>`, `<Switch fallback>`,
- *     `<For fallback>`, `<Loading fallback>`): run untracked via
+ *     `<For fallback>`, `<Loading fallback>`), the `<Errored fallback>`
+ *     arrow's body, and `@try` children: run untracked via
  *     {@link untrack_if_arrow}.
  *
  * @param {AST.Node[]} body_nodes
@@ -968,10 +968,11 @@ function iife_if_arrow(node) {
 
 /**
  * Run a branch arrow untracked as the `fallback` of `<Show>`, `<Switch>`,
- * `<For>`, or `<Loading>`. Solid reads `fallback` inside the component's memo,
- * so a body called there would make each signal its setup reads a dependency
- * of that memo, and run again whenever one changes; setup in the other branch
- * bodies runs once.
+ * `<For>`, `<Loading>`, or `<Errored>`, or as the children of `<Errored>` or
+ * `<Loading>`. Solid reads these inside the component's memo, so a body called
+ * there would make each signal its setup reads a dependency of that memo, and
+ * run again whenever one changes; setup in `<Show>` and `<Match>` function
+ * children runs once.
  * Returns non-arrow inputs unchanged.
  *
  * @template {AST.Expression} T
@@ -1416,8 +1417,13 @@ function try_statement_to_jsx_child(node, transform_context) {
 	}
 
 	const try_body_nodes = node.block.body || [];
+	// `<Errored>` and `<Loading>` read their children inside a memo and call
+	// only a function child that takes no arguments, so the body runs untracked
+	// there instead of as a `<Show>`-style function child.
 	/** @type {ESTreeJSX.JSXRenderChild} */
-	let result = jsx_child_wrap(iife_if_arrow(body_to_jsx_child(try_body_nodes, transform_context)));
+	let result = jsx_child_wrap(
+		untrack_if_arrow(body_to_jsx_child(try_body_nodes, transform_context), transform_context),
+	);
 
 	if (pending) {
 		transform_context.needs_loading = true;
@@ -1449,10 +1455,9 @@ function try_statement_to_jsx_child(node, transform_context) {
 		const catch_body_nodes = handler.body.body || [];
 		const catch_jsx = body_to_jsx_child(catch_body_nodes, transform_context);
 
-		const fallback_fn = merge_branch_body_into_arrow(
-			b.arrow(catch_params, b.literal(null)),
-			catch_jsx,
-		);
+		// `<Errored>` calls its fallback inside a memo, so the body runs untracked
+		// within it; the error accessor and `reset` stay the arrow's parameters.
+		const fallback_fn = b.arrow(catch_params, untrack_if_arrow(catch_jsx, transform_context));
 
 		result = create_jsx_element(
 			'Errored',

@@ -568,6 +568,28 @@ describe('@tsrx/solid basic', () => {
 			}
 		});
 
+		it('runs the setup of a @try or @catch body untracked', () => {
+			const { code } = compile(
+				`function App() @{
+					@try {
+						const e = 5;
+						<i>{e}</i>
+					} @catch (err, reset) {
+						const f = 6;
+						<i>{f}</i>
+					}
+				}`,
+				'App.tsrx',
+			);
+			expect(code).toContain('untrack as _$_untrack');
+			expect(code).toMatch(
+				/fallback=\{\(err, reset\) => _\$_untrack\(\(\) => \{\s*const f = 6;\s*return <i>\{f\}<\/i>;\s*\}\)\}/,
+			);
+			expect(code).toMatch(
+				/>\{_\$_untrack\(\(\) => \{\s*const e = 5;\s*return <i>\{e\}<\/i>;\s*\}\)\}<\/Errored>/,
+			);
+		});
+
 		it('element children mixing JSX and statements wrap in an IIFE', () => {
 			// Regression: plain statements (VariableDeclaration, ExpressionStatement,
 			// DebuggerStatement) interleaved with JSX children must execute as JS

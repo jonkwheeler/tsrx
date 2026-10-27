@@ -735,6 +735,25 @@ function DestructuredKeyedRow(props: { id: string; label: string }) @{
 	>{`${props.label}:${count.value}`}</button>
 }
 
+function ForNestedArrayDestructuredKeyedApp() @{
+	const rows = ref<[string, [string, string][]][]>([
+		[
+			'p',
+			[
+				['x', 'X'],
+				['y', 'Y'],
+			],
+		],
+	]);
+	<ul>
+		@for (const [k, list] of rows.value; key k) {
+			@for (const [a, b] of list; key a) {
+				<li class="nested-array-destructured">{`${k}-${a}-${b}`}</li>
+			}
+		}
+	</ul>
+}
+
 function ForArrayDestructuredKeyedApp() @{
 	const rows = ref<Iterable<string>[]>([new Set(['a', 'Alpha']), '😀x', ['b']]);
 	<>
@@ -1451,6 +1470,11 @@ describe('tsrx-vue runtime', () => {
 
 		await click('.rename-destructured-keyed-beta');
 		expect(text('.row-b')).toBe('Bravo:1');
+	});
+
+	it('reads the destructured names of each loop in nested keyed loops', async () => {
+		await render(ForNestedArrayDestructuredKeyedApp);
+		expect(texts('.nested-array-destructured')).toEqual(['p-x-X', 'p-y-Y']);
 	});
 
 	it('destructures keyed for-of array patterns the way for...of does (#938)', async () => {

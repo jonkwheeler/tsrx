@@ -699,9 +699,9 @@ describe('@tsrx/vue basic', () => {
 		expect(errors).toEqual([]);
 		expect(code).toContain("<VaporFor in={rows} getKey={([first, second = 'none']) => first}>");
 		expect(code).toMatch(
-			/const _\$_vapor_bindings = _\$_vapor_computed\(\(\) => \{\s*const \[first, second = 'none'\] = __vapor_item\.value;\s*return \{ first, second \};/,
+			/const _\$_vapor_bindings_1 = _\$_vapor_computed\(\(\) => \{\s*const \[first, second = 'none'\] = __vapor_item\.value;\s*return \{ first, second \};/,
 		);
-		expect(code).toContain('{_$_vapor_bindings.value.first}|{_$_vapor_bindings.value.second}');
+		expect(code).toContain('{_$_vapor_bindings_1.value.first}|{_$_vapor_bindings_1.value.second}');
 		expect(code).not.toContain('__vapor_item.value[0]');
 		expect(code).toContain("import { computed as _$_vapor_computed } from 'vue';");
 	});

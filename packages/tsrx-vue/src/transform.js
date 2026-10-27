@@ -26,8 +26,14 @@ import {
 
 /** The local name of Vue's `computed` in a keyed slot that destructures its item. */
 const VUE_COMPUTED_INTERNAL_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'vapor_computed';
-/** The `computed` such a slot destructures its item in. */
+/** The `computed` such a slot destructures its item in, numbered per slot. */
 const VAPOR_BINDINGS_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'vapor_bindings';
+/**
+ * How many slots each compile has given a bindings `computed`, so each slot's
+ * has its own name and a nested slot's can't capture the outer slot's names.
+ * @type {WeakMap<TransformContext, number>}
+ */
+const vapor_bindings_counts = new WeakMap();
 
 /**
  * Minimal Vue platform descriptor consumed by `createJsxTransform`.
@@ -730,7 +736,12 @@ function create_keyed_vapor_for_slot(loop_params, rendered, transform_context) {
 	const item_ref = create_generated_identifier('__vapor_item');
 	if (contains_array_pattern(loop_params[0])) {
 		transform_context.needs_vapor_computed = true;
-		return create_destructured_keyed_vapor_for_slot(loop_params, rendered, item_ref);
+		return create_destructured_keyed_vapor_for_slot(
+			loop_params,
+			rendered,
+			item_ref,
+			transform_context,
+		);
 	}
 
 	const item_ref_value = create_value_member_expression(item_ref);
@@ -763,10 +774,18 @@ function create_keyed_vapor_for_slot(loop_params, rendered, transform_context) {
  * @param {AST.Pattern[]} loop_params
  * @param {AST.Expression} rendered
  * @param {AST.Identifier} item_ref
+ * @param {TransformContext} transform_context
  * @returns {{ params: AST.Pattern[], body: AST.BlockStatement, expression: boolean, rendered: AST.Expression }}
  */
-function create_destructured_keyed_vapor_for_slot(loop_params, rendered, item_ref) {
-	const bindings_ref = create_generated_identifier(VAPOR_BINDINGS_NAME);
+function create_destructured_keyed_vapor_for_slot(
+	loop_params,
+	rendered,
+	item_ref,
+	transform_context,
+) {
+	const count = (vapor_bindings_counts.get(transform_context) ?? 0) + 1;
+	vapor_bindings_counts.set(transform_context, count);
+	const bindings_ref = create_generated_identifier(`${VAPOR_BINDINGS_NAME}_${count}`);
 	/** @type {Set<string>} */
 	const names = new Set();
 	collect_pattern_names(loop_params[0], names);

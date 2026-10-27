@@ -1746,10 +1746,25 @@ export function convert_source_map_to_mappings(
 					visit(node.empty);
 				}
 
-				if (has_location(node)) {
-					mappings.push(
-						get_mapping_from_node(node, src_to_gen_map, gen_line_offsets, mapping_data_verify_only),
-					);
+				// A TSRX loop with an `index` or `@empty` keeps its mapping over the
+				// whole loop, which target printers may rely on. A plain loop maps
+				// only its ends, as a `for (;;)` does.
+				if (
+					/** @type {AST.ForOfStatement} */ (node).index ||
+					(node.type === 'ForOfStatement' && node.empty)
+				) {
+					if (has_location(node)) {
+						mappings.push(
+							get_mapping_from_node(
+								node,
+								src_to_gen_map,
+								gen_line_offsets,
+								mapping_data_verify_only,
+							),
+						);
+					}
+				} else {
+					push_statement_points_mapping(node, 'for');
 				}
 
 				return;

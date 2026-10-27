@@ -322,6 +322,14 @@ export function Card({ s = cfg.size }: { s?: number }) @{
 		compiler: '@tsrx/vue',
 	},
 	{
+		error: TSRX_ERRORS.TARGET_PROP_NESTED_DEFAULT_UNSUPPORTED,
+		source: `export function Card({ s: { a = 3 } }: { s: { a?: number } }) @{
+	<div>{a}</div>
+}
+`,
+		compiler: '@tsrx/vue',
+	},
+	{
 		error: TSRX_ERRORS.TARGET_PROP_KEY_COMPUTED,
 		source: `const k = 's';
 export function Card({ [k]: v }: { s?: number }) @{

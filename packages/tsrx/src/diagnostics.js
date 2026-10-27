@@ -242,6 +242,16 @@ function tsrx_with_values(key, message) {
 }
 
 /**
+ * The advice that ends Vue's destructured-props errors: read the prop where it
+ * is used, so it stays reactive, as `example` does when there is one.
+ * @param {string} example
+ * @returns {string}
+ */
+function read_prop_where_used(example) {
+	return `Take the props as a \`props\` parameter and read the prop where you use it instead${example ? `, for example \`${example}\`` : ''}, or derive it in a \`computed\`.`;
+}
+
+/**
  * The errors only TSRX reports, each with its code from
  * {@link DIAGNOSTIC_CODES}, named by its key.
  * A code can have several messages, one for each form of the mistake.
@@ -422,32 +432,42 @@ export const TSRX_ERRORS = {
 	),
 	/**
 	 * `target` is the target's name, `name` the prop's, and `example`, which can
-	 * be empty, a statement that reads the prop with its default. Only Vue's
+	 * be empty, an expression that reads the prop where it is used. Only Vue's
 	 * vue-jsx-vapor drops defaults.
 	 */
 	TARGET_PROP_DEFAULT_UNSUPPORTED: tsrx_with_values(
 		'TARGET_PROP_DEFAULT_UNSUPPORTED',
 		(target, name, example) =>
-			`${target} TSRX cannot keep this default for '${name}': vue-jsx-vapor turns destructured prop defaults into prop options and drops any default that is not a literal, an identifier, an object or array literal, or a function, so '${name}' would be undefined. Read the prop in the body instead${example ? `, for example \`${example}\`` : ''}.`,
+			`${target} TSRX cannot keep this default for '${name}': vue-jsx-vapor turns destructured prop defaults into prop options and drops any default that is not a literal, an identifier, an object or array literal, or a function, so '${name}' would be undefined. ${read_prop_where_used(example)}`,
+	),
+	/**
+	 * `target` is the target's name, `path` the value's path in the props (such
+	 * as `s.a`), and `example`, which can be empty, an expression that reads the
+	 * value where it is used.
+	 */
+	TARGET_PROP_NESTED_DEFAULT_UNSUPPORTED: tsrx_with_values(
+		'TARGET_PROP_DEFAULT_UNSUPPORTED',
+		(target, path, example) =>
+			`${target} TSRX cannot keep this default for '${path}': vue-jsx-vapor applies a default inside a destructured prop only when the whole prop is missing, so it is lost whenever the prop is passed without this value. ${read_prop_where_used(example)}`,
 	),
 	/**
 	 * `target` is the target's name, `name` the computed key, and `example`,
-	 * which can be empty, a statement that reads the prop. Only Vue's
-	 * vue-jsx-vapor reads a destructured prop by its key's name.
+	 * which can be empty, an expression that reads the prop where it is used.
+	 * Only Vue's vue-jsx-vapor reads a destructured prop by its key's name.
 	 */
 	TARGET_PROP_KEY_COMPUTED: tsrx_with_values(
 		'TARGET_PROP_KEY_UNSUPPORTED',
 		(target, name, example) =>
-			`${target} TSRX cannot read this computed prop key: vue-jsx-vapor reads \`[${name}]\` as the prop '${name}', whatever '${name}' holds. Declare the component with a props parameter and read the prop in the body instead${example ? `, for example \`${example}\`` : ''}.`,
+			`${target} TSRX cannot read this computed prop key: vue-jsx-vapor reads \`[${name}]\` as the prop '${name}', whatever '${name}' holds. ${read_prop_where_used(example)}`,
 	),
 	/**
 	 * `target` is the target's name, `key` the key as written, and `example`,
-	 * which can be empty, a statement that reads the prop.
+	 * which can be empty, an expression that reads the prop where it is used.
 	 */
 	TARGET_PROP_KEY_UNSUPPORTED: tsrx_with_values(
 		'TARGET_PROP_KEY_UNSUPPORTED',
 		(target, key, example) =>
-			`${target} TSRX cannot read the prop at \`${key}\`: vue-jsx-vapor reads only the destructured props whose key is a name and leaves this one out, so its bindings would be undefined. Declare the component with a props parameter and read the prop in the body instead${example ? `, for example \`${example}\`` : ''}.`,
+			`${target} TSRX cannot read the prop at \`${key}\`: vue-jsx-vapor reads a destructured prop only by a key that is a name, so this binding never gets the prop. ${read_prop_where_used(example)}`,
 	),
 
 	// TSRX3xxx

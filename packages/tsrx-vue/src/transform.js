@@ -998,47 +998,40 @@ function validate_prop_defaults(fn, ctx) {
 }
 
 /**
- * vue-jsx-vapor reads a destructured prop by its key's name, and ignores
- * whether the key is computed: it reads `{ [k]: v }` as the prop `k`,
- * whatever `k` holds. It leaves out a key that is not a name (`{ 'a-b': v }`,
- * `{ [1]: v }`), so its bindings are undefined, once it reads any prop from
- * the pattern, and always in a nested pattern. A top-level pattern with no
- * key it reads stays an ordinary destructuring parameter, which works.
- * Report each key it misreads (TSRX2031).
+ * vue-jsx-vapor reads a component's destructured props by name, and reads
+ * only keys that are names: it reads `{ [k]: v }` as the prop `k`, whatever
+ * `k` holds, and leaves out any other key (`{ 'a-b': v }`, `{ [1]: v }`), so
+ * its binding never gets the prop. That holds at every level, and a pattern
+ * with no key it reads also gets no prop options, so Vue passes it no props
+ * at all. Inside a prop, it applies a default only when the whole prop is
+ * missing. Report each such key (TSRX2031) and nested default (TSRX2029).
  *
  * @param {AST.ObjectPattern} pattern
- * @param {string} object how the body reads the object the pattern destructures
- * @param {boolean} nested
+ * @param {string} object how the body reads the value the pattern destructures
+ * @param {boolean} nested whether the pattern is inside a prop
  * @param {TransformContext} ctx
  * @returns {void}
  */
 function validate_prop_keys(pattern, object, nested, ctx) {
-	const read =
-		nested ||
-		pattern.properties.some((property) =>
-			property.type === 'RestElement'
-				? property.argument.type === 'Identifier'
-				: property.key.type === 'Identifier',
-		);
 	for (const property of pattern.properties) {
 		if (property.type !== 'Property') continue;
 		const key = property.key;
 		if (!property.computed && key.type === 'Identifier') {
-			validate_nested_prop_keys(property.value, `${object}.${key.name}`, ctx);
+			validate_prop_value(property.value, `${object}.${key.name}`, nested, ctx);
 			continue;
 		}
-		if (!read) continue;
-		const key_source = get_source_text(key, ctx);
-		const example =
-			key_source === null
-				? ''
-				: get_prop_read_example(property.value, `${object}[${key_source}]`, ctx);
+		const written = get_key_text(key, ctx);
+		const example = get_prop_read_example(
+			property.value,
+			`${object}${get_prop_member_access(key, written, !nested)}`,
+			ctx,
+		);
 		error(
 			property.computed && key.type === 'Identifier'
 				? TSRX_ERRORS.TARGET_PROP_KEY_COMPUTED(ctx.platform.name, key.name, example)
 				: TSRX_ERRORS.TARGET_PROP_KEY_UNSUPPORTED(
 						ctx.platform.name,
-						property.computed ? `[${key_source}]` : (key_source ?? ''),
+						property.computed ? `[${written}]` : written,
 						example,
 					),
 			ctx.filename,
@@ -1050,29 +1043,65 @@ function validate_prop_keys(pattern, object, nested, ctx) {
 }
 
 /**
- * Check the object patterns vue-jsx-vapor follows inside a prop's pattern.
+ * Check the pattern a prop, or a value inside one, is destructured with. A
+ * prop's own default is checked as TSRX2029 by `validate_prop_defaults`.
  *
  * @param {AST.Pattern} pattern
- * @param {string} object
+ * @param {string} object how the body reads the value
+ * @param {boolean} nested whether the value is inside a prop
  * @param {TransformContext} ctx
  * @returns {void}
  */
-function validate_nested_prop_keys(pattern, object, ctx) {
+function validate_prop_value(pattern, object, nested, ctx) {
 	if (pattern.type === 'AssignmentPattern') {
-		validate_nested_prop_keys(pattern.left, object, ctx);
+		if (nested) {
+			error(
+				TSRX_ERRORS.TARGET_PROP_NESTED_DEFAULT_UNSUPPORTED(
+					ctx.platform.name,
+					object.slice('props.'.length),
+					get_prop_read_example(pattern, object, ctx),
+				),
+				ctx.filename,
+				pattern.right,
+				ctx.errors,
+				ctx.comments,
+			);
+		}
+		validate_prop_value(pattern.left, object, nested, ctx);
 	} else if (pattern.type === 'ObjectPattern') {
 		validate_prop_keys(pattern, object, true, ctx);
 	} else if (pattern.type === 'ArrayPattern') {
 		pattern.elements.forEach((element, index) => {
-			if (element) validate_nested_prop_keys(element, `${object}[${index}]`, ctx);
+			if (element) validate_prop_value(element, `${object}[${index}]`, true, ctx);
 		});
 	}
 }
 
 /**
- * A statement that reads a prop at `access` into the name a pattern binds,
- * with its default, or an empty string when the pattern binds more than a
- * name or the default spans lines.
+ * How the body reads the member at `key`. Vue camelizes a prop's name, so a
+ * top-level `'a-b'` prop is `props.aB`.
+ *
+ * @param {AST.Expression | AST.PrivateIdentifier} key
+ * @param {string} written the key as written
+ * @param {boolean} top whether the key names a prop
+ * @returns {string}
+ */
+function get_prop_member_access(key, written, top) {
+	const name =
+		key.type === 'Literal' && typeof key.value === 'string'
+			? key.value
+			: key.type === 'TemplateLiteral' && key.expressions.length === 0
+				? key.quasis[0].value.cooked
+				: null;
+	if (name == null) return `[${written}]`;
+	const member = top ? name.replace(/-(\w)/g, (_, letter) => letter.toUpperCase()) : name;
+	return /^[A-Za-z_$][\w$]*$/.test(member) ? `.${member}` : `[${JSON.stringify(member)}]`;
+}
+
+/**
+ * An expression that reads the value at `access` where it is used, with the
+ * pattern's default, or an empty string when the pattern binds more than a
+ * name or its default spans lines.
  *
  * @param {AST.Pattern} value
  * @param {string} access
@@ -1080,10 +1109,26 @@ function validate_nested_prop_keys(pattern, object, ctx) {
  * @returns {string}
  */
 function get_prop_read_example(value, access, ctx) {
-	if (value.type === 'Identifier') return `const ${value.name} = ${access}`;
+	if (value.type === 'Identifier') return `{${access}}`;
 	if (value.type !== 'AssignmentPattern' || value.left.type !== 'Identifier') return '';
 	const fallback = get_source_text(value.right, ctx);
-	return fallback === null ? '' : `const ${value.left.name} = ${access} ?? ${fallback}`;
+	// A default replaces only `undefined`, so `??`, which also replaces `null`,
+	// would not read the same.
+	return fallback === null ? '' : `{${access} === undefined ? ${fallback} : ${access}}`;
+}
+
+/**
+ * A key's source text, on one line.
+ *
+ * @param {AST.Node} key
+ * @param {TransformContext} ctx
+ * @returns {string}
+ */
+function get_key_text(key, ctx) {
+	if (ctx.source && key.start != null && key.end != null) {
+		return ctx.source.slice(key.start, key.end).replace(/\s*\n\s*/g, ' ');
+	}
+	return key.type === 'Identifier' ? key.name : key.type === 'Literal' ? String(key.value) : '…';
 }
 
 /**

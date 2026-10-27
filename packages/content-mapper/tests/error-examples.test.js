@@ -1,6 +1,7 @@
 /** @import { CompileError } from '@tsrx/core/types' */
 /** @import { ErrorEntry, ErrorExample } from './error-examples.js' */
 
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
 	DIAGNOSTIC_SOURCE,
@@ -9,7 +10,6 @@ import {
 	TYPESCRIPT_CODE_PREFIX,
 	UPSTREAM_ERRORS,
 } from '@tsrx/core/diagnostics';
-import path from 'node:path';
 import * as react from '@tsrx/react';
 import * as solid from '@tsrx/solid';
 import * as vue from '@tsrx/vue';
@@ -34,8 +34,8 @@ const COMPILERS = /** @type {Record<string, any>} */ ({
 	'@tsrx/vue': vue,
 });
 
-/** The workspace directory of each compiler but React's, with its own tsconfig. */
-const DIRECTORIES = /** @type {Record<string, string>} */ ({
+/** The workspace directory of each compiler's examples, under its own tsconfig.json. */
+const COMPILER_DIRECTORIES = /** @type {Record<string, string>} */ ({
 	'@tsrx/solid': 'solid/',
 	'@tsrx/vue': 'vue/',
 });
@@ -47,7 +47,7 @@ function name_of(entry) {
 
 const CASES = ERROR_EXAMPLES.map((example) => {
 	const name = name_of(example.error);
-	const directory = DIRECTORIES[example.compiler ?? ''] ?? '';
+	const directory = COMPILER_DIRECTORIES[example.compiler ?? ''] ?? '';
 	return { name, example, file: `${directory}${name}.tsrx` };
 });
 
@@ -148,7 +148,7 @@ describe('error examples through TypeScript 7', () => {
 					'solid-js',
 					'@tsrx/vue',
 					'vue',
-					// Borrowed from the Vite Vue plugin's install, as `targets.test.js` does.
+					// Borrowed from the Vite Vue plugin's install, as in targets.test.js.
 					['vue-jsx-vapor', path.join(repo_root, 'packages', 'vite-plugin-vue')],
 				],
 			},

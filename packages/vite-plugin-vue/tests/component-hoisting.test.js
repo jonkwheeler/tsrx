@@ -109,7 +109,13 @@ export { Card };`,
 	const el = <div>{v}</div>;
 	return el;
 }
-export const result = [typeof Card, (Card as any).props];`,
+export { Card };`,
+
+	'nested-default.tsrx': `function Card({ s: { a = 3 } }: { s: { a?: number } }) {
+	const el = <div>{a}</div>;
+	return el;
+}
+export { Card };`,
 
 	'kept-default.tsrx': `const SIZE = 3;
 function Card({ s = SIZE, t = [1] }: { s?: number; t?: number[] }) {
@@ -171,9 +177,16 @@ describe('[vue] destructured prop keys', () => {
 		);
 	});
 
-	it('leaves a pattern with no key vue-jsx-vapor reads as a parameter', async () => {
-		// No prop options: vue-jsx-vapor kept the destructuring parameter.
-		expect((await load('literal-key.tsrx')).result).toEqual(['object', undefined]);
+	it('reports TSRX2031 for a key that is not a name, which vue-jsx-vapor leaves out', async () => {
+		// Alone, it would leave the component without prop options, so Vue would
+		// pass it no props at all.
+		await expect(load('literal-key.tsrx')).rejects.toThrow("cannot read the prop at `['s']`");
+	});
+
+	it('reports TSRX2029 for a default inside a prop, applied only when the prop is missing', async () => {
+		await expect(load('nested-default.tsrx')).rejects.toThrow(
+			"Vue TSRX cannot keep this default for 's.a'",
+		);
 	});
 });
 

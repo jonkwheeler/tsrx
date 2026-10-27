@@ -15,10 +15,15 @@ const TURBOPACK_CLIENT_BOUNDARY_LOADER = path.join(__dirname, 'client-boundary-l
 const DEFAULT_RESOLVE_EXTENSIONS = ['.tsrx', '.tsx', '.ts', '.jsx', '.js', '.mjs', '.json'];
 const CSS_QUERY = '?tsrx-css&lang.css';
 const CLIENT_QUERY = '?tsrx-client&lang.tsx';
+// Whitespace and comments between the tokens of a directive prologue.
+const PROLOGUE_GAP = String.raw`(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*`;
+// A directive string, which may contain escapes.
+const DIRECTIVE_STRING = String.raw`(?:'(?:[^'\\\n]|\\[\s\S])*'|"(?:[^"\\\n]|\\[\s\S])*")`;
 // A `'use client'` directive in the directive prologue, after any comments
 // and other directives. The client boundary loader checks the parsed module.
-const CLIENT_DIRECTIVE =
-	/^(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/|(?:'[^'\n]*'|"[^"\n]*");?)*(?:'use client'|"use client")/;
+const CLIENT_DIRECTIVE = new RegExp(
+	`^${PROLOGUE_GAP}(?:${DIRECTIVE_STRING}${PROLOGUE_GAP}(?:;${PROLOGUE_GAP})?)*(?:'use client'|"use client")`,
+);
 const PLATFORM_SOURCE_GLOBS = [
 	'*.js',
 	'*.jsx',

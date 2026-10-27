@@ -363,6 +363,16 @@ describe('@tsrx/turbopack-plugin-react config helper', () => {
 		expect(content.test(`export function App() @{ <div /> }`)).toBe(false);
 		expect(content.test(`import 'x';\n'use client';`)).toBe(false);
 		expect(content.test(`'use server';`)).toBe(false);
+		// A line comment runs to the end of its line.
+		expect(
+			content.test(`// 'use client' is not needed here\nexport function App() @{ <div /> }`),
+		).toBe(false);
+		// Comments may sit between a directive and its semicolon, and directive
+		// strings may contain escapes.
+		expect(content.test(`'use strict' /* c */;\n'use client';`)).toBe(true);
+		expect(content.test(`'use strict' // c\n;\n'use client';`)).toBe(true);
+		expect(content.test(`'it\\'s';\n'use client';`)).toBe(true);
+		expect(content.test(`"say \\"hi\\"";\n"use client";`)).toBe(true);
 	});
 
 	it('merges turbopack config without dropping existing settings', () => {

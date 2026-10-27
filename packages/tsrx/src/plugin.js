@@ -372,6 +372,17 @@ function get_error_message(message) {
 }
 
 /**
+ * Mark `node`, a `@{ … }` body's output, as one that a later output or
+ * statement displaced, whose mistake TSRX2011 or TSRX2012 reports. The
+ * analysis doesn't report it again as unused output (TSRX2010, #981).
+ * @param {AST.Node} node
+ */
+function mark_misplaced_output(node) {
+	node.metadata ??= { path: [] };
+	node.metadata.misplaced_output = true;
+}
+
+/**
  * Whether an arrow function's parameter, read as an expression before `=>`,
  * becomes a binding pattern, with or without a type annotation and a default.
  * @param {AST.Node} node
@@ -2704,7 +2715,8 @@ export function TSRXPlugin(config) {
 			 * @param {AST.Node[]} flat
 			 */
 			#parseCodeBlockBody(flat) {
-				let render_seen = false;
+				/** @type {AST.Node | null} */
+				let last_render = null;
 				while (this.type !== tt.braceR && this.type !== tt.eof) {
 					// A bare `;` is an empty statement carrying no meaning. JSX render
 					// output does not consume a trailing `;`, so one written after the
@@ -2717,45 +2729,31 @@ export function TSRXPlugin(config) {
 					}
 					if (this.#atRenderNodeStart()) {
 						const render_node = this.#parseCodeBlockRenderNode();
-						if (render_seen) {
+						if (last_render) {
 							this.#report_recoverable_error_range(
 								/** @type {number} */ (render_node.start),
 								/** @type {number} */ (render_node.end),
 								TSRX_ERRORS.CODE_BLOCK_SINGLE_OUTPUT,
 							);
-							this.#markMisplacedOutputs(flat);
+							mark_misplaced_output(last_render);
 						}
 						flat.push(render_node);
-						render_seen = true;
+						last_render = render_node;
 						continue;
 					}
 					const statement = this.#parseCodeBlockSetupStatement();
 					if (statement) {
-						if (render_seen) {
+						if (last_render) {
 							// A statement after the rendered output: code must come first.
 							this.#report_recoverable_error_range(
 								/** @type {number} */ (statement.start),
 								/** @type {number} */ (statement.end),
 								TSRX_ERRORS.CODE_BLOCK_STATEMENT_AFTER_OUTPUT,
 							);
-							this.#markMisplacedOutputs(flat);
+							mark_misplaced_output(last_render);
 						}
 						flat.push(statement);
 					}
-				}
-			}
-
-			/**
-			 * Mark the render nodes in `flat`, the body read so far, that a later
-			 * output or statement has made output the block doesn't keep, whose
-			 * mistake TSRX2011 or TSRX2012 reports. The analysis doesn't report them
-			 * again as unused output (TSRX2010, #981).
-			 * @param {AST.Node[]} flat
-			 */
-			#markMisplacedOutputs(flat) {
-				for (const node of flat) {
-					if (!is_tsrx_render_output_node(node)) continue;
-					node.metadata = { ...node.metadata, misplaced_output: true };
 				}
 			}
 

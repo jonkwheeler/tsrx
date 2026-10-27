@@ -133,6 +133,54 @@ describe('@tsrx/vite-plugin-hono', () => {
 		}
 	});
 
+	it('leaves out an unset class beside scoped styles with Hono SSR', async () => {
+		const plugin = tsrxHono();
+		const context = create_context();
+		const directory = await mkdtemp(
+			path.join(path.dirname(fileURLToPath(import.meta.url)), '.tmp-hono-'),
+		);
+
+		try {
+			const source_id = path.join(directory, 'App.tsrx');
+			const output_id = path.join(directory, 'App.js');
+			const transformed = await plugin.transform.call(
+				context,
+				`export function App({ value }) @{
+					<>
+						<style>
+							span {
+								color: red;
+							}
+						</style>
+						<span class={value} />
+					</>
+				}`,
+				source_id,
+			);
+			await writeFile(output_id, transformed.code.replace(/^import ".*\?tsrx-css.*";$/m, ''));
+
+			const [{ App }, { jsx }] = await Promise.all([
+				import(`${pathToFileURL(output_id).href}?test=${Date.now()}`),
+				import('hono/jsx'),
+			]);
+
+			for (const [value, rendered] of [
+				[undefined, 'tsrx-H'],
+				[null, 'tsrx-H'],
+				[false, 'tsrx-H'],
+				['x', 'x tsrx-H'],
+			]) {
+				const html = String(await jsx(App, { value }).toString()).replace(
+					/tsrx-[0-9a-f]+/g,
+					'tsrx-H',
+				);
+				expect(html).toBe(`<span class="${rendered}"></span>`);
+			}
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
 	it('renders awaits inside @for, @empty, @switch, and @if bodies with Hono SSR (#145)', async () => {
 		const plugin = tsrxHono();
 		const context = create_context();

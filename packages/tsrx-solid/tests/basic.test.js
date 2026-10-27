@@ -904,6 +904,31 @@ describe('@tsrx/solid basic', () => {
 		expect(code).toContain(`<span {...__normalize_spread_props(props)} class="last ${cssHash}" />`);
 	});
 
+	it('joins a dynamic class with the scope classes as a list', () => {
+		const { code, cssHash } = compile(
+			`export function App(props) @{
+				<>
+					<span class={{ active: props.active }} />
+					<span class={props.c} />
+					<span className={props.c} />
+
+					<style>
+						span {
+							color: red;
+						}
+					</style>
+				</>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain(`<span class={[{ active: props.active }, "${cssHash}"]} />`);
+		expect(code).toContain(`<span class={[props.c, "${cssHash}"]} />`);
+		// An authored `className`, which Solid doesn't read, keeps the text join.
+		expect(code).toContain(`<span className={\`\${props.c} ${cssHash}\`} />`);
+		expect(code).not.toContain('join_scope_class');
+	});
+
 	it('applies scoped css hashes and keeps type selectors for dynamic tags', () => {
 		const { code, css, cssHash } = compile(
 			`export function App() @{

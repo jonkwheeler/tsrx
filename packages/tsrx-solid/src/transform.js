@@ -97,6 +97,7 @@ const solid_platform = {
 		// a list.
 		hostSpreadClassProps: ['class'],
 		hostSpreadClassList: true,
+		classAttrList: true,
 		// Solid's runtime accepts an array of refs natively, so multiple
 		// `ref` attributes collapse to `ref={[a, b, ...]}` rather than
 		// going through a `mergeRefs` helper.

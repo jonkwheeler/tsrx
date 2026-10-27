@@ -2227,6 +2227,7 @@ export function runSharedCompileTests({
 	name,
 	classAttrName,
 	generatedClassAttrName = classAttrName,
+	classJoin = name === 'solid' || name === 'vue' ? 'list' : 'call',
 }) {
 	const componentClassAttrName = name === 'react' ? 'className' : 'class';
 	const componentClassParam =
@@ -2237,8 +2238,14 @@ export function runSharedCompileTests({
 	runSharedPlatformTests({ compile, name });
 
 	runSharedComponentLoopControlFlowTests({ compile, name });
-	runSharedScopedStyleTests({ compile, name, classAttrName, generatedClassAttrName });
-	runSharedScopedStyleConformanceTests({ compile, name, classAttrName, generatedClassAttrName });
+	runSharedScopedStyleTests({ compile, name, classAttrName, generatedClassAttrName, classJoin });
+	runSharedScopedStyleConformanceTests({
+		compile,
+		name,
+		classAttrName,
+		generatedClassAttrName,
+		classJoin,
+	});
 
 	describe(`[${name}] import phases`, () => {
 		it('preserves deferred imports in compiled output', () => {

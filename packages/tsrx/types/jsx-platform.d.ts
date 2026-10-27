@@ -36,6 +36,7 @@ export interface JsxTransformContext {
 	needs_suspense: boolean;
 	needs_merge_refs: boolean;
 	needs_merge_spread_class: boolean;
+	needs_join_scope_class: boolean;
 	needs_normalize_spread_props: boolean;
 	needs_normalize_spread_props_for_ref_attr: boolean;
 	needs_fragment: boolean;
@@ -441,6 +442,11 @@ export interface JsxPlatform {
 		 * A spread's class joins the scope classes as text, as in the class
 		 * attribute, except a thenable class (Hono's server `css`), which applies
 		 * unchanged. `hostSpreadClassList` joins a non-string class as a list.
+		 *
+		 * Unless `classAttrList` is set, a class attribute whose value may not
+		 * be a string also joins the scope classes through `join_scope_class`
+		 * from `imports.refProp`, which leaves out a `null`, `undefined` or
+		 * `false` class and joins any other value as text.
 		 */
 		hostSpreadClassProps?: ReadonlyArray<'class' | 'className'>;
 		/**
@@ -449,6 +455,13 @@ export interface JsxPlatform {
 		 * as `[class, scope]`.
 		 */
 		hostSpreadClassList?: boolean;
+		/**
+		 * The runtime's `class` attribute also takes an object or a list, as
+		 * Solid's and Vue's do, so a `class` attribute whose value may not be a
+		 * string joins the scope classes as `[class, scope]`, which keeps an
+		 * object or list class working.
+		 */
+		classAttrList?: boolean;
 		/**
 		 * How to collapse multiple `ref` attributes on the same element into
 		 * one. React's and Preact's runtimes treat duplicate `ref` props as

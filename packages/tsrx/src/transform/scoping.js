@@ -7,7 +7,7 @@
 
 /** @import * as AST from 'estree' */
 /** @import * as ESTreeJSX from 'estree-jsx' */
-/** @import { ScopeClassParts, SpreadClassOptions, StyleRenderMode, Visitors } from '../../types/index' */
+/** @import { ScopeClassJoin, ScopeClassParts, SpreadClassOptions, StyleRenderMode, Visitors } from '../../types/index' */
 
 import { walk } from 'zimmerframe';
 import * as b from '../utils/builders.js';
@@ -195,16 +195,64 @@ function class_attribute_base(attr) {
 }
 
 /**
+ * Internal name of the `join_scope_class` runtime helper.
+ */
+export const JOIN_SCOPE_CLASS_INTERNAL_NAME = '__join_scope_class';
+
+/**
+ * Whether a class expression always evaluates to a string, so it can join the
+ * scope classes as text. A `$class` read is a style block's class string.
+ *
+ * @param {AST.Expression} node
+ * @returns {boolean}
+ */
+function is_string_class(node) {
+	switch (node.type) {
+		case 'Literal':
+			return typeof node.value === 'string';
+		case 'TemplateLiteral':
+			return true;
+		case 'ConditionalExpression':
+			return is_string_class(node.consequent) && is_string_class(node.alternate);
+		case 'BinaryExpression':
+			return (
+				node.operator === '+' &&
+				((node.left.type !== 'PrivateIdentifier' && is_string_class(node.left)) ||
+					is_string_class(node.right))
+			);
+		case 'MemberExpression':
+			return (
+				!node.computed && node.property.type === 'Identifier' && node.property.name === '$class'
+			);
+		default:
+			return false;
+	}
+}
+
+/**
  * Build one attribute value from the accumulated parts — `authored hashes…
  * applied…` — as a single string literal when everything is static,
  * otherwise as one template literal (never a template literal nested in
  * another across repeated stamping).
  *
+ * An authored class that may not be a string joins the scope classes as
+ * `join` says: `'call'` through `join_scope_class`, which leaves out a
+ * `null`, `undefined` or `false` class; `'list'` as `[class, scope]`, for a
+ * `class` that also takes an object or a list; `'text'` in the template
+ * literal.
+ *
  * @param {ScopeClassParts} parts
+ * @param {ScopeClassJoin} [join='text']
  * @returns {AST.Expression}
  */
-function build_scope_class_value(parts) {
+function build_scope_class_value(parts, join = 'text') {
 	const { base, hashes, applied } = parts;
+	if (base && join !== 'text' && !is_string_class(base)) {
+		const scope_class = build_scope_class_value({ ...parts, base: null });
+		return join === 'list'
+			? b.array([base, scope_class])
+			: b.call(JOIN_SCOPE_CLASS_INTERNAL_NAME, base, scope_class);
+	}
 	const base_literal = base?.type === 'Literal' && typeof base.value === 'string' ? base : null;
 	/** @type {Array<string | AST.Expression>} */
 	const sequence = [];
@@ -258,6 +306,9 @@ function build_scope_class_value(parts) {
  * @param {Array<string | AST.Expression>} applied theme classes: literals or `theme.$class` reads
  * @param {'class' | 'className'} [class_attr_name='class']
  * @param {SpreadClassOptions | null} [spread_class]
+ * @param {ScopeClassJoin} [class_join='text'] how an authored class that may not
+ *   be a string joins the scope classes; `'list'` applies to a `class`
+ *   attribute only
  * @returns {T}
  */
 export function add_scope_classes(
@@ -266,6 +317,7 @@ export function add_scope_classes(
 	applied,
 	class_attr_name = 'class',
 	spread_class = null,
+	class_join = 'text',
 ) {
 	if (hashes.length === 0 && applied.length === 0) return element;
 	const attrs = element.openingElement.attributes ?? [];
@@ -286,7 +338,13 @@ export function add_scope_classes(
 		if (typeof part !== 'string' || !parts.applied.includes(part)) parts.applied.push(part);
 	}
 
-	const value = build_scope_class_value(parts);
+	const name = existing
+		? /** @type {ESTreeJSX.JSXIdentifier} */ (existing.name).name
+		: class_attr_name;
+	const value = build_scope_class_value(
+		parts,
+		class_join === 'list' && name !== 'class' ? 'text' : class_join,
+	);
 	const attr_value =
 		value.type === 'Literal' && typeof value.value === 'string'
 			? value
@@ -302,13 +360,7 @@ export function add_scope_classes(
 		next_attrs.splice(class_index, 0, b.jsx_attribute(b.jsx_id(class_attr_name), attr_value));
 	}
 	if (spread_class) {
-		merge_spread_classes(
-			next_attrs,
-			class_index,
-			parts,
-			existing ? /** @type {ESTreeJSX.JSXIdentifier} */ (existing.name).name : class_attr_name,
-			spread_class,
-		);
+		merge_spread_classes(next_attrs, class_index, parts, name, spread_class);
 	}
 	return {
 		...element,
@@ -362,6 +414,23 @@ function merge_spread_classes(attrs, class_index, parts, class_attr_name, spread
 			),
 		};
 	}
+}
+
+/**
+ * Whether stamping joined the element's class through `join_scope_class`.
+ *
+ * @param {AST.TSRXJSXElement} element
+ * @returns {boolean}
+ */
+export function has_scope_class_join(element) {
+	return (element.openingElement.attributes ?? []).some(
+		(attr) =>
+			is_class_attribute(attr) &&
+			attr.value?.type === 'JSXExpressionContainer' &&
+			attr.value.expression.type === 'CallExpression' &&
+			attr.value.expression.callee.type === 'Identifier' &&
+			attr.value.expression.callee.name === JOIN_SCOPE_CLASS_INTERNAL_NAME,
+	);
 }
 
 /**

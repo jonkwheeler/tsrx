@@ -53,6 +53,8 @@ const vue_platform = {
 	},
 	jsx: {
 		rewriteClassAttr: false,
+		// `class` also takes an object or a list.
+		classAttrList: true,
 		multiRefStrategy: 'merge-refs',
 		hostSpreadRefStrategy: 'explicit-ref-attr',
 		// vue-jsx-vapor escapes a string child into its HTML template, where a

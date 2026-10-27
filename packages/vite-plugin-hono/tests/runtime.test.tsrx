@@ -236,6 +236,35 @@ function ReactiveSpreadClassApp({ bags }: { bags: SpreadBag[] }) @{
 	</>
 }
 
+// Hono types `class` as a string, but untyped code can pass any of these.
+type ClassValue = string | false | null | undefined;
+
+function NativeClassValue({ value }: { value?: ClassValue }) @{
+	<span data-probe="native" class={value as string | undefined} />
+}
+
+function ScopedClassValue({ value }: { value?: ClassValue }) @{
+	<>
+		<style>
+			span {
+				color: rgb(0, 128, 0);
+			}
+		</style>
+		<span data-probe="scoped" class={value as string | undefined} />
+	</>
+}
+
+function ClassValueApp({ value }: { value?: ClassValue }) @{
+	<>
+		<NativeClassValue value={value} />
+		<ScopedClassValue value={value} />
+	</>
+}
+
+function class_list(probe: string): string[] {
+	return Array.from((container.querySelector(`[data-probe="${probe}"]`) as HTMLElement).classList);
+}
+
 function classes(probe: string): string[] {
 	const element = container.querySelector(`[data-probe="${probe}"]`) as HTMLElement;
 	return element.className.split(' ');
@@ -509,6 +538,20 @@ describe('@tsrx/vite-plugin-hono DOM runtime', () => {
 			expect(classes('class-name-before')).toEqual(['from-spread', SCOPE_HASH]);
 			expect(classes('class-after')).toEqual(['last', SCOPE_HASH]);
 			expect(classes('class-name-after')).toEqual(['last', SCOPE_HASH]);
+		});
+	}
+
+	for (const [label, value] of [
+		['an undefined', undefined],
+		['a null', null],
+		['a false', false],
+		['an empty', ''],
+		['a string', 'a b'],
+	] as const) {
+		it(`renders ${label} class as Hono does, beside the scope hash`, () => {
+			render(<ClassValueApp value={value} />, container);
+
+			expect(class_list('scoped')).toEqual([...class_list('native'), SCOPE_HASH]);
 		});
 	}
 

@@ -805,6 +805,16 @@ export default 2;`,
 }`,
 	},
 	{
+		error: TS_ERRORS.BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK,
+		source: `if (ready) let x = 1;`,
+	},
+	{
+		error: TS_ERRORS.MODIFIER_ON_CONSTRUCTOR,
+		source: `class A {
+	static constructor() {}
+}`,
+	},
+	{
 		error: TS_ERRORS.DECORATORS_NOT_VALID_HERE,
 		source: `class A {
 	@dec static {}

@@ -59,18 +59,18 @@ function class_of(code, name) {
 /**
  * The class attribute value a target gives an authored class that may not be a
  * string, joined with the printed scope classes `scope` (a string or template
- * literal): `'call'` through `join_scope_class`, `'list'` as `[class, scope]`,
- * `'text'` in one template literal.
+ * literal): through `join_scope_class` with the target's class value kind, or
+ * as text in one template literal when the kind is `null`.
  *
- * @param {'call' | 'list' | 'text'} class_join
+ * @param {'text' | 'text-true' | 'text-both' | 'list' | null} class_join
  * @param {string} expression
  * @param {string} scope
  * @returns {string}
  */
 export function joined_class_value(class_join, expression, scope) {
-	if (class_join === 'call') return `{__join_scope_class(${expression}, ${scope})}`;
-	if (class_join === 'list') return `{[${expression}, ${scope}]}`;
-	return `{\`\${${expression}} ${scope.slice(1, -1)}\`}`;
+	if (class_join === null) return `{\`\${${expression}} ${scope.slice(1, -1)}\`}`;
+	const kind = class_join === 'text' ? '' : `, "${class_join}"`;
+	return `{__join_scope_class(${expression}, ${scope}${kind})}`;
 }
 
 /**
@@ -202,7 +202,7 @@ export function runSharedScopedStyleTests({
 	name,
 	classAttrName,
 	generatedClassAttrName = classAttrName,
-	classJoin = 'text',
+	classJoin = null,
 }) {
 	const attr = generatedClassAttrName;
 
@@ -226,11 +226,7 @@ export function runSharedScopedStyleTests({
 			// A class that is always a string joins as text.
 			expect(code).toContain(`<span ${attr}={\`\${\`a \${props.value}\`} ${cssHash}\`} />`);
 			expect(code).toContain(`<span ${attr}={\`\${props.on ? 'on' : 'off'} ${cssHash}\`} />`);
-			if (classJoin === 'call') {
-				expect(code).toContain('join_scope_class as __join_scope_class');
-			} else {
-				expect(code).not.toContain('join_scope_class');
-			}
+			expect(code).toContain('join_scope_class as __join_scope_class');
 		});
 
 		it('rfc1-multiple-blocks: two blocks in one scope share the hash and emit in source order', () => {

@@ -922,11 +922,15 @@ describe('@tsrx/solid basic', () => {
 			'App.tsrx',
 		);
 
-		expect(code).toContain(`<span class={[{ active: props.active }, "${cssHash}"]} />`);
-		expect(code).toContain(`<span class={[props.c, "${cssHash}"]} />`);
+		expect(code).toContain(
+			"import { join_scope_class as __join_scope_class } from '@tsrx/solid/ref';",
+		);
+		expect(code).toContain(
+			`<span class={__join_scope_class({ active: props.active }, "${cssHash}", "list")} />`,
+		);
+		expect(code).toContain(`<span class={__join_scope_class(props.c, "${cssHash}", "list")} />`);
 		// An authored `className`, which Solid doesn't read, keeps the text join.
 		expect(code).toContain(`<span className={\`\${props.c} ${cssHash}\`} />`);
-		expect(code).not.toContain('join_scope_class');
 	});
 
 	it('applies scoped css hashes and keeps type selectors for dynamic tags', () => {

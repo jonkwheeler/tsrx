@@ -99,13 +99,8 @@ export function prepare_style_scopes(program, ctx) {
 					}
 				: null,
 		// The type-only print keeps the template literal, which types as a string.
-		class_join: ctx.typeOnly
-			? 'text'
-			: ctx.platform.jsx.classAttrList
-				? 'list'
-				: ctx.platform.imports.refProp && ctx.platform.jsx.hostSpreadClassProps
-					? 'call'
-					: 'text',
+		class_join:
+			!ctx.typeOnly && ctx.platform.imports.refProp ? (ctx.platform.jsx.classValue ?? null) : null,
 		static_classes: new Map(),
 		ref_sink: [],
 	};
@@ -794,7 +789,7 @@ function stamp_node(node, scope, state) {
 	}
 	if (
 		out !== node &&
-		state.class_join === 'call' &&
+		state.class_join &&
 		has_scope_class_join(/** @type {AST.TSRXJSXElement} */ (out))
 	) {
 		state.ctx.needs_join_scope_class = true;

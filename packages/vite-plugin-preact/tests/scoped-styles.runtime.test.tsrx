@@ -169,6 +169,8 @@ describe('sibling-scoped apply runtime (preact)', function () {
 		['a null', null],
 		['a false', false],
 		['an empty', ''],
+		['a true', true],
+		['a zero', 0],
 		['a string', 'a b'],
 	] as const) {
 		it(`renders ${label} class as the target does, beside the scope hash`, async function () {

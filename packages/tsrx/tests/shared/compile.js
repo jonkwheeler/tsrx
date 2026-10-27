@@ -8,6 +8,20 @@ import { runSharedScopedStyleConformanceTests } from './scoped-styles-conformanc
 /** @import { CompileDiagnosticsHarness, CompileHarness } from '../../types/index' */
 
 /**
+ * Each first-party target's `jsx.classValue`.
+ *
+ * @type {Record<string, 'text' | 'text-true' | 'text-both' | 'list'>}
+ */
+const CLASS_VALUE_KINDS = {
+	react: 'text',
+	preact: 'text-true',
+	// The shared tests compile Hono for its server renderer.
+	hono: 'text-both',
+	solid: 'list',
+	vue: 'list',
+};
+
+/**
  * @param {string} haystack
  * @param {string} needle
  * @returns {number}
@@ -2227,7 +2241,7 @@ export function runSharedCompileTests({
 	name,
 	classAttrName,
 	generatedClassAttrName = classAttrName,
-	classJoin = name === 'solid' || name === 'vue' ? 'list' : 'call',
+	classJoin = CLASS_VALUE_KINDS[name] ?? null,
 }) {
 	const componentClassAttrName = name === 'react' ? 'className' : 'class';
 	const componentClassParam =

@@ -1670,11 +1670,12 @@ export interface ScopeClassParts {
 }
 
 /**
- * How a scope pre-pass joins an authored class that may not be a string with
- * the scope classes: through the `join_scope_class` runtime helper, as a
- * `[class, scope]` list, or as text in a template literal.
+ * How a runtime renders a host element's class value, which picks how the
+ * `join_scope_class` runtime helper joins an authored class that may not be a
+ * string with the scope classes (the platform's `jsx.classValue`). `null`
+ * joins it as text in a template literal.
  */
-export type ScopeClassJoin = 'call' | 'list' | 'text';
+export type ScopeClassJoin = 'text' | 'text-true' | 'text-both' | 'list' | null;
 
 /**
  * How a scope pre-pass keeps the class a host spread passes an element: the
@@ -2432,9 +2433,9 @@ export interface CompileHarness {
 	 */
 	generatedClassAttrName?: 'class' | 'className';
 	/**
-	 * How the platform joins an authored class that may not be a string with
-	 * the scope classes (see `ScopeClassJoin`). `runSharedCompileTests`
-	 * defaults it from the target's name.
+	 * The platform's `jsx.classValue`, which picks how an authored class that
+	 * may not be a string joins the scope classes (see `ScopeClassJoin`).
+	 * `runSharedCompileTests` defaults it from the target's name.
 	 */
 	classJoin?: ScopeClassJoin;
 }

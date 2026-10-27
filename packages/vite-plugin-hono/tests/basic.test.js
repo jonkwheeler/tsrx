@@ -133,7 +133,7 @@ describe('@tsrx/vite-plugin-hono', () => {
 		}
 	});
 
-	it('leaves out an unset class beside scoped styles with Hono SSR', async () => {
+	it('renders a class beside scoped styles as Hono SSR renders it without them', async () => {
 		const plugin = tsrxHono();
 		const context = create_context();
 		const directory = await mkdtemp(
@@ -145,7 +145,11 @@ describe('@tsrx/vite-plugin-hono', () => {
 			const output_id = path.join(directory, 'App.js');
 			const transformed = await plugin.transform.call(
 				context,
-				`export function App({ value }) @{
+				`export function Native({ value }) @{
+					<span class={value} />
+				}
+
+				export function Scoped({ value }) @{
 					<>
 						<style>
 							span {
@@ -159,22 +163,28 @@ describe('@tsrx/vite-plugin-hono', () => {
 			);
 			await writeFile(output_id, transformed.code.replace(/^import ".*\?tsrx-css.*";$/m, ''));
 
-			const [{ App }, { jsx }] = await Promise.all([
+			const [{ Native, Scoped }, { jsx }] = await Promise.all([
 				import(`${pathToFileURL(output_id).href}?test=${Date.now()}`),
 				import('hono/jsx'),
 			]);
-
-			for (const [value, rendered] of [
-				[undefined, 'tsrx-H'],
-				[null, 'tsrx-H'],
-				[false, 'tsrx-H'],
-				['x', 'x tsrx-H'],
-			]) {
-				const html = String(await jsx(App, { value }).toString()).replace(
-					/tsrx-[0-9a-f]+/g,
-					'tsrx-H',
+			/**
+			 * @param {unknown} component
+			 * @param {unknown} value
+			 */
+			const classes = async (component, value) => {
+				const html = String(
+					await jsx(/** @type {any} */ (component), {
+						value: /** @type {any} */ (value),
+					}).toString(),
 				);
-				expect(html).toBe(`<span class="${rendered}"></span>`);
+				return (/class="([^"]*)"/.exec(html)?.[1] ?? '').split(' ').filter(Boolean);
+			};
+
+			for (const value of [undefined, null, false, true, '', 0, 'a b']) {
+				expect(await classes(Scoped, value)).toEqual([
+					...(await classes(Native, value)),
+					expect.stringMatching(/^tsrx-[0-9a-f]+$/),
+				]);
 			}
 		} finally {
 			await rm(directory, { recursive: true, force: true });

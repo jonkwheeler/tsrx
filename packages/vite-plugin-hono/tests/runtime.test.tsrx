@@ -237,7 +237,7 @@ function ReactiveSpreadClassApp({ bags }: { bags: SpreadBag[] }) @{
 }
 
 // Hono types `class` as a string, but untyped code can pass any of these.
-type ClassValue = string | false | null | undefined;
+type ClassValue = string | number | boolean | null | undefined;
 
 function NativeClassValue({ value }: { value?: ClassValue }) @{
 	<span data-probe="native" class={value as string | undefined} />
@@ -546,6 +546,8 @@ describe('@tsrx/vite-plugin-hono DOM runtime', () => {
 		['a null', null],
 		['a false', false],
 		['an empty', ''],
+		['a true', true],
+		['a zero', 0],
 		['a string', 'a b'],
 	] as const) {
 		it(`renders ${label} class as Hono does, beside the scope hash`, () => {

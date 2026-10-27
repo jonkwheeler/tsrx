@@ -235,23 +235,27 @@ function is_string_class(node) {
  * otherwise as one template literal (never a template literal nested in
  * another across repeated stamping).
  *
- * An authored class that may not be a string joins the scope classes as
- * `join` says: `'call'` through `join_scope_class`, which leaves out a
- * `null`, `undefined` or `false` class; `'list'` as `[class, scope]`, for a
- * `class` that also takes an object or a list; `'text'` in the template
- * literal.
+ * With `join`, an authored class that may not be a string joins the scope
+ * classes through `join_scope_class`, which renders it as a runtime of that
+ * kind would: it leaves out a class the runtime would not render, and keeps
+ * an object or a list class for a runtime whose class takes one.
  *
  * @param {ScopeClassParts} parts
- * @param {ScopeClassJoin} [join='text']
+ * @param {ScopeClassJoin} [join=null]
  * @returns {AST.Expression}
  */
-function build_scope_class_value(parts, join = 'text') {
+function build_scope_class_value(parts, join = null) {
 	const { base, hashes, applied } = parts;
-	if (base && join !== 'text' && !is_string_class(base)) {
+	if (base && join && !is_string_class(base)) {
 		const scope_class = build_scope_class_value({ ...parts, base: null });
-		return join === 'list'
-			? b.array([base, scope_class])
-			: b.call(JOIN_SCOPE_CLASS_INTERNAL_NAME, base, scope_class);
+		return join === 'text'
+			? b.call(JOIN_SCOPE_CLASS_INTERNAL_NAME, base, scope_class)
+			: b.call(
+					JOIN_SCOPE_CLASS_INTERNAL_NAME,
+					base,
+					scope_class,
+					b.literal(join, JSON.stringify(join)),
+				);
 	}
 	const base_literal = base?.type === 'Literal' && typeof base.value === 'string' ? base : null;
 	/** @type {Array<string | AST.Expression>} */
@@ -306,9 +310,9 @@ function build_scope_class_value(parts, join = 'text') {
  * @param {Array<string | AST.Expression>} applied theme classes: literals or `theme.$class` reads
  * @param {'class' | 'className'} [class_attr_name='class']
  * @param {SpreadClassOptions | null} [spread_class]
- * @param {ScopeClassJoin} [class_join='text'] how an authored class that may not
- *   be a string joins the scope classes; `'list'` applies to a `class`
- *   attribute only
+ * @param {ScopeClassJoin} [class_join=null] how the runtime renders an authored
+ *   class that may not be a string; `'list'` applies to a `class` attribute
+ *   only
  * @returns {T}
  */
 export function add_scope_classes(
@@ -317,7 +321,7 @@ export function add_scope_classes(
 	applied,
 	class_attr_name = 'class',
 	spread_class = null,
-	class_join = 'text',
+	class_join = null,
 ) {
 	if (hashes.length === 0 && applied.length === 0) return element;
 	const attrs = element.openingElement.attributes ?? [];
@@ -343,7 +347,7 @@ export function add_scope_classes(
 		: class_attr_name;
 	const value = build_scope_class_value(
 		parts,
-		class_join === 'list' && name !== 'class' ? 'text' : class_join,
+		class_join === 'list' && name !== 'class' ? null : class_join,
 	);
 	const attr_value =
 		value.type === 'Literal' && typeof value.value === 'string'

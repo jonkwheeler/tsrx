@@ -133,6 +133,8 @@ describe('sibling-scoped apply runtime (react)', function () {
 		['an undefined', undefined],
 		['a null', null],
 		['an empty', ''],
+		['a true', true],
+		['a zero', 0],
 		['a string', 'a b'],
 		['a list', ['a', 'b']],
 	] as const) {

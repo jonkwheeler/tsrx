@@ -166,7 +166,7 @@ function hash_of(label, hashes) {
  * @param {string} key
  * @param {string[]} chain
  * @param {Map<string, string>} hashes
- * @param {'call' | 'list' | 'text'} class_join
+ * @param {'text' | 'text-true' | 'text-both' | 'list' | null} class_join
  * @returns {string} the text after `class=` / `className=`
  */
 function expected_class_attribute(key, chain, hashes, class_join) {
@@ -182,7 +182,7 @@ function expected_class_attribute(key, chain, hashes, class_join) {
 	const expression = key.slice(1, -1);
 	if (parts.length === 0) return `{${expression}}`;
 	const scope = has_runtime ? `\`${parts.join(' ')}\`` : `"${parts.join(' ')}"`;
-	return joined_class_value(is_string_class(expression) ? 'text' : class_join, expression, scope);
+	return joined_class_value(is_string_class(expression) ? null : class_join, expression, scope);
 }
 
 /**
@@ -240,7 +240,7 @@ function expected_class_expression(name, chain, hashes) {
 /**
  * @param {CompileHarness} harness
  */
-export function runSharedScopedStyleConformanceTests({ compile, name, classJoin = 'text' }) {
+export function runSharedScopedStyleConformanceTests({ compile, name, classJoin = null }) {
 	const fixtures = load_fixtures();
 	const passing = fixtures.filter((fixture) => !fixture.expected.knownFailure);
 	const failing = fixtures.filter((fixture) => fixture.expected.knownFailure);

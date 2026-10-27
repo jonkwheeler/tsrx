@@ -442,11 +442,6 @@ export interface JsxPlatform {
 		 * A spread's class joins the scope classes as text, as in the class
 		 * attribute, except a thenable class (Hono's server `css`), which applies
 		 * unchanged. `hostSpreadClassList` joins a non-string class as a list.
-		 *
-		 * Unless `classAttrList` is set, a class attribute whose value may not
-		 * be a string also joins the scope classes through `join_scope_class`
-		 * from `imports.refProp`, which leaves out a `null`, `undefined` or
-		 * `false` class and joins any other value as text.
 		 */
 		hostSpreadClassProps?: ReadonlyArray<'class' | 'className'>;
 		/**
@@ -456,12 +451,25 @@ export interface JsxPlatform {
 		 */
 		hostSpreadClassList?: boolean;
 		/**
-		 * The runtime's `class` attribute also takes an object or a list, as
-		 * Solid's and Vue's do, so a `class` attribute whose value may not be a
-		 * string joins the scope classes as `[class, scope]`, which keeps an
-		 * object or list class working.
+		 * How the runtime renders a host element's class value. With it, a class
+		 * attribute beside scoped CSS classes whose value may not be a string
+		 * joins them through `join_scope_class` from `imports.refProp`, which
+		 * renders the class as the runtime would and leaves out a class the
+		 * runtime would not render:
+		 *
+		 * - `'text'` (React, Hono DOM): `null`, `undefined`, `true` and `false`
+		 *   are left out; any other value renders as text.
+		 * - `'text-true'` (Preact): as `'text'`, but `true` renders as text.
+		 * - `'text-both'` (Hono's server): as `'text'`, but `true` and `false`
+		 *   render as text.
+		 * - `'list'` (Solid, Vue): `class` also takes an object or a list;
+		 *   other values that are not strings are left out.
+		 * - `undefined`: the class joins the scope classes as text in a
+		 *   template literal.
+		 *
+		 * The type-only print always uses the template literal.
 		 */
-		classAttrList?: boolean;
+		classValue?: 'text' | 'text-true' | 'text-both' | 'list';
 		/**
 		 * How to collapse multiple `ref` attributes on the same element into
 		 * one. React's and Preact's runtimes treat duplicate `ref` props as

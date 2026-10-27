@@ -389,22 +389,21 @@ const merged_element_refs = { next: undefined, ref: undefined };
  * @returns {RefValue<T>}
  */
 export function merge_element_refs(...refs) {
-	const live = refs.filter((ref) => ref != null);
+	// Only a function or an object is a ref; `ref={cond && cb}` may be `false`.
+	const live = refs.filter(
+		(ref) => typeof ref === 'function' || (typeof ref === 'object' && ref !== null),
+	);
 	if (live.length < 2) {
 		return live[0];
 	}
 
 	let entry = merged_element_refs;
 	for (const ref of live) {
-		// A primitive cannot key a WeakMap.
-		if (typeof ref !== 'object' && typeof ref !== 'function') {
-			return create_element_ref(live);
-		}
 		const next = (entry.next ??= new WeakMap());
-		let child = next.get(ref);
+		let child = next.get(/** @type {object} */ (ref));
 		if (child === undefined) {
 			child = { next: undefined, ref: undefined };
-			next.set(ref, child);
+			next.set(/** @type {object} */ (ref), child);
 		}
 		entry = child;
 	}

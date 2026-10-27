@@ -1072,20 +1072,15 @@ describe('merge_element_refs', () => {
 		]);
 	});
 
-	it('merges a primitive beside a ref without keying on it', () => {
-		/** @type {Array<unknown>} */
-		const events = [];
-		const node = {};
-		/** @param {object | null} value */
-		const callback = (value) => {
-			events.push(value);
-		};
-		const merged = /** @type {(node: object | null) => void | (() => void)} */ (
-			merge_element_refs(callback, /** @type {any} */ (false))
-		);
+	it('leaves out a value that is not a ref, such as the false of `cond && cb`', () => {
+		const callback = () => {};
+		const object = { current: null };
 
-		merged(node);
-		expect(events).toEqual([node]);
+		expect(merge_element_refs(/** @type {any} */ (false), callback)).toBe(callback);
+		expect(merge_element_refs(/** @type {any} */ (0), /** @type {any} */ (''))).toBeUndefined();
+		expect(merge_element_refs(callback, /** @type {any} */ (false), object)).toBe(
+			merge_element_refs(callback, object),
+		);
 	});
 });
 

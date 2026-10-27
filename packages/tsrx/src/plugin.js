@@ -2723,6 +2723,7 @@ export function TSRXPlugin(config) {
 								/** @type {number} */ (render_node.end),
 								TSRX_ERRORS.CODE_BLOCK_SINGLE_OUTPUT,
 							);
+							this.#markMisplacedOutputs(flat);
 						}
 						flat.push(render_node);
 						render_seen = true;
@@ -2737,9 +2738,24 @@ export function TSRXPlugin(config) {
 								/** @type {number} */ (statement.end),
 								TSRX_ERRORS.CODE_BLOCK_STATEMENT_AFTER_OUTPUT,
 							);
+							this.#markMisplacedOutputs(flat);
 						}
 						flat.push(statement);
 					}
+				}
+			}
+
+			/**
+			 * Mark the render nodes in `flat`, the body read so far, that a later
+			 * output or statement has made output the block doesn't keep, whose
+			 * mistake TSRX2011 or TSRX2012 reports. The analysis doesn't report them
+			 * again as unused output (TSRX2010, #981).
+			 * @param {AST.Node[]} flat
+			 */
+			#markMisplacedOutputs(flat) {
+				for (const node of flat) {
+					if (!is_tsrx_render_output_node(node)) continue;
+					node.metadata = { ...node.metadata, misplaced_output: true };
 				}
 			}
 

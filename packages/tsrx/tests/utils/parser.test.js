@@ -7320,20 +7320,22 @@ namespace N {
 
 	/**
 	 * Count the characters that string scans examine while `run` runs. It
-	 * covers `RegExp#exec`, which `test`, `match`, `matchAll`, `replace`,
-	 * `replaceAll`, `search` and `split` call once it is replaced, and
-	 * `String#includes`, `indexOf` and `lastIndexOf`. A scan is charged from
-	 * where it starts to the end of its match, or to the end of the input when
-	 * it fails. A failing regex that can match only where it starts (`^`
-	 * without `m`, or sticky) is charged the rest of the input as well, unless
-	 * it is one repeated character class, as in `/^\s*$/`, which stops at the
-	 * first character outside the class. Loops written by hand are not counted.
+	 * covers `RegExp#exec`, which `test` and the string methods that take a
+	 * regex (`match`, `matchAll`, `replace`, `replaceAll`, `search`, `split`)
+	 * call once it is replaced, and `String#includes`, `indexOf`,
+	 * `lastIndexOf`, and `split` by a string. A scan is charged from where it
+	 * starts to the end of its match, or to the end of the input when it fails;
+	 * `split` by a string is charged the whole input. A failing regex that can
+	 * match only where it starts (`^` without `m`, or sticky) is charged the
+	 * rest of the input as well, unless it is one repeated character class, as
+	 * in `/^\s*$/`, which stops at the first character outside the class.
+	 * Loops written by hand are not counted.
 	 * @param {() => void} run
 	 * @returns {number}
 	 */
 	function count_scanned_characters(run) {
 		const { exec } = RegExp.prototype;
-		const { includes, indexOf, lastIndexOf } = String.prototype;
+		const { includes, indexOf, lastIndexOf, split } = String.prototype;
 		const one_class_run = /^\^(\\[sSdDwW]|\[(?:\\.|[^\]\\])*\])[*+]\$?$/;
 		let scanned = 0;
 		RegExp.prototype.exec = function (/** @type {string} */ input) {
@@ -7384,6 +7386,11 @@ namespace N {
 			scanned += found < 0 ? from : from - found;
 			return found;
 		};
+		String.prototype.split = function (/** @type {any} */ separator, /** @type {any} */ limit) {
+			// A regex separator splits through `exec`, which counts it
+			if (!(separator instanceof RegExp)) scanned += this.length;
+			return split.call(this, separator, limit);
+		};
 		try {
 			run();
 		} finally {
@@ -7391,6 +7398,7 @@ namespace N {
 			String.prototype.includes = includes;
 			String.prototype.indexOf = indexOf;
 			String.prototype.lastIndexOf = lastIndexOf;
+			String.prototype.split = split;
 		}
 		return scanned;
 	}

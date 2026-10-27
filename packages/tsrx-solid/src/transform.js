@@ -18,7 +18,6 @@
 
 import { walk } from 'zimmerframe';
 import {
-	DIAGNOSTIC_CODES,
 	TSRX_ERRORS,
 	createJsxTransform,
 	createScriptBody as create_script_body,
@@ -1179,23 +1178,21 @@ function try_statement_to_jsx_child(node, transform_context) {
 
 	if (finalizer) {
 		error(
-			'Solid TSRX does not support JavaScript `try/finally` in component templates. `finally` is not part of TSRX control flow; move the try/finally into a function if you need cleanup logic.',
+			TSRX_ERRORS.TEMPLATE_TRY_FINALLY(transform_context.platform.name),
 			transform_context.filename,
 			finalizer,
 			transform_context.errors,
 			transform_context.comments,
-			DIAGNOSTIC_CODES.TEMPLATE_TRY_FINALLY,
 		);
 	}
 
 	if (!pending && !handler) {
 		error(
-			'Solid try statements must have a `pending` or `catch` block.',
+			TSRX_ERRORS.TEMPLATE_TRY_HANDLER,
 			transform_context.filename,
 			node,
 			transform_context.errors,
 			transform_context.comments,
-			DIAGNOSTIC_CODES.TEMPLATE_TRY_HANDLER,
 		);
 		return to_jsx_expression_container(create_null_literal());
 	}

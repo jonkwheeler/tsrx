@@ -708,6 +708,26 @@ describe('@tsrx/solid basic', () => {
 			expect(code).not.toContain('try {');
 		});
 
+		// A statement that throws lowers into Solid's reactive render forms, which
+		// have no `finally` (#1202: these used messages outside the error tables).
+		it('rejects a JavaScript try/finally that throws with the core try errors', () => {
+			const body = (handler) => `export function App(props: { bad: boolean }) @{
+				try {
+					if (props.bad) throw new Error('bad');
+				}${handler} finally {
+					console.log('done');
+				}
+				<p>ok</p>
+			}`;
+			const TRY_FINALLY = expect.objectContaining(TSRX_ERRORS.TEMPLATE_TRY_FINALLY('Solid'));
+			const TRY_HANDLER = expect.objectContaining(TSRX_ERRORS.TEMPLATE_TRY_HANDLER);
+			expect(() => compile(body(' catch {}'), 'App.tsrx')).toThrow(TRY_FINALLY);
+			expect(compile(body(''), 'App.tsrx', { collect: true }).errors).toEqual([
+				TRY_FINALLY,
+				TRY_HANDLER,
+			]);
+		});
+
 		it('rejects return statements inside template @if branches', () => {
 			expect(() =>
 				compile(

@@ -31,12 +31,13 @@ const regex_space_and_comments = /(?:\s|\/\/[^\n\r\u2028\u2029]*|\/\*[\s\S]*?\*\
  * An expression being read that can be a generic arrow function (see
  * `#parseGenericArrowFunction`): where its type parameters start, where its
  * parameter list starts (known once the type parameters are read), where the
- * arrow function starts (its `(`, or `async`), and the error that the arrow
- * function threw after its `=>`.
+ * arrow function starts (its `(`, or `async`), whether an arrow function was
+ * read from there, and the error that the arrow function threw after its `=>`.
  * @typedef {{
  *   typeParametersStart: number,
  *   parametersStart: number,
  *   arrowStart: number,
+ *   arrowRead: boolean,
  *   error: SyntaxError | null,
  * }} GenericArrowFunction
  */
@@ -7512,14 +7513,28 @@ export function TSRXPlugin(config) {
 							// render node or child starts, where a `<` only opens a tag. In a
 							// template's setup code, that includes a `<` after an operand,
 							// which starts the render node on its line.
-							(((this.exprAllowed || !this.#readingTemplateSetupStatement()) &&
+							((this.#jsxFile &&
+								(this.exprAllowed || !this.#readingTemplateSetupStatement()) &&
 								context !== tstc.tc_expr &&
 								!this.#rereadingTagStart &&
-								(!this.#jsxFile || looks_like_generic_arrow(this.input, this.pos))) ||
+								looks_like_generic_arrow(this.input, this.pos)) ||
+								// Without JSX, a `<` where an expression starts begins type
+								// parameters or a type assertion, unless it is `<=`, `<<`, or `<<=`.
+								(!this.#jsxFile &&
+									this.exprAllowed &&
+									next !== CharCode.equals &&
+									next !== CharCode.lessThan) ||
 								(next !== CharCode.slash && this.#canStartTypeParameterOrArgumentList(this.pos))))
 					) {
 						++this.pos;
 						return this.finishToken(tt.relational, '<');
+					}
+					// Elsewhere a file without JSX reads it as JavaScript does: `<`, `<=`,
+					// `<<`, or `<<=`, never a tag.
+					if (!this.#jsxFile && !this.inType) {
+						return /** @type {Parse.Parser} */ (
+							/** @type {unknown} */ (original)
+						).getTokenFromCode.call(this, code);
 					}
 				}
 				if (context === tstc.tc_expr || context === tstc.tc_oTag || context === tstc.tc_cTag) {
@@ -7872,7 +7887,7 @@ export function TSRXPlugin(config) {
 						) {
 							const parameter = node.typeParameters.params[0];
 							if (this.#collect) {
-								this.#report_recoverable_error_range(
+								this.#recordCheckerLevelError(
 									/** @type {number} */ (parameter.start),
 									/** @type {number} */ (parameter.end),
 									TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER,
@@ -8180,6 +8195,7 @@ export function TSRXPlugin(config) {
 					typeParametersStart: this.start,
 					parametersStart: -1,
 					arrowStart,
+					arrowRead: false,
 					error: null,
 				};
 				this.#genericArrowFunction = arrow;
@@ -8204,6 +8220,7 @@ export function TSRXPlugin(config) {
 				if (arrow === null || arrow.arrowStart !== node.start) {
 					return super.parseArrowExpression(node, params, isAsync, forInit);
 				}
+				arrow.arrowRead = true;
 				try {
 					return super.parseArrowExpression(node, params, isAsync, forInit);
 				} catch (error) {
@@ -8306,11 +8323,24 @@ export function TSRXPlugin(config) {
 			#parseArrowOrTypeAssertion(forInit, refDestructuringErrors, afterLeftParse) {
 				const outer = this.#arrowFirstAt;
 				this.#arrowFirstAt = this.start;
+				const generic_arrow = this.#genericArrowFunction;
 				let arrow;
 				try {
-					arrow = this.tryParse(() =>
-						super.parseMaybeAssign(forInit, refDestructuringErrors, afterLeftParse),
-					);
+					arrow = this.tryParse(() => {
+						const node = super.parseMaybeAssign(forInit, refDestructuringErrors, afterLeftParse);
+						// acorn-typescript reads `<T>((x) => x)` as a generic arrow function
+						// whose parentheses go unseen; TypeScript reads a type assertion on a
+						// parenthesized arrow function, which doesn't start at their `(`.
+						if (
+							node.type === 'ArrowFunctionExpression' &&
+							node.typeParameters &&
+							generic_arrow &&
+							!generic_arrow.arrowRead
+						) {
+							this.unexpected(/** @type {number} */ (node.typeParameters.end));
+						}
+						return node;
+					});
 				} finally {
 					this.#arrowFirstAt = outer;
 				}
@@ -8337,7 +8367,8 @@ export function TSRXPlugin(config) {
 				if (regex_reserved_jsx_like_file.test(this.#filename ?? '')) {
 					const start = /** @type {number} */ (assertion.start);
 					if (this.#collect) {
-						this.#report_recoverable_error_range(
+						// Dropped with an attempt that fails (`#parseArrowOrTypeAssertion`).
+						this.#recordCheckerLevelError(
 							start,
 							/** @type {number} */ (assertion.end),
 							TS_ERRORS.RESERVED_TYPE_ASSERTION,

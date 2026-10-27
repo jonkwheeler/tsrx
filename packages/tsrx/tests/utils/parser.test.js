@@ -4,6 +4,7 @@
 /** @import * as ESTreeJSX from 'estree-jsx' */
 /** @import { ErrorKind } from '../shared/errors.js' */
 
+import { readdirSync, readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { acorn, analyzeTsrx, isLayoutWhitespace, parseModule } from '../../src/index.js';
@@ -10125,6 +10126,20 @@ describe('a `<` in a file without JSX', () => {
 		};
 	}
 
+	/**
+	 * The operator of the binary expression that `program` starts with: the
+	 * first declaration's initializer, or a `for` loop's test.
+	 * @param {AST.Program} program
+	 */
+	function binaryOperator(program) {
+		const [statement] = program.body;
+		const expression =
+			statement.type === 'ForStatement'
+				? statement.test
+				: as_type(statement, 'VariableDeclaration').declarations[0].init;
+		return as_type(expression, 'BinaryExpression').operator;
+	}
+
 	const sources = [
 		'let f = <T>() => 1;',
 		'let f = <T>(x: T): T => x;',
@@ -10166,6 +10181,83 @@ describe('a `<` in a file without JSX', () => {
 			} else if (thrown_error) {
 				expect(expected.codes, label).toContain(/** @type {CompileError} */ (thrown_error).code);
 			}
+		}
+	});
+
+	it('keeps `<=`, `<<`, and `<<=` whole, and reads a type assertion on a parenthesized function', () => {
+		for (const filename of ['a.ts', 'a.mts', 'a.cts', 'a.d.ts']) {
+			for (const [source, operator] of [
+				['let x = a <= b;', '<='],
+				['let x = a << 2;', '<<'],
+				['let x = 1 << 2 <= 3;', '<='],
+				['for (let i = 0; i <= n; i++) {}', '<='],
+			]) {
+				expect(binaryOperator(parseModule(source, filename)), `${filename}: ${source}`).toBe(
+					operator,
+				);
+			}
+			const assignment = as_type(
+				as_type(parseModule('a <<= 1;', filename).body[0], 'ExpressionStatement').expression,
+				'AssignmentExpression',
+			);
+			expect(assignment.operator, filename).toBe('<<=');
+		}
+		for (const source of [
+			'const h = <Handler>((e) => e.x);',
+			'const h = <Handler>(async (e) => e.x);',
+			'const h = <Handler>(a => a);',
+			'const h = <Handler>((e) => e)(1);',
+		]) {
+			expect(typescript(source, 'a.ts').type, source).toBe('TSTypeAssertion');
+			for (const options of [
+				undefined,
+				{ collect: true, errors: [], comments: [], preserveParens: true },
+			]) {
+				const declaration = as_type(
+					parseModule(source, 'a.ts', options).body[0],
+					'VariableDeclaration',
+				);
+				expect(declaration.declarations[0].init?.type, source).toBe('TSTypeAssertion');
+			}
+		}
+	});
+
+	it('records TS7059 once for each type assertion when collecting in a .mts or .cts file', () => {
+		for (const filename of ['a.mts', 'a.cts']) {
+			/** @type {CompileError[]} */
+			const errors = [];
+			parseModule('let x = <T>(<U>y);', filename, { collect: true, errors, comments: [] });
+			expect(
+				errors.map((error) => [error.code, error.pos]).sort((a, b) => Number(a[1]) - Number(b[1])),
+				filename,
+			).toEqual([
+				[TS_ERRORS.RESERVED_TYPE_ASSERTION.code, 8],
+				[TS_ERRORS.RESERVED_TYPE_ASSERTION.code, 12],
+			]);
+		}
+	});
+
+	// A declaration file's `export const x: T;`, which only a `declare` context
+	// reads yet, keeps `.d.ts` files out.
+	it("parses this repository's own .ts, .mts, and .cts sources", () => {
+		const root = new URL('../../../../', import.meta.url);
+		/** @param {URL} directory @returns {string[]} */
+		const sources = (directory) =>
+			readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+				if (entry.isDirectory()) {
+					return entry.name.startsWith('.') ||
+						['node_modules', 'dist', 'build'].includes(entry.name)
+						? []
+						: sources(new URL(`${entry.name}/`, directory));
+				}
+				return /(?<!\.d)\.[cm]?ts$/.test(entry.name)
+					? [new URL(entry.name, directory).pathname]
+					: [];
+			});
+		const files = sources(root);
+		expect(files.length).toBeGreaterThan(20);
+		for (const file of files) {
+			expect(() => parseModule(readFileSync(file, 'utf8'), file), file).not.toThrow();
 		}
 	});
 

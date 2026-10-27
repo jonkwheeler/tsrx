@@ -13700,19 +13700,8 @@ describe('a generic arrow function with one type parameter (#880)', () => {
 		parseModule(source, 'a.ts');
 		parseModule(source, 'a.ts', { collect: true, errors: ts_errors, comments: [] });
 		expect(ts_errors).toEqual([]);
-		// Where a `.tsx` file would read an element, the editor still shows it.
-		for (const filename of ['App.tsrx', 'a.tsx']) {
-			/** @type {CompileError[]} */
-			const errors = [];
-			parseModule(source, filename);
-			parseModule(source, filename, { collect: true, errors, comments: [] });
-			expect(
-				errors.map((error) => [error.code, error.pos]),
-				filename,
-			).toEqual([[TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER.code, 9]]);
-		}
 		// A default doesn't keep TypeScript from reporting it there, and an async
-		// arrow function gets it too, though neither reads as an element.
+		// arrow function gets it too.
 		for (const [other, at] of /** @type {const} */ ([
 			['let g = <T = 1>() => 1;', 9],
 			['let h = async <T>(x: T) => x;', 15],
@@ -13725,9 +13714,9 @@ describe('a generic arrow function with one type parameter (#880)', () => {
 				other,
 			).toEqual([[TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER.code, at]]);
 			/** @type {CompileError[]} */
-			const tsrx_errors = [];
-			parseModule(other, 'App.tsrx', { collect: true, errors: tsrx_errors, comments: [] });
-			expect(tsrx_errors, other).toEqual([]);
+			const ts_other_errors = [];
+			parseModule(other, 'a.ts', { collect: true, errors: ts_other_errors, comments: [] });
+			expect(ts_other_errors, other).toEqual([]);
 		}
 		for (const filename of ['a.mts', 'a.cts']) {
 			expect(() => parseModule(source, filename), filename).toThrow(

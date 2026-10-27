@@ -17,6 +17,7 @@ const KEYWORDS = [
 	'class',
 	'continue',
 	'const',
+	'constructor',
 	'debugger',
 	'declare',
 	'default',

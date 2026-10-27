@@ -538,6 +538,11 @@ export const TS_ERRORS = {
 		'TS1435',
 		(suggestion) => `Unknown keyword or identifier. Did you mean '${suggestion}'?`,
 	),
+	/** `kind` is `let`, `const`, `using` or `await using`. */
+	BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK: with_values(
+		'TS1156',
+		(kind) => `'${kind}' declarations can only be declared inside a block.`,
+	),
 	VARIABLE_DECLARATION_NOT_ALLOWED: {
 		code: 'TS1440',
 		message: 'Variable declaration not allowed at this location.',

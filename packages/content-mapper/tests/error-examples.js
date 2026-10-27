@@ -791,6 +791,10 @@ let a = 2;`,
 }`,
 	},
 	{
+		error: TS_ERRORS.BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK,
+		source: `if (ready) let x = 1;`,
+	},
+	{
 		error: TS_ERRORS.MODIFIER_ON_CONSTRUCTOR,
 		source: `class A {
 	static constructor() {}

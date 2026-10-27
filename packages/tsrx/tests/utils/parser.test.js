@@ -10674,6 +10674,12 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			throws: [TS_ERRORS.IMPORT_META_PROPERTY_CALL, '1:7'],
 		},
 		{
+			// With an escape in the name, only that (see below).
+			source: 'import.f\\u006fo();',
+			errors: [[TS_ERRORS.IMPORT_META_PROPERTY_CALL, 'f\\u006fo(']],
+			throws: [TS_ERRORS.IMPORT_META_PROPERTY_CALL, '1:7'],
+		},
+		{
 			// Called, it's TS18061 (#966).
 			source: "import.foo('x');",
 			errors: [[TS_ERRORS.IMPORT_META_PROPERTY_CALL, "foo('x')"]],
@@ -11025,6 +11031,85 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:4'],
 			pick: first,
 			match: { type: 'VariableDeclaration', declarations: [{ id: { name: 'let' } }] },
+		},
+		{
+			// A function's name isn't a `let` or `const` declaration's (TS2480).
+			source: 'function let() {}',
+			errors: [[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'let(']],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:9'],
+		},
+		{
+			source: 'async function* let() {}',
+			errors: [[TS_ERRORS.STRICT_MODE_RESERVED_WORD, 'let(']],
+			throws: [TS_ERRORS.STRICT_MODE_RESERVED_WORD, '1:16'],
+		},
+		{
+			// In an ambient context, TypeScript checks no strict mode reserved word,
+			// but still a `let` declaration's name.
+			source: 'declare let let: number;',
+			errors: [[TS_ERRORS.LET_DECLARATION_NAME, 'let:']],
+			throws: [TS_ERRORS.LET_DECLARATION_NAME, '1:12'],
+		},
+		// TypeScript reads a `let`, `const` or `using` declaration after `if (…)`
+		// or a loop head, and its checker reports TS1156 there. acorn read `let`
+		// as a name, and rejected the others.
+		{
+			source: 'if (a) let x = 1;',
+			errors: [[TS_ERRORS.BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK, 'let x']],
+			throws: [TS_ERRORS.BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK, '1:7'],
+			pick: first,
+			match: { type: 'IfStatement', consequent: { type: 'VariableDeclaration', kind: 'let' } },
+		},
+		{
+			source: 'if (a) {} else let\n[x] = b;',
+			errors: [[TS_ERRORS.BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK, 'let\n']],
+			throws: [TS_ERRORS.BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK, '1:15'],
+			pick: first,
+			match: { alternate: { type: 'VariableDeclaration', kind: 'let' } },
+		},
+		{
+			source: 'while (a) const { x } = b;',
+			errors: [[TS_ERRORS.BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK, 'const']],
+			throws: [TS_ERRORS.BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK, '1:10'],
+			pick: first,
+			match: { body: { type: 'VariableDeclaration', kind: 'const' } },
+		},
+		{
+			source: 'for (;;) using x = f();',
+			errors: [[TS_ERRORS.BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK, 'using']],
+			throws: [TS_ERRORS.BLOCK_SCOPED_DECLARATION_OUTSIDE_BLOCK, '1:9'],
+			pick: first,
+			match: { body: { type: 'VariableDeclaration', kind: 'using' } },
+		},
+		// A rest element that isn't last in an arrow function's parameters is
+		// TS2462 at its target, as in a binding pattern, and TypeScript reports
+		// each one.
+		{
+			source: '([...a, b]) => 1;',
+			errors: [[TS_ERRORS.REST_ELEMENT_NOT_LAST, 'a, b']],
+			throws: [TS_ERRORS.REST_ELEMENT_NOT_LAST, '1:5'],
+		},
+		{
+			source: 'async ({ ...a, b }: T) => 1;',
+			errors: [[TS_ERRORS.REST_ELEMENT_NOT_LAST, 'a, b']],
+			throws: [TS_ERRORS.REST_ELEMENT_NOT_LAST, '1:12'],
+		},
+		{
+			source: '([...a, b, ...c, d]) => 1;',
+			errors: [
+				[TS_ERRORS.REST_ELEMENT_NOT_LAST, 'a, b'],
+				[TS_ERRORS.REST_ELEMENT_NOT_LAST, 'c, d'],
+			],
+			throws: [TS_ERRORS.REST_ELEMENT_NOT_LAST, '1:5'],
+		},
+		{
+			// In an assignment pattern, at each `...`.
+			source: '[...a, b, [...c, d]] = e;',
+			errors: [
+				[TS_ERRORS.REST_ELEMENT_NOT_LAST, '...a'],
+				[TS_ERRORS.REST_ELEMENT_NOT_LAST, '...c'],
+			],
+			throws: [TS_ERRORS.REST_ELEMENT_NOT_LAST, '1:1'],
 		},
 		{
 			// In a class, TS1213 (#962).
@@ -12037,6 +12122,30 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				expect(without_locations(node), label).toEqual(without_locations(valid_node));
 			}
 		}
+	});
+
+	it('names the property of `import.<name>` without its escapes, as TypeScript does', () => {
+		expect(() => parseModule('import.f\\u006fo();', 'App.tsrx')).toThrow(
+			"'foo' is not a valid meta-property for keyword 'import'.",
+		);
+	});
+
+	it('records no strict mode reserved word where TypeScript checks none', async () => {
+		// In an ambient context, or as the name an export specifier exports.
+		const sources = [
+			'declare const public: number;\nexport { public };',
+			'declare class public {}',
+			'declare function f(static: number): void;',
+			'declare namespace N {\n\tconst { yield }: T;\n}',
+		];
+		const outcomes = await parse_in_worker(
+			sources.flatMap((source) =>
+				[undefined, ...collect_modes].map((options) => ({ source, options })),
+			),
+		);
+		expect(
+			outcomes.map((outcome) => (outcome.ok ? (outcome.errors ?? []) : outcome.message)),
+		).toEqual(outcomes.map(() => []));
 	});
 
 	it('still throws them without collecting', async () => {
@@ -13657,8 +13766,31 @@ describe("TypeScript's syntax error where acorn reports another", () => {
 			['let a = 1 2;', TS_ERRORS.TOKEN_EXPECTED, '2;'],
 			['var v = 1 + 2 3;', TS_ERRORS.TOKEN_EXPECTED, '3;'],
 			['const q = 1, r = 2 s;', TS_ERRORS.TOKEN_EXPECTED, 's;'],
-			// `=>` ends a declaration list too.
+			// `=>` ends a declaration list too, and so does `in`.
 			['const k = async(a)(b) => 1;', TS_ERRORS.TOKEN_EXPECTED, '=>'],
+			['let a: T in x;', TS_ERRORS.TOKEN_EXPECTED, 'in x'],
+		]);
+		expect(() => parseModule('let a: T in x;', 'App.tsrx')).toThrow("';' expected.");
+	});
+
+	it('reports a modifier that starts no statement as TS1128', async () => {
+		await expect_thrown([
+			['accessor x;', TS_ERRORS.DECLARATION_OR_STATEMENT_EXPECTED, 'accessor'],
+			['readonly x = 1;', TS_ERRORS.DECLARATION_OR_STATEMENT_EXPECTED, 'readonly'],
+			['static accessor;', TS_ERRORS.DECLARATION_OR_STATEMENT_EXPECTED, 'static'],
+			['function f() {\n\tpublic x;\n}', TS_ERRORS.DECLARATION_OR_STATEMENT_EXPECTED, 'public'],
+		]);
+		// Before a line break or another token, it's a name.
+		for (const source of ['accessor\nx;', 'accessor = 1;', 'readonly;']) {
+			expect(() => parseModule(source, 'App.tsrx'), source).not.toThrow();
+		}
+	});
+
+	it('reports `import` after `new` as a missing expression', async () => {
+		await expect_thrown([
+			['new import.foo();', TS_ERRORS.EXPRESSION_EXPECTED, 'import'],
+			['new import.meta;', TS_ERRORS.EXPRESSION_EXPECTED, 'import'],
+			['new import("m");', TS_ERRORS.EXPRESSION_EXPECTED, 'import'],
 		]);
 	});
 
@@ -13677,6 +13809,9 @@ describe("TypeScript's syntax error where acorn reports another", () => {
 		expect(() => parseModule('asyncfunction f() {}', 'App.tsrx')).toThrow(
 			"Unknown keyword or identifier. Did you mean 'async function'?",
 		);
+		expect(() => parseModule('constructr x;', 'App.tsrx')).toThrow(
+			"Unknown keyword or identifier. Did you mean 'constructor'?",
+		);
 	});
 
 	it('reports type arguments after `?.` without a call at the token after them (#884)', async () => {
@@ -13685,6 +13820,12 @@ describe("TypeScript's syntax error where acorn reports another", () => {
 			['a?.<T>\n`c`;', TS_ERRORS.OPTIONAL_CHAIN_TAGGED_TEMPLATE, '`c`'],
 			['a?.<T>;', TS_ERRORS.TOKEN_EXPECTED, ';'],
 			['a?.<T>.b;', TS_ERRORS.TOKEN_EXPECTED, '.b'],
+			['a?.<T> == b;', TS_ERRORS.TOKEN_EXPECTED, '=='],
+			// Before what TypeScript doesn't read after type arguments, it reads
+			// none, and expects a name after `?.`.
+			['a?.<T>[0];', TS_ERRORS.IDENTIFIER_EXPECTED, '<'],
+			['a?.<T>b;', TS_ERRORS.IDENTIFIER_EXPECTED, '<'],
+			['a?.<T>-1;', TS_ERRORS.IDENTIFIER_EXPECTED, '<'],
 		]);
 	});
 });

@@ -59,6 +59,13 @@ const regex_space_and_comments = /(?:\s|\/\/[^\n\r\u2028\u2029]*|\/\*[\s\S]*?\*\
  */
 
 /**
+ * An open namespace or module body, at `depth` in the scope stack, and the
+ * export specifiers in it that name what it hasn't declared yet (see
+ * `tsParseModuleBlock`). `scope` is the body's scope, kept once it has one.
+ * @typedef {{ depth: number, scope: Parse.Scope | null, ids: AST.Identifier[] }} ModuleBodyExports
+ */
+
+/**
  * The kinds of declaration TypeScript's checker tells apart when it checks
  * their modifiers.
  * @typedef {'class' | 'function' | 'variable' | 'using' | 'await using' | 'enum' | 'interface' | 'type' | 'module' | 'import'} ModifiedDeclarationKind
@@ -1177,6 +1184,8 @@ export function TSRXPlugin(config) {
 			#filename = null;
 			/** @type {WeakMap<object, { names: Set<string>, lengths: number[] }>} */
 			#localExportNamesByScope = new WeakMap();
+			/** @type {ModuleBodyExports[]} */
+			#moduleBodyExports = [];
 			#functionBodyDepth = 0;
 			#allowExpressionContainerTrailingSemicolon = false;
 			#jsxAttributeValueExpressionDepth = 0;
@@ -8754,21 +8763,71 @@ export function TSRXPlugin(config) {
 			 * This is needed because submodules create nested scopes, but exports
 			 * from within submodules should still be valid if the identifier is
 			 * declared in the submodule scope (not just the top-level module scope).
+			 * In a namespace or module body, a name that isn't declared yet is
+			 * checked again when the body ends (see `tsParseModuleBlock`).
 			 * @type {Parse.Parser['checkLocalExport']}
 			 */
 			checkLocalExport(id) {
-				const { name } = id;
-				if (this.hasImport(name)) return;
-				// Check all scopes in the scope stack, not just the top-level scope
-				for (let i = this.scopeStack.length - 1; i >= 0; i--) {
-					if (this.#scopeDeclaredNames(this.scopeStack[i]).has(name)) {
-						// Found in a scope, remove from undefinedExports if it was added
-						delete this.undefinedExports[name];
-						return;
-					}
+				if (this.#isExportDeclared(id.name)) return;
+				const body = this.#moduleBodyExports.at(-1);
+				if (body && body.depth === this.scopeStack.length - 1) {
+					body.scope = this.currentScope();
+					body.ids.push(id);
+					return;
 				}
 				// Not found in any scope, add to undefinedExports for later error
-				this.undefinedExports[name] = id;
+				this.undefinedExports[id.name] = id;
+			}
+
+			/**
+			 * Whether an export specifier can name `name` here: an import, or a name
+			 * declared in a scope on the stack or in `body`, a namespace or module
+			 * body that has ended.
+			 * @param {string} name
+			 * @param {Parse.Scope | null} [body]
+			 */
+			#isExportDeclared(name, body = null) {
+				if (this.hasImport(name)) return true;
+				if (body && this.#scopeDeclaredNames(body).has(name)) return true;
+				for (let i = this.scopeStack.length - 1; i >= 0; i--) {
+					if (this.#scopeDeclaredNames(this.scopeStack[i]).has(name)) return true;
+				}
+				return false;
+			}
+
+			/**
+			 * The `{ … }` body of a namespace or module. An export list in it can
+			 * name a declaration that comes later in the body, as in TypeScript, so
+			 * a name that `checkLocalExport` can't see yet is checked again when the
+			 * body ends. acorn-typescript leaves the body's scope with acorn's own
+			 * `exitScope`, past any override, so the check is made here. A name still
+			 * not declared is checked again at the end of the enclosing body, if
+			 * there is one, whose later declarations it can name too. Otherwise it's
+			 * recorded as undefined, and acorn reports it at the end of the program,
+			 * at the specifier.
+			 * @type {Parse.Parser['tsParseModuleBlock']}
+			 */
+			tsParseModuleBlock() {
+				/** @type {ModuleBodyExports} */
+				const body = { depth: this.scopeStack.length, scope: null, ids: [] };
+				this.#moduleBodyExports.push(body);
+				let block;
+				try {
+					block = super.tsParseModuleBlock();
+				} finally {
+					this.#moduleBodyExports.pop();
+				}
+				const outer = this.#moduleBodyExports.at(-1);
+				for (const id of body.ids) {
+					if (this.#isExportDeclared(id.name, body.scope)) continue;
+					if (outer) {
+						outer.scope ??= this.scopeStack[outer.depth];
+						outer.ids.push(id);
+					} else {
+						this.undefinedExports[id.name] = id;
+					}
+				}
+				return block;
 			}
 
 			/**

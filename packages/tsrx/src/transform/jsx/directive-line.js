@@ -193,6 +193,14 @@ function lay_out_directive_line(commands, line, source) {
 	const offset_of = (location) =>
 		(line_starts[location.line - 1] ?? source.length) + location.column;
 
+	// Code of the covered line can come after a location on a later line: a
+	// parenthesis that the printer adds maps to the next `(` of the source,
+	// as in `1` followed by `(foo)()` on the next line, printed `(1)(foo)()`.
+	let last_covered = -1;
+	commands.forEach((command, i) => {
+		if (typeof command === 'object' && command.line <= line) last_covered = i;
+	});
+
 	// The first code from a later line, and where the new line goes.
 	let later = commands.length;
 	let insert = -1;
@@ -204,7 +212,7 @@ function lay_out_directive_line(commands, line, source) {
 		const command = commands[i];
 		if (typeof command === 'object') {
 			if (previous_end === null && previous_index !== -1) previous_end = command;
-			if (command.line <= line) continue;
+			if (command.line <= line || i < last_covered) continue;
 			later = Math.min(later, i);
 			if (previous_index === -1) break;
 			const previous = /** @type {string} */ (commands[previous_index]).trim();

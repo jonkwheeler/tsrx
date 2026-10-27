@@ -7,6 +7,7 @@ import {
 	createJsxTransform,
 	DIAGNOSTIC_CODES,
 	error,
+	extractIdentifiers,
 	findFirstTopLevelAwait,
 	findFirstTopLevelAwaitInTsrxFunctionBody,
 	is_component_like_element as isComponentLikeElement,
@@ -16,6 +17,11 @@ import {
 const HONO_SERVER_SOURCE = 'hono/jsx';
 const HONO_DOM_SOURCE = 'hono/jsx/dom';
 const AST_METADATA_KEYS = new Set(['loc', 'start', 'end', 'metadata']);
+// Built-ins that write properties of their first argument.
+const HONO_PROPERTY_WRITERS = new Map([
+	['Object', new Set(['assign', 'defineProperty', 'defineProperties'])],
+	['Reflect', new Set(['set', 'defineProperty'])],
+]);
 
 /**
  * The Hono JSX runtimes accept authored `class` attributes and expose their
@@ -207,6 +213,32 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	const jsx_references = [];
 	/** @type {Map<import('@tsrx/core/types').Binding, string[]>} */
 	const destructured_paths = new Map();
+	// A write through an alias, or a built-in that writes its argument's
+	// properties, can replace any member of the aliased value, as a direct
+	// member write does. Each alias maps to the bindings it can point into.
+	/** @type {Map<import('@tsrx/core/types').Binding, Set<import('@tsrx/core/types').Binding>>} */
+	const alias_roots = new Map();
+	/** @type {Set<import('@tsrx/core/types').Binding>} */
+	const written = new Set();
+
+	/**
+	 * @param {AST.Pattern} target
+	 * @param {AST.Expression} value
+	 * @param {import('@tsrx/core/types').ScopeInterface | null} scope
+	 */
+	function add_hono_aliases(target, value, scope) {
+		/** @type {Set<import('@tsrx/core/types').Binding>} */
+		const roots = new Set();
+		collect_hono_alias_roots(value, scope, roots);
+		if (!roots.size) return;
+		for (const identifier of extractIdentifiers(target)) {
+			const binding = scope?.get(identifier.name);
+			if (!binding) continue;
+			const existing = alias_roots.get(binding) ?? new Set();
+			for (const root of roots) existing.add(root);
+			alias_roots.set(binding, existing);
+		}
+	}
 
 	/** @param {AST.Node | null | undefined} node @param {import('@tsrx/core/types').ScopeInterface | null} scope */
 	function walk(node, scope) {
@@ -226,6 +258,16 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 		}
 		if (node.type === 'VariableDeclarator' && node.init) {
 			collect_hono_destructured_paths(node.id, scope, destructured_paths);
+			add_hono_aliases(node.id, node.init, scope);
+		}
+		if (node.type === 'AssignmentExpression') {
+			add_hono_aliases(node.left, node.right, scope);
+		}
+		if (node.type === 'CallExpression' && is_hono_property_writer(node.callee)) {
+			const target = node.arguments[0];
+			if (target && target.type !== 'SpreadElement') {
+				collect_hono_alias_roots(target, scope, written);
+			}
 		}
 
 		for_each_hono_child(node, (child) => walk(child, scope));
@@ -275,7 +317,14 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 		}
 
 		const reference = resolve_hono_reference(node, scopes.get(node) ?? analysis.scope);
-		if (!reference || reference.binding.updated || !reference.binding.initial) return null;
+		if (
+			!reference ||
+			reference.binding.updated ||
+			written.has(reference.binding) ||
+			!reference.binding.initial
+		) {
+			return null;
+		}
 
 		// Combine destructuring and member segments in root-to-leaf order.
 		return resolve_async_component(
@@ -286,6 +335,16 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	}
 
 	walk(ast, analysis.scope);
+	const pending = [...written];
+	for (const [alias] of alias_roots) {
+		if (alias.mutated) pending.push(alias);
+	}
+	for (let binding = pending.pop(); binding; binding = pending.pop()) {
+		written.add(binding);
+		for (const root of alias_roots.get(binding) ?? []) {
+			if (!written.has(root)) pending.push(root);
+		}
+	}
 	for (const reference of jsx_references) {
 		const found = resolve_async_component(reference.node, [], new Set());
 		if (found) return found;
@@ -343,6 +402,45 @@ function is_hono_transparent_expression_wrapper(parent, child) {
 			parent.type === 'ChainExpression') &&
 		/** @type {{ expression?: AST.Node }} */ (parent).expression === child
 	);
+}
+
+/**
+ * Collect the bindings whose values an expression can evaluate to or point
+ * into. Member keys do not matter here: a write through `UI[key]` can still
+ * reach a member of `UI`.
+ *
+ * @param {AST.Node | null | undefined} node
+ * @param {import('@tsrx/core/types').ScopeInterface | null} scope
+ * @param {Set<import('@tsrx/core/types').Binding>} roots
+ */
+function collect_hono_alias_roots(node, scope, roots) {
+	const expression = unwrap_hono_transparent_expression(node);
+	if (!expression || !scope) return;
+	if (expression.type === 'Identifier') {
+		const binding = scope.get(expression.name);
+		if (binding) roots.add(binding);
+	} else if (expression.type === 'MemberExpression') {
+		collect_hono_alias_roots(expression.object, scope, roots);
+	} else if (expression.type === 'ConditionalExpression') {
+		collect_hono_alias_roots(expression.consequent, scope, roots);
+		collect_hono_alias_roots(expression.alternate, scope, roots);
+	} else if (expression.type === 'LogicalExpression') {
+		collect_hono_alias_roots(expression.left, scope, roots);
+		collect_hono_alias_roots(expression.right, scope, roots);
+	}
+}
+
+/**
+ * @param {AST.Node} callee
+ * @returns {boolean}
+ */
+function is_hono_property_writer(callee) {
+	const expression = unwrap_hono_transparent_expression(callee);
+	if (expression?.type !== 'MemberExpression' || expression.object.type !== 'Identifier') {
+		return false;
+	}
+	const name = get_hono_member_name(expression);
+	return name !== null && !!HONO_PROPERTY_WRITERS.get(expression.object.name)?.has(name);
 }
 
 /**

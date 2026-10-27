@@ -301,6 +301,37 @@ describe('@tsrx/bun-plugin-hono', () => {
 		}
 	});
 
+	// Bun.plugin() registration accepts the css loader only in the file namespace.
+	it('serves component CSS from the file namespace for Bun.plugin() registration', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-runtime-css-'));
+		try {
+			const file_path = path.join(dir, 'Styled.tsrx');
+			await writeFile(
+				file_path,
+				`export function Styled() @{ <><style>p { color: red; }</style><p>{'hi'}</p></> }`,
+			);
+			const hooks = setup_plugin(undefined, null);
+			await load_tsrx(hooks, file_path);
+			const css_id = `${file_path}?tsrx-css&lang.css`;
+			const resolve = hooks.onResolve.find(({ options }) => options.filter.test(css_id));
+
+			expect(resolve.callback({ path: css_id, namespace: 'file' })).toEqual({ path: css_id });
+			const load = hooks.onLoad.find(
+				({ options }) => (options.namespace ?? 'file') === 'file' && options.filter.test(css_id),
+			);
+			expect(load.callback({ path: css_id, namespace: 'file' })).toEqual({
+				contents: expect.stringContaining('color: red;'),
+				loader: 'css',
+			});
+			// Another instance's stylesheet is left to that instance.
+			expect(load.callback({ path: '/other.tsrx?tsrx-css&lang.css', namespace: 'file' })).toBe(
+				undefined,
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("does not claim another plugin's virtual CSS module", async () => {
 		const hooks = setup_plugin();
 		const resolve = hooks.onResolve.find(({ options }) =>

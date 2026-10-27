@@ -107,6 +107,26 @@ test('builds a module that starts with a shebang', async () => {
 	});
 });
 
+// Bun's runtime accepts the css loader only in the file namespace.
+test('renders a styled component through a bun:test preload', async () => {
+	await with_fixture(
+		{
+			'Styled.tsrx':
+				"export function Styled() @{ <><style>p { color: red; }</style><p>{'hi'}</p></> }",
+			'preload.mjs': `import { tsrxHono } from ${JSON.stringify(join(import.meta.dir, '../src/index.js'))};\nBun.plugin(tsrxHono());\n`,
+			'styled.test.js': `import { expect, test } from 'bun:test';\nimport { Styled } from './Styled.tsrx';\ntest('renders', async () => expect(String(await Styled())).toMatch(/^<p class="tsrx-[0-9a-f]+">hi<\\/p>$/));\n`,
+		},
+		async (dir) => {
+			const child = Bun.spawnSync({
+				cmd: [process.execPath, 'test', '--preload', './preload.mjs', './styled.test.js'],
+				cwd: dir,
+			});
+			expect(child.stderr.toString()).toContain(' 1 pass');
+			expect(child.exitCode).toBe(0);
+		},
+	);
+});
+
 // A `bun:test` preload registers the plugin with Bun.plugin(), and Bun's
 // runtime reads the JSX settings from the working directory's tsconfig.
 test('renders through a bun:test preload with a classic jsx tsconfig', async () => {

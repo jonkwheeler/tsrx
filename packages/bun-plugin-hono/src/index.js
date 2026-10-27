@@ -12,7 +12,6 @@ import { resolveBuildPlatform, resolveTsconfigJsx } from '@tsrx/core/config';
 const TSRX_EXTENSION_PATTERN = /\.tsrx$/;
 const CSS_QUERY = '?tsrx-css&lang.css';
 const CSS_QUERY_PATTERN = /\?tsrx-css&lang\.css$/;
-const CSS_NAMESPACE = '@tsrx/bun-plugin-hono-css';
 
 /**
  * @typedef {'server' | 'dom'} TsrxHonoMode
@@ -151,15 +150,20 @@ export function tsrxHono(options = {}) {
 					? resolveTsconfigJsx(file_path, tsconfig_cache) === 'react'
 					: runtime_classic_jsx;
 
+			// Every instance sees every virtual CSS request. Leave the ones another
+			// instance compiled to that instance. The stylesheets stay in the file
+			// namespace, the only one where Bun.plugin() registration accepts the css
+			// loader.
 			build.onResolve({ filter: CSS_QUERY_PATTERN }, (args) => {
 				if (!css_cache.has(args.path)) return undefined;
-				return { path: args.path, namespace: CSS_NAMESPACE };
+				return { path: args.path };
 			});
 
-			build.onLoad({ filter: CSS_QUERY_PATTERN, namespace: CSS_NAMESPACE }, (args) => ({
-				contents: css_cache.get(args.path) ?? '',
-				loader: 'css',
-			}));
+			build.onLoad({ filter: CSS_QUERY_PATTERN }, (args) => {
+				const css = css_cache.get(args.path);
+				if (css === undefined) return undefined;
+				return { contents: css, loader: 'css' };
+			});
 
 			build.onLoad({ filter: TSRX_EXTENSION_PATTERN, namespace: 'file' }, async (args) => {
 				const source = await readFile(args.path, 'utf-8');

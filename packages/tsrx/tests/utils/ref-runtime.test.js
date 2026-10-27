@@ -1023,6 +1023,23 @@ describe('merge_element_refs', () => {
 		expect(merge_element_refs(first, second, third)).toBe(merge_element_refs(first, second, third));
 	});
 
+	it('keys a ref list by the refs in it', () => {
+		const a = () => {};
+		const b = () => {};
+		const c = () => {};
+
+		const merged = merge_element_refs([a, b], c);
+		expect(merge_element_refs([a, b], c)).toBe(merged);
+		expect(merge_element_refs(a, [b, [c]])).toBe(merged);
+		expect(merge_element_refs([a], undefined)).toBe(a);
+
+		// A list whose refs change gets a new callback.
+		const list = [a];
+		const first = merge_element_refs(list, c);
+		list[0] = b;
+		expect(merge_element_refs(list, c)).not.toBe(first);
+	});
+
 	it('leaves out a value that is not a ref, such as the false of `cond && cb`', () => {
 		const callback = () => {};
 		const object = { current: null };
@@ -1399,6 +1416,10 @@ describe('spread ref normalization', () => {
 		const merged = ref_of({ title: '1', ref: own, extra: named });
 		expect(typeof merged).toBe('function');
 		expect(ref_of({ title: '2', ref: own, extra: named })).toBe(merged);
+		// An inline list is keyed by its refs, not by the new array.
+		expect(ref_of({ ref: [own, object], extra: named })).toBe(
+			ref_of({ ref: [own, object], extra: named }),
+		);
 		expect(attr_ref_of({ title: '3', ref: own, extra: named })).toBe(merged);
 		expect(ref_of({ ref: object, extra: named })).not.toBe(merged);
 		expect(ref_of({ ref: false, extra: named })).toBe(named);

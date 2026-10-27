@@ -14,6 +14,9 @@ element's own, because the spread normalizer merged the bag's refs into a new
 callback each time. On these targets it now merges them as
 `merge_element_refs` does, so a new bag carrying the same refs gets the same
 `ref`, and its refs are applied again only when one of them changes.
+`merge_element_refs` now also keys a ref list by the refs in it, so an inline
+`ref: [a, b]` written each render is applied once as well, and a list whose
+refs change is applied again.
 
 Preact is unchanged, for the reason given for `merge_element_refs`. A custom
 platform that sets `jsx.shareMergedRefs` with `hostSpreadRefBinding:

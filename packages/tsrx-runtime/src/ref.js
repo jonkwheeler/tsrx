@@ -378,7 +378,8 @@ const merged_element_refs = { next: undefined, ref: undefined };
  * Merge the refs of one compiled element into its `ref`. A single ref comes back
  * as itself, and the same refs give back the same callback, so a JSX runtime
  * that applies a `ref` again whenever its identity changes applies them once
- * rather than on every render.
+ * rather than on every render. A ref list counts as the refs in it, so an
+ * inline `[a, b]` written each render gives back the same callback too.
  *
  * Every element given the same refs shares the callback, so only a runtime
  * that keeps a ref's cleanup per element can use it (React, Hono): Preact
@@ -401,10 +402,9 @@ export function merge_element_refs(...refs) {
  * @returns {RefValue<T>}
  */
 function merge_shared_ref_list(refs) {
-	// Only a function or an object is a ref; `ref={cond && cb}` may be `false`.
-	const live = refs.filter(
-		(ref) => typeof ref === 'function' || (typeof ref === 'object' && ref !== null),
-	);
+	/** @type {RefValue<T>[]} */
+	const live = [];
+	collect_live_refs(refs, live);
 	if (live.length < 2) {
 		return live[0];
 	}
@@ -420,6 +420,26 @@ function merge_shared_ref_list(refs) {
 		entry = child;
 	}
 	return (entry.ref ??= merge_ref_list(live));
+}
+
+/**
+ * Collect the refs of a list, and of the lists in it, so the cache keys an
+ * inline `ref: [a, b]` by `a` and `b` rather than by a new array each render.
+ * Only a function or an object is a ref; `ref={cond && cb}` may be `false`.
+ *
+ * @template T
+ * @param {readonly RefValue<T>[]} refs
+ * @param {RefValue<T>[]} live
+ * @returns {void}
+ */
+function collect_live_refs(refs, live) {
+	for (const ref of refs) {
+		if (is_array(ref)) {
+			collect_live_refs(ref, live);
+		} else if (typeof ref === 'function' || (typeof ref === 'object' && ref !== null)) {
+			live.push(ref);
+		}
+	}
 }
 
 /**

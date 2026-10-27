@@ -840,6 +840,68 @@ function SpreadRefsRenderApp() @{
 	</>
 }
 
+const shared_bag_log: string[] = [];
+
+function cleanup_ref(name: string) {
+	return (node: HTMLElement | null) => {
+		if (node === null) {
+			shared_bag_log.push(`${name}:null`);
+			return;
+		}
+		const id = node.id;
+		shared_bag_log.push(`${name}:${id}`);
+		return () => {
+			shared_bag_log.push(`${name}-cleanup:${id}`);
+		};
+	};
+}
+
+const shared_own_ref = cleanup_ref('own');
+const shared_bag_ref = cleanup_ref('bag');
+const shared_swapped_ref = cleanup_ref('swapped');
+const shared_named_ref = create_ref_prop(() => cleanup_ref('named'));
+const shared_plain_ref = (node: HTMLElement | null) => {
+	shared_bag_log.push(node ? `plain:${node.id}` : 'plain:null');
+};
+
+let set_shared_count: (count: number) => void = () => {};
+let set_shared_second: (shown: boolean) => void = () => {};
+let set_shared_mode: (mode: 'both' | 'swapped' | 'none' | 'list') => void = () => {};
+
+function SharedRefBagApp() @{
+	const [count, setCount] = useState(0);
+	const [second, setSecond] = useState(true);
+	const [mode, setMode] = useState<'both' | 'swapped' | 'none' | 'list'>('both');
+	set_shared_count = setCount;
+	set_shared_second = setSecond;
+	set_shared_mode = setMode;
+	const bag = { title: String(count), ref: shared_bag_ref, extra: shared_named_ref };
+	const changing =
+		mode === 'both'
+			? { title: String(count), ref: shared_bag_ref, extra: shared_named_ref }
+			: mode === 'swapped'
+				? { title: String(count), ref: shared_swapped_ref, extra: shared_named_ref }
+				: mode === 'none'
+					? { title: String(count) }
+					: {
+							title: String(count),
+							ref: [shared_plain_ref, shared_bag_ref],
+							extra: shared_named_ref,
+						};
+
+	<>
+		<input id="one" ref={shared_own_ref} {...bag} />
+		@if (second) {
+			<input id="two" ref={shared_own_ref} {...bag} />
+		}
+		<input id="three" {...bag} />
+		@if (second) {
+			<input id="four" {...bag} />
+		}
+		<input id="changing" {...changing} />
+	</>
+}
+
 // ── Conditional host spreads ──
 
 let conditional_spread_and_node: HTMLInputElement | null = null;
@@ -1517,6 +1579,68 @@ describe('tsrx-react runtime', () => {
 			'bag-replaced:attach',
 			'named:attach',
 		]);
+	});
+
+	it("keeps each element's ref cleanups when elements share a bag", async () => {
+		shared_bag_log.length = 0;
+		await render(SharedRefBagApp);
+		expect(shared_bag_log).toEqual([
+			'own:one',
+			'bag:one',
+			'named:one',
+			'own:two',
+			'bag:two',
+			'named:two',
+			'bag:three',
+			'named:three',
+			'bag:four',
+			'named:four',
+			'bag:changing',
+			'named:changing',
+		]);
+
+		shared_bag_log.length = 0;
+		await act(async () => set_shared_count(1));
+		expect(shared_bag_log).toEqual([]);
+
+		// Removing two elements runs only their own cleanups.
+		await act(async () => set_shared_second(false));
+		expect([...shared_bag_log].sort()).toEqual(
+			[
+				'own-cleanup:two',
+				'bag-cleanup:two',
+				'named-cleanup:two',
+				'bag-cleanup:four',
+				'named-cleanup:four',
+			].sort(),
+		);
+	});
+
+	it("applies a spread bag's refs again when one changes or the bag drops them", async () => {
+		shared_bag_log.length = 0;
+		await render(SharedRefBagApp);
+		shared_bag_log.length = 0;
+
+		await act(async () => set_shared_mode('swapped'));
+		expect(shared_bag_log).toEqual([
+			'bag-cleanup:changing',
+			'named-cleanup:changing',
+			'swapped:changing',
+			'named:changing',
+		]);
+
+		shared_bag_log.length = 0;
+		await act(async () => set_shared_mode('none'));
+		expect(shared_bag_log).toEqual(['swapped-cleanup:changing', 'named-cleanup:changing']);
+
+		// An inline ref list is applied once and kept across renders.
+		shared_bag_log.length = 0;
+		await act(async () => set_shared_mode('list'));
+		expect(shared_bag_log).toEqual(['plain:changing', 'bag:changing', 'named:changing']);
+		shared_bag_log.length = 0;
+		await act(async () => set_shared_count(1));
+		await act(async () => set_shared_count(2));
+		expect(shared_bag_log).toEqual([]);
 	});
 
 	for (const enabled of [false, true]) {

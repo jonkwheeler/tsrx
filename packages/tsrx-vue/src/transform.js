@@ -18,7 +18,6 @@ import {
 	has_location,
 	is_component_like_element,
 	MERGE_REFS_INTERNAL_NAME,
-	MERGE_SPREAD_CLASS_INTERNAL_NAME,
 	NORMALIZE_SPREAD_PROPS_FOR_REF_ATTR_INTERNAL_NAME,
 	NORMALIZE_SPREAD_PROPS_INTERNAL_NAME,
 	setLocation,
@@ -54,9 +53,6 @@ const vue_platform = {
 	},
 	jsx: {
 		rewriteClassAttr: false,
-		// `mergeProps` joins a spread's `class` with the element's, but a
-		// spread's `className` is a DOM property that replaces the class.
-		hostSpreadClassProps: ['className'],
 		// `class` also takes an object or a list.
 		classAttrList: true,
 		multiRefStrategy: 'merge-refs',
@@ -1226,15 +1222,6 @@ function inject_vue_imports(program, transform_context) {
 
 	if (transform_context.needs_merge_refs && merge_refs_source) {
 		ensure_named_import(program, merge_refs_source, 'mergeRefs', MERGE_REFS_INTERNAL_NAME);
-	}
-
-	if (transform_context.needs_merge_spread_class && ref_prop_source) {
-		ensure_named_import(
-			program,
-			ref_prop_source,
-			'merge_spread_class',
-			MERGE_SPREAD_CLASS_INTERNAL_NAME,
-		);
 	}
 
 	if (transform_context.needs_normalize_spread_props && ref_prop_source) {

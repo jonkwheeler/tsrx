@@ -30,21 +30,6 @@ function classes(probe: string): string[] {
 	return element.className.split(' ');
 }
 
-function NativeSpreadClass({ bag }: { bag?: SpreadBag }) @{
-	<>
-		<span data-probe="native-spread" {...bag} />
-		<span data-probe="native-class-before" class="base" {...bag} />
-		<span data-probe="native-class-after" {...bag} class="last" />
-	</>
-}
-
-function SpreadClassNameApp({ bag }: { bag?: SpreadBag }) @{
-	<>
-		<NativeSpreadClass bag={bag} />
-		<SpreadClassApp bag={bag} />
-	</>
-}
-
 function NativeClassValue(props: { value?: unknown }) @{
 	<span data-probe="native" class={props.value} />
 }
@@ -97,7 +82,7 @@ describe('sibling-scoped apply runtime (vue)', function () {
 	it('keeps the class a host spread supplies beside the scope hash', async function () {
 		await render(SpreadClassApp, { bag: { class: 'from-spread', id: 'spread-id' } });
 
-		expect(classes('spread')).toEqual([SCOPE_HASH, 'from-spread']);
+		expect(classes('spread')).toEqual(['from-spread', SCOPE_HASH]);
 		expect(classes('class-before')).toEqual(['base', SCOPE_HASH, 'from-spread']);
 		expect(classes('class-after')).toEqual(['from-spread', 'last', SCOPE_HASH]);
 		expect(container.querySelector('[data-probe="spread"]')?.id).toBe('spread-id');
@@ -121,32 +106,16 @@ describe('sibling-scoped apply runtime (vue)', function () {
 		const bag = reactive<Record<string, unknown>>({ class: 'one' });
 		await render(SpreadClassApp, { bag });
 
-		expect(classes('spread')).toEqual([SCOPE_HASH, 'one']);
+		expect(classes('spread')).toEqual(['one', SCOPE_HASH]);
 
 		bag.class = 'two';
 		await flush();
-		expect(classes('spread')).toEqual([SCOPE_HASH, 'two']);
+		expect(classes('spread')).toEqual(['two', SCOPE_HASH]);
 
 		delete bag.class;
 		await flush();
 		expect(classes('spread')).toEqual([SCOPE_HASH]);
 	});
-
-	// Vue sets a spread's `className` as a DOM property, which replaces the
-	// class rather than joining it.
-	for (const [label, bag] of [
-		['a className', { className: 'mine', id: 'spread-id' }],
-		['a className beside a class', { class: 'joined', className: 'mine' }],
-		['an undefined className', { className: undefined }],
-	] as const) {
-		it(`renders a host spread with ${label} as Vue does, beside the scope hash`, async function () {
-			await render(SpreadClassNameApp, { bag });
-
-			for (const probe of ['spread', 'class-before', 'class-after']) {
-				expect(class_list(probe)).toEqual([...class_list(`native-${probe}`), SCOPE_HASH]);
-			}
-		});
-	}
 
 	for (const [label, value] of [
 		['an undefined', undefined],

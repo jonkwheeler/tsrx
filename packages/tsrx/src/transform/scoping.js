@@ -395,13 +395,9 @@ function merge_spread_classes(attrs, class_index, parts, class_attr_name, spread
 		const attr = attrs[i];
 		if (attr.type !== 'JSXSpreadAttribute') continue;
 		// The attribute replaces a class an earlier spread passes under its
-		// name, but not under the alias, which the spread then drops. A class
-		// prop with another name, such as Vue's `className` beside `class`, may
-		// replace the attribute's class wherever the spread is written, so it
-		// keeps the scope classes either way.
+		// name, but not under the alias, which the spread then drops.
 		const before = i < class_index;
-		if (before && !alias && key === class_attr_name) continue;
-		const drops = before && !!alias;
+		if (before && !alias) continue;
 		// A nested scope stamps the element again: wrap the authored argument.
 		const argument = is_merge_spread_class_call(attr.argument)
 			? /** @type {AST.Expression} */ (attr.argument.arguments[0])
@@ -411,10 +407,10 @@ function merge_spread_classes(attrs, class_index, parts, class_attr_name, spread
 			argument: b.call(
 				MERGE_SPREAD_CLASS_INTERNAL_NAME,
 				argument,
-				drops ? b.literal(null, 'null') : scope_class,
+				before ? b.literal(null, 'null') : scope_class,
 				b.literal(key, JSON.stringify(key)),
 				alias && b.literal(alias, JSON.stringify(alias)),
-				!drops && list && b.literal(true, 'true'),
+				!before && list && b.literal(true, 'true'),
 			),
 		};
 	}

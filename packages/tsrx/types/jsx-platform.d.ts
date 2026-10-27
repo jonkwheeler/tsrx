@@ -430,15 +430,14 @@ export interface JsxPlatform {
 		 * the spread's class with the scope classes.
 		 *
 		 * - One prop, such as React's `['className']` or Solid's `['class']`.
-		 *   Vue lists only `['className']`: its `mergeProps` joins `class`
-		 *   across attributes and spreads itself, while `className` is a DOM
-		 *   property that replaces the class.
 		 * - Both, `['class', 'className']`, for runtimes that read either, such
 		 *   as Preact's and Hono's: a spread's class moves to the name of the
 		 *   element's class attribute, so the element keeps one class prop. A
 		 *   spread written before the class attribute loses its class, which
 		 *   the attribute would replace anyway.
-		 * - `undefined`: spreads stay as written.
+		 * - `undefined`: spreads stay as written, for a runtime that joins
+		 *   `class` across attributes and spreads itself, such as Vue's
+		 *   `mergeProps`.
 		 *
 		 * A spread's class joins the scope classes as text, as in the class
 		 * attribute, except a thenable class (Hono's server `css`), which applies

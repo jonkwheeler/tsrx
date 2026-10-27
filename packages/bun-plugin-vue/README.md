@@ -34,6 +34,20 @@ import tsrxVue from '@tsrx/bun-plugin-vue';
 Bun.plugin(tsrxVue());
 ```
 
+A preload compiles `.tsrx` modules and leaves every other module to Bun. It
+doesn't add `vaporInteropPlugin` to `createVaporApp()` calls, as `Bun.build()`
+does, so install it yourself where you need it:
+
+```ts
+import { createVaporApp, vaporInteropPlugin } from 'vue';
+
+createVaporApp(App).use(vaporInteropPlugin).mount('#app');
+```
+
+Preloads cover `.tsrx` modules that export plain values. A component with a
+template fails to load under `bun:test`, because Vue 3.6's `node` entry, which
+Bun's runtime resolves, has no Vapor APIs such as `template`.
+
 ## Options
 
 - `vapor`: options forwarded to `vue-jsx-vapor`.

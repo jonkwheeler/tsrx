@@ -3,7 +3,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 // A `bun:test` preload registers the plugin with Bun.plugin(), which requires
-// an object from every onLoad hook, including for modules it leaves alone.
+// an object from every onLoad hook it calls, so the plugin must not claim
+// modules it leaves alone.
 test('works as a bun:test preload', async () => {
 	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
 	try {
@@ -65,6 +66,40 @@ test('loads both and the left-out file as Bun does', () => {
 		}
 		const child = Bun.spawnSync({
 			cmd: [process.execPath, 'test', '--preload', './preload.mjs', './split.test.js'],
+			cwd: dir,
+		});
+		expect(child.stderr.toString()).toContain(' 1 pass');
+		expect(child.exitCode).toBe(0);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+// An async onLoad hook makes Bun load the module asynchronously, and
+// `require()` can't load an async module. The interop hook runs only in
+// Bun.build(), so CommonJS and `require()` keep working under the preload.
+test('leaves require() of project modules working in a bun:test preload', async () => {
+	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
+	try {
+		const files = {
+			'preload.mjs': `import { tsrxVue } from ${JSON.stringify(join(import.meta.dir, '../src/index.js'))};\nBun.plugin(tsrxVue());\n`,
+			'legacy.cjs': "module.exports = { value: 'cjs' };\n",
+			'helper.js': "exports.value = 'js';\n",
+			'typed.cts': "const value: string = 'cts';\nmodule.exports = { value };\n",
+			'require.test.js': `import { expect, test } from 'bun:test';
+import { createRequire } from 'node:module';
+test('requires CommonJS project modules', () => {
+	const load = createRequire(import.meta.url);
+	expect([load('./legacy.cjs'), load('./helper.js'), load('./typed.cts')].map((m) => m.value)).toEqual(['cjs', 'js', 'cts']);
+	expect(require('./legacy.cjs').value).toBe('cjs');
+});
+`,
+		};
+		for (const [name, contents] of Object.entries(files)) {
+			await writeFile(join(dir, name), contents);
+		}
+		const child = Bun.spawnSync({
+			cmd: [process.execPath, 'test', '--preload', './preload.mjs', './require.test.js'],
 			cwd: dir,
 		});
 		expect(child.stderr.toString()).toContain(' 1 pass');

@@ -311,18 +311,21 @@ export function tsrxVue(options = {}) {
 				return runtime ? load_elsewhere(runtime, args.path) : undefined;
 			});
 
-			build.onLoad({ filter: PROJECT_SOURCE_PATTERN, namespace: 'file' }, async (args) => {
-				const source = await readFile(args.path, 'utf-8');
-				const transformed = addVaporInteropToCreateVaporApp(source);
-				// Bun.build() loads the file itself when a hook returns nothing, but
-				// Bun.plugin() registration requires an object from every hook.
-				if (transformed === source && build.config) return undefined;
+			// Only Bun.build() runs the interop rewrite. Under Bun.plugin() this hook
+			// would have to answer for every project module, and a module an async
+			// hook loads can't be `require()`d, which breaks CommonJS.
+			if (build.config) {
+				build.onLoad({ filter: PROJECT_SOURCE_PATTERN, namespace: 'file' }, async (args) => {
+					const source = await readFile(args.path, 'utf-8');
+					const transformed = addVaporInteropToCreateVaporApp(source);
+					if (transformed === source) return undefined;
 
-				return {
-					contents: transformed,
-					loader: get_source_loader(args.path),
-				};
-			});
+					return {
+						contents: transformed,
+						loader: get_source_loader(args.path),
+					};
+				});
+			}
 		},
 	};
 }

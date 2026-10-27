@@ -16,6 +16,7 @@ import {
 	DIAGNOSTIC_CODES,
 	error,
 	has_location,
+	IDENTIFIER_OBFUSCATION_PREFIX,
 	is_component_like_element,
 	MERGE_REFS_INTERNAL_NAME,
 	NORMALIZE_SPREAD_PROPS_FOR_REF_ATTR_INTERNAL_NAME,
@@ -827,7 +828,7 @@ function wrap_native_function_component(fn, source, ctx, path) {
 
 	ctx.needs_define_vapor_component = true;
 	if (!ctx.typeOnly) {
-		fn = read_children_from_default_slot(fn, ctx);
+		fn = read_children_from_default_slot(fn, name, ctx);
 	}
 
 	const call = setLocation(
@@ -928,30 +929,47 @@ function contains_jsx(node) {
 	return found;
 }
 
+/** Local name of the `useSlots` import a component reads its children through. */
+const USE_SLOTS_INTERNAL_NAME = `${IDENTIFIER_OBFUSCATION_PREFIX}useSlots`;
+
 /**
  * vue-jsx-vapor passes a component's nested children as its default slot, not
  * as a `children` prop. Read `props.children`, or a `children` binding
  * destructured from the props parameter or from `props` at the top of the
- * body, as the prop when the caller passes one and as the default slot
- * otherwise, so the same source renders its children on every target.
+ * body, as the default slot when the caller passes nested children and as the
+ * `children` prop otherwise, so the same source renders its children on every
+ * target. Nested children win over a `children` prop, as on React.
+ *
+ * The slot is rendered once, when the component is set up, and every read
+ * shares that block: rendering it again for each read would run the
+ * children's setup again, and a block rendered inside a branch is disposed
+ * with it. So the block exists, and is truthy, whenever the caller writes
+ * nested children, even when they render nothing.
  *
  * @param {AST.Function} fn
+ * @param {string} name the component's name
  * @param {TransformContext} ctx
  * @returns {AST.Function}
  */
-function read_children_from_default_slot(fn, ctx) {
+function read_children_from_default_slot(fn, name, ctx) {
 	const param = fn.params[0];
 	/** @type {ChildrenReadState} */
 	const state = {
 		props_name: param?.type === 'Identifier' ? param.name : null,
 		children_names: new Set(),
+		children_defaults: new Map(),
 		shadowed_names: new Set(),
-		slots_id: create_generated_identifier('__slots'),
+		slot_id: create_generated_identifier(
+			`${IDENTIFIER_OBFUSCATION_PREFIX}${name.replace(/[^\w$]/g, '_')}_children`,
+		),
 		// Shared by reference: the scope visitors copy the state for each scope.
 		rewrites: { count: 0 },
 	};
+	let params = fn.params;
 	if (param?.type === 'ObjectPattern') {
 		add_children_binding_names(param, state.children_names);
+		const without_defaults = remove_children_defaults(param, state.children_defaults);
+		if (without_defaults !== param) params = [without_defaults, ...fn.params.slice(1)];
 	}
 	// `const { children } = props;` at the top of the component body.
 	for (const statement of fn.body.type === 'BlockStatement' ? fn.body.body : []) {
@@ -969,6 +987,29 @@ function read_children_from_default_slot(fn, ctx) {
 	if (!state.props_name && state.children_names.size === 0) {
 		return fn;
 	}
+
+	/**
+	 * @param {AST.Node} node
+	 * @param {import('zimmerframe').Context<AST.Node, ChildrenReadState>} context
+	 */
+	const shadow_head = (node, { state, next }) => {
+		/** @type {AST.Node[]} */
+		const bindings = [];
+		if (node.type === 'CatchClause' && node.param) bindings.push(node.param);
+		const head =
+			node.type === 'ForStatement'
+				? node.init
+				: node.type === 'ForInStatement' || node.type === 'ForOfStatement'
+					? node.left
+					: null;
+		if (head?.type === 'VariableDeclaration') {
+			for (const declarator of head.declarations) bindings.push(declarator.id);
+		}
+		if (bindings.length === 0) return next();
+		const shadowed_names = new Set(state.shadowed_names);
+		for (const binding of bindings) collect_pattern_names(binding, shadowed_names);
+		return next({ ...state, shadowed_names });
+	};
 
 	const body = /** @type {AST.BlockStatement | AST.Expression} */ (
 		walk(/** @type {AST.Node} */ (fn.body), state, {
@@ -1015,6 +1056,10 @@ function read_children_from_default_slot(fn, ctx) {
 			FunctionDeclaration: rewrite_function_shadowed_refs,
 			FunctionExpression: rewrite_function_shadowed_refs,
 			ArrowFunctionExpression: rewrite_function_shadowed_refs,
+			CatchClause: shadow_head,
+			ForStatement: shadow_head,
+			ForInStatement: shadow_head,
+			ForOfStatement: shadow_head,
 			BlockStatement(node, context) {
 				// The component body declares the destructured `children` binding;
 				// it cannot redeclare the props parameter or its bindings.
@@ -1028,15 +1073,18 @@ function read_children_from_default_slot(fn, ctx) {
 	}
 
 	ctx.needs_use_slots = true;
-	const slots_declaration = b.declaration('const', [
-		b.declarator(state.slots_id, b.call('useSlots')),
-	]);
+	// `const _$_Card_children = _$_useSlots().default?.();`
+	const slot_declaration = b.const(
+		state.slot_id,
+		b.maybe_call(b.member(b.call(USE_SLOTS_INTERNAL_NAME), 'default')),
+	);
 	const statements =
 		body.type === 'BlockStatement' ? body.body : [b.return(/** @type {AST.Expression} */ (body))];
 	return /** @type {AST.Function} */ ({
 		...fn,
+		params,
 		body: b.block(
-			[slots_declaration, ...statements],
+			[slot_declaration, ...statements],
 			body.type === 'BlockStatement' && has_location(body) ? body : undefined,
 		),
 		...(fn.type === 'ArrowFunctionExpression' ? { expression: false } : null),
@@ -1047,8 +1095,9 @@ function read_children_from_default_slot(fn, ctx) {
  * @typedef {{
  *   props_name: string | null,
  *   children_names: Set<string>,
+ *   children_defaults: Map<string, AST.Expression>,
  *   shadowed_names: Set<string>,
- *   slots_id: AST.Identifier,
+ *   slot_id: AST.Identifier,
  *   rewrites: { count: number },
  * }} ChildrenReadState
  */
@@ -1060,15 +1109,41 @@ function read_children_from_default_slot(fn, ctx) {
  */
 function add_children_binding_names(pattern, names) {
 	for (const property of pattern.properties) {
-		if (
-			property.type === 'Property' &&
-			!property.computed &&
-			get_static_name(property.key) === 'children' &&
-			property.value.type === 'Identifier'
-		) {
-			names.add(property.value.name);
-		}
+		if (property.type !== 'Property' || property.computed) continue;
+		if (get_static_name(property.key) !== 'children') continue;
+		const value =
+			property.value.type === 'AssignmentPattern' ? property.value.left : property.value;
+		if (value.type === 'Identifier') names.add(value.name);
 	}
+}
+
+/**
+ * Drop the default of a destructured `children` parameter (`{ children = x }`)
+ * and record it, so a read can fall back from the slot to the prop to the
+ * default. Left in place, vue-jsx-vapor would turn it into the prop's default,
+ * which would hide the slot.
+ *
+ * @param {AST.ObjectPattern} pattern
+ * @param {Map<string, AST.Expression>} defaults
+ * @returns {AST.ObjectPattern}
+ */
+function remove_children_defaults(pattern, defaults) {
+	let changed = false;
+	const properties = pattern.properties.map((property) => {
+		if (
+			property.type !== 'Property' ||
+			property.computed ||
+			get_static_name(property.key) !== 'children' ||
+			property.value.type !== 'AssignmentPattern' ||
+			property.value.left.type !== 'Identifier'
+		) {
+			return property;
+		}
+		changed = true;
+		defaults.set(property.value.left.name, property.value.right);
+		return { ...property, value: property.value.left };
+	});
+	return changed ? { ...pattern, properties } : pattern;
 }
 
 /**
@@ -1083,6 +1158,7 @@ function is_binding_position(node, parent, grandparent) {
 		(parent.type === 'Property' && grandparent?.type === 'ObjectPattern') ||
 		parent.type === 'ArrayPattern' ||
 		parent.type === 'RestElement' ||
+		parent.type === 'CatchClause' ||
 		(parent.type === 'AssignmentPattern' && parent.left === node)
 	);
 }
@@ -1102,7 +1178,8 @@ function is_props_children_read(node, parent, state) {
 		(node.computed
 			? node.property.type === 'Literal' && node.property.value === 'children'
 			: node.property.type === 'Identifier' && node.property.name === 'children') &&
-		!is_assignment_target(node, parent)
+		!is_assignment_target(node, parent) &&
+		!(parent?.type === 'UnaryExpression' && parent.operator === 'delete')
 	);
 }
 
@@ -1128,7 +1205,7 @@ function is_assignment_target(node, parent) {
 }
 
 /**
- * `<read> ?? __slots.default?.()`
+ * `_$_Card_children ?? <read>`, then the destructured default if there is one.
  *
  * @param {AST.Expression} read
  * @param {ChildrenReadState} state
@@ -1136,7 +1213,9 @@ function is_assignment_target(node, parent) {
  */
 function read_children_or_default_slot(read, state) {
 	state.rewrites.count += 1;
-	return b.logical('??', read, b.maybe_call(b.member(clone_identifier(state.slots_id), 'default')));
+	const slot_or_prop = b.logical('??', clone_identifier(state.slot_id), read);
+	const fallback = read.type === 'Identifier' ? state.children_defaults.get(read.name) : undefined;
+	return fallback ? b.logical('??', slot_or_prop, clone_ast_node(fallback)) : slot_or_prop;
 }
 
 /**
@@ -1900,7 +1979,7 @@ function inject_vue_imports(program, transform_context) {
 	}
 
 	if (transform_context.needs_use_slots) {
-		ensure_named_import(program, 'vue', 'useSlots');
+		ensure_named_import(program, 'vue', 'useSlots', USE_SLOTS_INTERNAL_NAME);
 	}
 
 	if (transform_context.needs_suspense) {
@@ -1947,13 +2026,19 @@ function inject_vue_imports(program, transform_context) {
  */
 function ensure_named_import(program, source, name, local = name) {
 	for (const statement of program.body) {
-		if (statement.type !== 'ImportDeclaration' || statement.source?.value !== source) {
+		// A type-only import is erased, and so would a value specifier added to it.
+		if (
+			statement.type !== 'ImportDeclaration' ||
+			statement.source?.value !== source ||
+			/** @type {{ importKind?: string }} */ (statement).importKind === 'type'
+		) {
 			continue;
 		}
 
 		const has_specifier = statement.specifiers.some(
 			(specifier) =>
 				specifier.type === 'ImportSpecifier' &&
+				/** @type {{ importKind?: string }} */ (specifier).importKind !== 'type' &&
 				specifier.imported?.type === 'Identifier' &&
 				specifier.imported.name === name &&
 				specifier.local?.name === local,

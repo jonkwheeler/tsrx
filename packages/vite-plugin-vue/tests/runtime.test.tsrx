@@ -1654,6 +1654,96 @@ function ChildrenPropApp() @{
 	<ChildrenCard title="t" children={<p>{'from prop'}</p>} />
 }
 
+const children_setups = { count: 0 };
+
+function CountedChild() @{
+	children_setups.count++;
+	<i class="counted">{'counted'}</i>
+}
+
+function MaybeChildren(props: { children?: JSX.Element }) @{
+	<div class="maybe">
+		{props.children ? (
+			<div class="has-children">{props.children}</div>
+		) : (
+			<span class="no-children" />
+		)}
+	</div>
+}
+
+function CountedChildrenApp() @{
+	<MaybeChildren>
+		<CountedChild />
+	</MaybeChildren>
+}
+
+function NoChildrenApp() @{
+	<MaybeChildren />
+}
+
+function EmptiedChildrenApp() @{
+	const show = ref(true);
+	<>
+		<button class="hide" onClick={() => (show.value = false)}>
+			{'hide'}
+		</button>
+		<MaybeChildren>{show.value ? <p class="shown">{'shown'}</p> : null}</MaybeChildren>
+	</>
+}
+
+function SlotAndPropApp() @{
+	<>
+		<ChildrenCard title="both" children={<b class="from-prop">{'prop'}</b>}>
+			<i class="from-slot">{'slot'}</i>
+		</ChildrenCard>
+		<ChildrenCard title="null" children={null} />
+	</>
+}
+
+function DefaultChildrenCard({ children = 'none' }: { children?: JSX.Element | string }) @{
+	<p class="default-children">{children}</p>
+}
+
+function DefaultChildrenApp() @{
+	<>
+		<DefaultChildrenCard />
+		<DefaultChildrenCard>
+			<b>{'given'}</b>
+		</DefaultChildrenCard>
+	</>
+}
+
+function OuterChildren(props: { children?: JSX.Element }) @{
+	function InnerChildren(inner: { children?: JSX.Element }) @{
+		<span class="inner-children">
+			{inner.children}
+			{props.children}
+		</span>
+	}
+	<InnerChildren>
+		<b>{'inner'}</b>
+	</InnerChildren>
+}
+
+function OuterChildrenApp() @{
+	<OuterChildren>
+		<u>{'outer'}</u>
+	</OuterChildren>
+}
+
+function SpreadChildren(props: { children?: JSX.Element }) @{
+	<>
+		<ChildrenCard title="spread" {...props} />
+		<ChildrenCard title="passed">{props.children}</ChildrenCard>
+	</>
+}
+
+function SpreadChildrenApp() @{
+	<SpreadChildren>
+		<em>{'forwarded'}</em>
+	</SpreadChildren>
+}
+
 describe('tsrx-vue component children', () => {
 	it('renders nested children read through props.children', async () => {
 		await render(NestedChildrenApp);
@@ -1667,6 +1757,59 @@ describe('tsrx-vue component children', () => {
 	it('still renders a children prop passed explicitly', async () => {
 		await render(ChildrenPropApp);
 		expect(text('.card p')).toBe('from prop');
+	});
+
+	it('renders the slot once for every read of props.children', async () => {
+		children_setups.count = 0;
+		await render(CountedChildrenApp);
+		expect(container.querySelectorAll('.has-children .counted')).toHaveLength(1);
+		expect(children_setups.count).toBe(1);
+	});
+
+	it('reads no children when the caller passes none', async () => {
+		await render(NoChildrenApp);
+		expect(container.querySelector('.no-children')).not.toBeNull();
+		expect(container.querySelector('.has-children')).toBeNull();
+	});
+
+	it('keeps the slot truthy when the caller writes children that render nothing', async () => {
+		// Vue passes nested children as a slot block, which exists whenever the
+		// caller writes children, so a truthiness check cannot see that they
+		// now render nothing. React would render the `no-children` branch here.
+		await render(EmptiedChildrenApp);
+		expect(text('.has-children .shown')).toBe('shown');
+
+		await click('.hide');
+		expect(container.querySelector('.shown')).toBeNull();
+		expect(container.querySelector('.has-children')).not.toBeNull();
+	});
+
+	it('prefers nested children over a children prop, and keeps a null children prop', async () => {
+		await render(SlotAndPropApp);
+		expect(texts('.card i')).toEqual(['slot']);
+		expect(container.querySelector('.from-prop')).toBeNull();
+		expect(texts('.card h2')).toEqual(['both', 'null']);
+	});
+
+	it('falls back to a destructured children default only without children', async () => {
+		await render(DefaultChildrenApp);
+		// A slot keeps a trailing text anchor in its host (#870).
+		expect(texts('.default-children').map((value) => value?.trim())).toEqual(['none', 'given']);
+	});
+
+	it("reads the outer component's children inside a nested component", async () => {
+		await render(OuterChildrenApp);
+		expect(container.querySelector('.inner-children')?.innerHTML).toContain(
+			'<b>inner</b><u>outer</u>',
+		);
+	});
+
+	it('does not forward nested children through a props spread', async () => {
+		// `{...props}` carries props, and Vue passes nested children as a slot,
+		// so pass them on explicitly. React forwards them through the spread.
+		await render(SpreadChildrenApp);
+		expect(texts('.card em')).toEqual(['forwarded']);
+		expect(container.querySelectorAll('.card')[1]?.querySelector('em')).not.toBeNull();
 	});
 });
 

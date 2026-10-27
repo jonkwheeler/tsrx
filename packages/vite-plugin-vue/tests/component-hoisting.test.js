@@ -8,7 +8,7 @@ import { tsrxVue } from '../src/index.js';
 // Modules that read a component above its declaration, loaded through Vite
 // and vue-jsx-vapor. A wrapped component is a `const`, so the compiler moves
 // it above an early read when that changes nothing else, and reports
-// TSRX2027 when its prop defaults would read a binding it moves past.
+// TSRX2028 when its prop defaults would read a binding it moves past.
 const FIXTURES = {
 	'registry.tsrx': `export const registry = { inner: Inner };
 export function Inner(props: { label: string }) @{
@@ -125,7 +125,7 @@ describe('[vue] components read above their declaration', () => {
 		expect(module.Card).toBe(module.default);
 	});
 
-	it('reports TSRX2027 instead of moving a component past a binding its prop default reads', async () => {
+	it('reports TSRX2028 instead of moving a component past a binding its prop default reads', async () => {
 		await expect(load('unsafe.tsrx')).rejects.toThrow(
 			"'Inner' is read here before its declaration.",
 		);

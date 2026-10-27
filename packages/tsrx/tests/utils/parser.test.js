@@ -11155,6 +11155,26 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			errors: [[TS_ERRORS.LET_DECLARATION_NAME, 'let:']],
 			throws: [TS_ERRORS.LET_DECLARATION_NAME, '1:12'],
 		},
+		// There, a parameter property modifier on a function's parameter is
+		// TS2369 at the modifier in a strict parse too, not a reserved word.
+		{
+			source: 'declare function h(private x: number): void;',
+			errors: [[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'private']],
+			throws: [TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, '1:19'],
+		},
+		{
+			source: 'declare namespace N {\n\tfunction f(protected x: number): void;\n}',
+			errors: [[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'protected']],
+			throws: [TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, '2:12'],
+		},
+		{
+			source: 'declare function h(public ...x: number[]): void;',
+			errors: [
+				[TS_ERRORS.REST_PARAMETER_PROPERTY, 'public'],
+				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
+			],
+			throws: [TS_ERRORS.REST_PARAMETER_PROPERTY, '1:19'],
+		},
 		// TypeScript reads a `let`, `const` or `using` declaration after `if (…)`
 		// or a loop head, and its checker reports TS1156 there. acorn read `let`
 		// as a name, and rejected the others.

@@ -283,4 +283,23 @@ export function A({ items }) @{
 			"6: no-undef: 'j' is not defined.",
 		]);
 	});
+
+	it('locates the loop of a @for with any line break', () => {
+		for (const line_break of ['\n', '\r\n', '\r', ' ']) {
+			const code = [
+				'export function A({ items }) @{',
+				'\t<ul>',
+				'\t\t@for (const item of items) { <li>{item}</li> }',
+				'\t</ul>',
+				'}',
+			].join(line_break);
+			const tsrx_for = (parseForESLint(code, { filePath: 'App.tsrx' }).ast as any).body[0]
+				.declaration.body.render.children[1];
+			expect(tsrx_for.loc.start).toEqual({ line: 3, column: 2 });
+			expect(tsrx_for.loop.loc).toEqual({
+				start: { line: 3, column: 3 },
+				end: { line: 3, column: 48 },
+			});
+		}
+	});
 });

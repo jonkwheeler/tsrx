@@ -212,7 +212,7 @@ function normalize_tsrx_ast_for_eslint(ast: any, code: string): Span[] {
  * Recursively walks the AST and ensures all nodes have range and loc properties
  * ESLint's scope analyzer requires these properties on ALL nodes
  */
-function ensure_node_properties(node: any, code: string): void {
+function ensure_node_properties(node: any, locate: Locate): void {
 	if (!node || typeof node !== 'object') {
 		return;
 	}
@@ -224,38 +224,7 @@ function ensure_node_properties(node: any, code: string): void {
 
 	// Ensure loc property exists
 	if (!node.loc && node.start !== undefined && node.end !== undefined) {
-		const lines = code.split('\n');
-		let current_pos = 0;
-		let start_line = 1;
-		let start_column = 0;
-		let end_line = 1;
-		let end_column = 0;
-
-		for (let i = 0; i < lines.length; i++) {
-			const line_length = lines[i].length + 1;
-			if (current_pos + line_length > node.start) {
-				start_line = i + 1;
-				start_column = node.start - current_pos;
-				break;
-			}
-			current_pos += line_length;
-		}
-
-		current_pos = 0;
-		for (let i = 0; i < lines.length; i++) {
-			const line_length = lines[i].length + 1;
-			if (current_pos + line_length > node.end) {
-				end_line = i + 1;
-				end_column = node.end - current_pos;
-				break;
-			}
-			current_pos += line_length;
-		}
-
-		node.loc = {
-			start: { line: start_line, column: start_column },
-			end: { line: end_line, column: end_column },
-		};
+		node.loc = locate(node.start, node.end);
 	}
 
 	for (const key in node) {
@@ -265,9 +234,9 @@ function ensure_node_properties(node: any, code: string): void {
 
 		const value = node[key];
 		if (Array.isArray(value)) {
-			value.forEach((child) => ensure_node_properties(child, code));
+			value.forEach((child) => ensure_node_properties(child, locate));
 		} else if (value && typeof value === 'object' && value.type) {
-			ensure_node_properties(value, code);
+			ensure_node_properties(value, locate);
 		}
 	}
 }
@@ -569,9 +538,9 @@ export function parseForESLint(code: string, options?: Linter.ParserOptions): Pa
 		const texts = normalize_tsrx_ast_for_eslint(ast, code);
 
 		// Recursively ensure all nodes have range and loc properties
-		ensure_node_properties(ast, code);
-
 		const locate = create_locator(code);
+		ensure_node_properties(ast, locate);
+
 		const eslint_comments = to_eslint_comments(code, comments, locate);
 
 		// Create a properly structured AST object ensuring all required properties exist

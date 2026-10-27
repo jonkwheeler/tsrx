@@ -4439,9 +4439,11 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 		// `using` binds only a name, so a pattern that awaits is never one.
 		const kind = /** @type {'const' | 'let' | 'var'} */ (node.left.kind);
 		callback_params = [item, ...loop_params.slice(1)];
+		// The head runs before the body's scope is entered, so the body's own
+		// declarations stay in a block of their own and can't shadow the head.
 		body_statements = [
 			b.declaration(kind, [b.declarator(loop_params[0], item)]),
-			...body_statements,
+			b.block(body_statements),
 		];
 	}
 

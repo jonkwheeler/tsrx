@@ -162,12 +162,21 @@ describe('@tsrx/vite-plugin-hono', () => {
 			const output_id = path.join(directory, 'App.js');
 			const transformed = await plugin.transform.call(
 				context,
-				`export async function App({ rows }) @{
-					<ul>
-						@for (const [item = await Promise.resolve('default')] of rows; index i) {
-							<li>{i}:{item}</li>
+				`const load = (value) => Promise.resolve(value);
+
+				export async function App({ rows }) @{
+					<>
+						<ul>
+							@for (const [item = await Promise.resolve('default')] of rows; index i) {
+								<li>{i}:{item}</li>
+							}
+						</ul>
+						@for (const [label = await load('outer')] of [[]]) {
+							// The head runs before the body's declarations exist, as in for...of.
+							const load = () => 'inner';
+							<p class="shadowed">{label}:{load()}</p>
 						}
-					</ul>
+					</>
 				}`,
 				source_id,
 			);
@@ -184,6 +193,7 @@ describe('@tsrx/vite-plugin-hono', () => {
 			for await (const chunk of stream) html += new TextDecoder().decode(chunk);
 
 			expect(html).toContain('<ul><li>0:default</li><li>1:given</li></ul>');
+			expect(html).toContain('<p class="shadowed">outer:inner</p>');
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}

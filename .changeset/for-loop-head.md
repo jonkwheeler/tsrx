@@ -6,4 +6,4 @@ An `@for` head that assigns to an existing variable or property, as in `@for (st
 
 Migration: a head without `const` or `let` that compiled before, such as `@for (item of items)`, is now an error. Declare the loop variable: `@for (const item of items)`. To dispose each item, declare the resource in the loop body: `@for (const item of items) { using resource = item; ... }`.
 
-An `await` in a destructuring default of an `@for` head, as in `@for (const [item = await load()] of rows)`, no longer produces a module that fails to load with "Illegal await-expression in formal parameters of async function". The loop callback now destructures the item in its body.
+An `await` in a destructuring default of an `@for` head, as in `@for (const [item = await load()] of rows)`, no longer produces a module that fails to load with "Illegal await-expression in formal parameters of async function". The loop callback now destructures the item first and runs the loop body in a block of its own, so the body's declarations can't shadow names the head reads.

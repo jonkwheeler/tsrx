@@ -301,6 +301,109 @@ export function List({ items =${whitespace}EMPTY_ARRAY as string[] }: { items?: 
 		});
 	});
 
+	describe(`[${name}] await outside the output's children and statement bodies (#1201)`, () => {
+		/** @type {Record<string, string>} */
+		const SOURCES = {
+			'root element attribute': `export async function App(props: { p: Promise<string> }) @{
+	<div title={await props.p} />
+}`,
+			'root element attribute before a child': `export async function App(props: { p: Promise<string> }) @{
+	<div title={await props.p}>{await props.p}</div>
+}`,
+			'if test': `export async function App(props: { p: Promise<boolean> }) @{
+	let label = 'no';
+	if (await props.p) {
+		label = 'yes';
+	}
+	<div>{label}</div>
+}`,
+			'switch discriminant and case test': `export async function App(props: { p: Promise<number> }) @{
+	let label = 'other';
+	switch (await props.p) {
+		case await props.p:
+			label = 'same';
+	}
+	<div>{label}</div>
+}`,
+			'catch parameter default': `export async function App(props: { p: Promise<string> }) @{
+	let label = 'ok';
+	try {
+		label = String(props.p);
+	} catch ({ message = await props.p }) {
+		label = message;
+	}
+	<div>{label}</div>
+}`,
+			'await using declaration': `declare const res0: AsyncDisposable & { name: string };
+export async function App() @{
+	await using res = res0;
+	<div>{res.name}</div>
+}`,
+			'for (await using …) head': `export async function App(props: { items: (AsyncDisposable & { name: string })[] }) @{
+	let name = '';
+	for (await using res of props.items) {
+		name = res.name;
+	}
+	<div>{name}</div>
+}`,
+		};
+
+		if (rejectsComponentAwait) {
+			it.each(Object.keys(SOURCES))('reports each await in the %s once', (label) => {
+				const source = SOURCES[label];
+				const awaits = [...source.matchAll(/\bawait\b/g)].map((match) => match.index);
+				expect(() => compile(source, 'App.tsrx')).toThrow(
+					expect.objectContaining({
+						code: DIAGNOSTIC_CODES.TARGET_AWAIT_UNSUPPORTED,
+						pos: awaits[0],
+					}),
+				);
+				for (const { errors } of [
+					compile(source, 'App.tsrx', { collect: true }),
+					compile_to_volar_mappings(source, 'App.tsrx'),
+				]) {
+					expect(errors.map((error) => [error.code, error.pos])).toEqual(
+						awaits.map((start) => [DIAGNOSTIC_CODES.TARGET_AWAIT_UNSUPPORTED, start]),
+					);
+				}
+			});
+
+			it.each([
+				['a root element attribute', '<div onClick={async () => { await load(0); }} />'],
+				[
+					'an if test',
+					`@{
+	let label = 'no';
+	if ((async () => await load(0))()) label = 'yes';
+	<div>{label}</div>
+}`,
+				],
+				[
+					'an await using declaration',
+					`@{
+	const read = async (res: AsyncDisposable) => {
+		await using held = res;
+	};
+	<div>{String(read)}</div>
+}`,
+				],
+			])('allows an await in a nested function in %s', (_label, output) => {
+				const source = `export function App() @{ ${output} }`;
+				expect(compile(source, 'App.tsrx', { collect: true }).errors).toEqual([]);
+				expect(compile_to_volar_mappings(source, 'App.tsrx').errors).toEqual([]);
+			});
+			return;
+		}
+
+		it.each(Object.keys(SOURCES))('accepts the await in the %s', (label) => {
+			const source = SOURCES[label];
+			const result = compile(source, 'App.tsrx', { collect: true });
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain('async function App');
+			expect(compile_to_volar_mappings(source, 'App.tsrx').errors).toEqual([]);
+		});
+	});
+
 	describe(`[${name}] yield in lowered expressions (#246)`, () => {
 		/** @type {Record<string, string>} */
 		const SOURCES = {

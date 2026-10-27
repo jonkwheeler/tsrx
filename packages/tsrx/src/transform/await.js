@@ -59,8 +59,8 @@ export function find_first_top_level_await(node, inside_nested_function) {
 }
 
 /**
- * Every `await` in `node` outside nested functions, in source order, including
- * one inside another.
+ * Every `await` in `node` outside nested functions, including one inside
+ * another, in the order the walk meets them.
  *
  * @param {AST.Node | AST.Node[] | null | undefined} node
  * @param {AST.TSRXAwaitNode[]} [awaits]
@@ -93,12 +93,16 @@ export function find_top_level_awaits(node, awaits = []) {
 }
 
 /**
+ * An `await using` declaration awaits its resources' disposal, so it counts as
+ * an `await` even though it holds no `AwaitExpression`.
+ *
  * @param {AST.Node} node
  * @returns {node is AST.TSRXAwaitNode}
  */
 function is_await_node(node) {
 	return (
 		node.type === 'AwaitExpression' ||
+		(node.type === 'VariableDeclaration' && node.kind === 'await using') ||
 		(node.type === 'ForOfStatement' && node.await === true) ||
 		(node.type === 'JSXForExpression' &&
 			node.statementType === 'ForOfStatement' &&

@@ -5,6 +5,7 @@ import {
 	DIAGNOSTIC_CODES,
 	parseModule as parse_module,
 } from '@tsrx/core';
+import { Definition, Referencer, ScopeManager } from 'eslint-scope';
 
 interface ParseResult {
 	ast: Program;
@@ -30,7 +31,7 @@ const visitorKeys: Record<string, string[]> = {
 	JSXText: [],
 	JSXStyleElement: ['openingElement', 'children', 'closingElement'],
 	JSXIfExpression: ['test', 'consequent', 'alternate'],
-	JSXForExpression: ['init', 'test', 'update', 'left', 'right', 'body', 'index', 'key', 'empty'],
+	JSXForExpression: ['index', 'key', 'loop', 'empty'],
 	JSXSwitchExpression: ['discriminant', 'cases'],
 	JSXSwitchCase: ['test', 'consequent'],
 	JSXTryExpression: ['block', 'handler', 'finalizer', 'pending'],
@@ -40,10 +41,72 @@ const visitorKeys: Record<string, string[]> = {
 };
 
 /**
+ * eslint-scope's referencer, plus the `@for` parts: the loop's `index` and
+ * `key` belong to the loop's scope, like its variable, and the `@empty` branch
+ * runs outside it. TSRX gives every iteration its own index.
+ */
+class TSRXReferencer extends Referencer {
+	#tsrx_for_by_loop = new Map<any, any>();
+
+	JSXForExpression(node: any): void {
+		this.#tsrx_for_by_loop.set(node.loop, node);
+		this.visit(node.loop);
+		if (node.empty) this.visit(node.empty);
+	}
+
+	close(node: any): void {
+		const tsrx_for = this.#tsrx_for_by_loop.get(node);
+		if (tsrx_for?.index) {
+			(this.currentScope() as any).__define(
+				tsrx_for.index,
+				new (Definition as any)('Variable', tsrx_for.index, tsrx_for, tsrx_for, null, null),
+			);
+		}
+		if (tsrx_for?.key) this.visit(tsrx_for.key);
+		super.close(node);
+	}
+}
+
+/**
+ * Scope analysis as ESLint runs it, with `TSRXReferencer`. A `.tsrx` file is
+ * always a module.
+ */
+function analyze_scope(ast: any, options: Linter.ParserOptions | undefined): any {
+	const ecma_features = options?.ecmaFeatures ?? {};
+	const scope_options = {
+		ignoreEval: true,
+		nodejsScope: ecma_features.globalReturn,
+		impliedStrict: ecma_features.impliedStrict,
+		ecmaVersion: typeof options?.ecmaVersion === 'number' ? options.ecmaVersion : 6,
+		sourceType: 'module',
+		childVisitorKeys: visitorKeys,
+		// eslint-visitor-keys' `getKeys`, which ESLint passes
+		fallback: (node: any) =>
+			Object.keys(node).filter(
+				(key) =>
+					key !== 'parent' &&
+					key !== 'leadingComments' &&
+					key !== 'trailingComments' &&
+					key[0] !== '_',
+			),
+		jsx: ecma_features.jsx,
+	};
+	const scope_manager = new ScopeManager(scope_options as any);
+	new TSRXReferencer(scope_options as any, scope_manager).visit(ast);
+	return scope_manager;
+}
+
+const LOOP_FIELDS: Record<string, string[]> = {
+	ForStatement: ['init', 'test', 'update', 'body'],
+	ForInStatement: ['left', 'right', 'body'],
+	ForOfStatement: ['await', 'left', 'right', 'body'],
+};
+
+/**
  * Keep this hook for small ESLint-only AST normalizations. Returns the `JSXText`
  * nodes, which each get a token of their own.
  */
-function normalize_tsrx_ast_for_eslint(ast: any): Span[] {
+function normalize_tsrx_ast_for_eslint(ast: any, code: string): Span[] {
 	const texts: Span[] = [];
 	const seen = new Set<any>();
 	const visit = (node: any) => {
@@ -74,6 +137,23 @@ function normalize_tsrx_ast_for_eslint(ast: any): Span[] {
 					child.expression.type !== 'JSXEmptyExpression' ||
 					child.start !== child.expression.start,
 			);
+		}
+
+		// The loop of a `@for` is a real for statement in `loop`, so rules such as
+		// `semi` and `init-declarations` know its head. ESLint's code path analysis
+		// allows a for statement no fields of its own, so `index`, `key` and the
+		// `@empty` branch stay on `JSXForExpression`.
+		if (node.type === 'JSXForExpression') {
+			const loop: any = {
+				type: node.statementType,
+				start: code.indexOf('for', node.start),
+				end: node.body.end,
+			};
+			for (const key of LOOP_FIELDS[node.statementType]) {
+				loop[key] = node[key];
+				delete node[key];
+			}
+			node.loop = loop;
 		}
 
 		// Like espree, a template element spans its delimiters: `` `a${ ``, `` }b` ``.
@@ -465,7 +545,7 @@ export function parseForESLint(code: string, options?: Linter.ParserOptions): Pa
 		}
 
 		// Normalize for ESLint traversal (avoid duplicate node visits)
-		const texts = normalize_tsrx_ast_for_eslint(ast);
+		const texts = normalize_tsrx_ast_for_eslint(ast, code);
 
 		// Recursively ensure all nodes have range and loc properties
 		ensure_node_properties(ast, code);
@@ -494,6 +574,7 @@ export function parseForESLint(code: string, options?: Linter.ParserOptions): Pa
 			services: {
 				tsrxDiagnostics: errors,
 			},
+			scopeManager: analyze_scope(result, options),
 			visitorKeys,
 		};
 	} catch (error: any) {

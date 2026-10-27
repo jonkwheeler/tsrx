@@ -224,4 +224,47 @@ export function App() @{
 			).toEqual([`JSXText ${text}`]);
 		}
 	});
+
+	it('leaves @for heads alone under semi --fix', () => {
+		for (const head of [
+			'const item of items',
+			'let item of items',
+			'using item of items',
+			'const item of items; index i; key item.id',
+			'let n = 0; n < items.length; n++',
+		]) {
+			const code = `export function A({ items }) @{
+	@for (${head}) { <li /> }
+}
+export const x = 1
+`;
+			const { output } = new Linter().verifyAndFix(
+				code,
+				{ files: ['**/*.tsrx'], languageOptions: { parser }, rules: { semi: 'error' } },
+				'App.tsrx',
+			);
+			expect(output).toBe(code.replace('= 1\n', '= 1;\n'));
+		}
+	});
+
+	it('resolves a @for index, key and @empty branch in their scopes', () => {
+		const code = `import { prefix, emptyText, unused } from './x';
+export function A({ items }) @{
+	<ul>
+		@for (const item of items; index i; key prefix + i) { <li>{i}: {item}</li> } @empty { <p>{emptyText}</p> }
+		@for (const unusedItem of items; index unusedIndex) { <li /> }
+		@for (const item of items) { <li>{item}</li> } @empty { <p>{item}</p> }
+	</ul>
+}`;
+		expect(
+			lint(code, {
+				rules: { 'no-undef': 'error', 'no-unused-vars': 'error', 'init-declarations': 'error' },
+			}),
+		).toEqual([
+			"1: no-unused-vars: 'unused' is defined but never used.",
+			"5: no-unused-vars: 'unusedItem' is assigned a value but never used.",
+			"5: no-unused-vars: 'unusedIndex' is defined but never used.",
+			"6: no-undef: 'item' is not defined.",
+		]);
+	});
 });

@@ -114,10 +114,10 @@ describe('sibling-scoped apply runtime (preact)', function () {
 		});
 	}
 
-	it('applies a class of another type as Preact renders it', async function () {
+	it('joins a list class as text, as the class attribute does', async function () {
 		await render(SpreadClassApp, { bag: { class: ['a', 'b'] } });
 
-		expect(classes('spread')).toEqual(['a,b']);
+		expect(classes('spread')).toEqual(['a,b', SCOPE_HASH]);
 		expect(classes('class-after')).toEqual(['last', SCOPE_HASH]);
 	});
 

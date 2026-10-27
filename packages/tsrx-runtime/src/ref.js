@@ -662,10 +662,17 @@ function join_class(value, scope_class, list) {
 	if (value == null || value === false || value === '') {
 		return scope_class;
 	}
-	if (typeof value === 'string') {
-		return `${value} ${scope_class}`;
+	if (list && typeof value !== 'string') {
+		return [value, scope_class];
 	}
-	// Elsewhere a class of another type, such as the promise Hono's `css`
-	// returns, applies as the runtime renders it.
-	return list ? [value, scope_class] : value;
+	// A thenable class, such as the promise Hono's server `css` returns, applies
+	// as the runtime resolves it. Any other value joins as text, as it would in
+	// the class attribute.
+	if (
+		(typeof value === 'object' || typeof value === 'function') &&
+		typeof (/** @type {{ then?: unknown }} */ (value).then) === 'function'
+	) {
+		return value;
+	}
+	return `${value} ${scope_class}`;
 }

@@ -438,8 +438,9 @@ export interface JsxPlatform {
 		 *   `class` across attributes and spreads itself, such as Vue's
 		 *   `mergeProps`.
 		 *
-		 * A string class joins the scope classes. A class of another type applies
-		 * unchanged, unless `hostSpreadClassList` is set.
+		 * A spread's class joins the scope classes as text, as in the class
+		 * attribute, except a thenable class (Hono's server `css`), which applies
+		 * unchanged. `hostSpreadClassList` joins a non-string class as a list.
 		 */
 		hostSpreadClassProps?: ReadonlyArray<'class' | 'className'>;
 		/**

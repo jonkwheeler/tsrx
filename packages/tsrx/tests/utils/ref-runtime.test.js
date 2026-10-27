@@ -1977,11 +1977,20 @@ describe('merge_spread_class', () => {
 		expect(merge_spread_class(plain, null, 'class', 'className')).toBe(plain);
 	});
 
-	it('applies a class of another type unchanged', () => {
-		const list = ['a', 'b'];
+	it('joins a class of another type as text, as the class attribute does', () => {
+		const css = { toString: () => 'css-class' };
+
+		expect(merge_spread_class({ className: ['a', 'b'] }, 'tsrx-a', 'className').className).toBe(
+			'a,b tsrx-a',
+		);
+		expect(merge_spread_class({ class: css }, 'tsrx-a', 'class', 'className').class).toBe(
+			'css-class tsrx-a',
+		);
+	});
+
+	it('applies a thenable class unchanged', () => {
 		const promise = Promise.resolve('css-class');
 
-		expect(merge_spread_class({ className: list }, 'tsrx-a', 'className').className).toBe(list);
 		expect(merge_spread_class({ class: promise }, 'tsrx-a', 'class', 'className').class).toBe(
 			promise,
 		);

@@ -512,6 +512,14 @@ describe('@tsrx/vite-plugin-hono DOM runtime', () => {
 		});
 	}
 
+	// Like the object Hono DOM's `css` returns.
+	it('joins a class object with a toString beside the scope hash', () => {
+		render(<SpreadClassApp bag={{ class: { toString: () => 'from-object' } }} />, container);
+
+		expect(classes('spread')).toEqual(['from-object', SCOPE_HASH]);
+		expect(classes('class-name-before')).toEqual(['from-object', SCOPE_HASH]);
+	});
+
 	for (const [label, bag] of [
 		['without a class', { id: 'spread-id' }],
 		['with an undefined class', { class: undefined }],

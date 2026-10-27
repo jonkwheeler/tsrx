@@ -260,6 +260,36 @@ describe('@tsrx/turbopack-plugin-react client boundary loader', () => {
 		expect(await run(`type Props = {};\nexport { type Props as default };`)).toBe(false);
 	});
 
+	// TypeScript erases these, so the compiled module has no default export.
+	it('does not re-export a default that names only a type', async () => {
+		/** @param {string} source */
+		const run = async (source) => {
+			const { context, promise } = create_loader_context('/virtual/App.tsrx');
+			tsrx_react_turbopack_client_boundary_loader.call(context, `'use client';\n${source}`);
+			const { err, output } = await promise;
+			expect(err).toBeNull();
+			return /** @type {string} */ (output).includes('export { default }');
+		};
+
+		expect(await run(`interface Props {}\nexport { Props as default };`)).toBe(false);
+		expect(await run(`type Props = {};\nexport default Props;`)).toBe(false);
+		expect(await run(`import type { Props } from './types';\nexport { Props as default };`)).toBe(
+			false,
+		);
+		expect(await run(`import { type Props } from './types';\nexport { Props as default };`)).toBe(
+			false,
+		);
+		expect(await run(`export default function App(): void;`)).toBe(false);
+		// A value with the same name keeps the export.
+		expect(await run(`interface Props {}\nconst Props = {};\nexport { Props as default };`)).toBe(
+			true,
+		);
+		expect(
+			await run(`export default function App(): void;\nexport default function App() {}`),
+		).toBe(true);
+		expect(await run(`import { Props } from './types';\nexport { Props as default };`)).toBe(true);
+	});
+
 	it('keeps the module a server module when the directive is not in the prologue', async () => {
 		const { context, promise } = create_loader_context('/virtual/App.tsrx');
 

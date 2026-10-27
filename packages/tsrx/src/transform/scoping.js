@@ -7,7 +7,7 @@
 
 /** @import * as AST from 'estree' */
 /** @import * as ESTreeJSX from 'estree-jsx' */
-/** @import { ScopeClassParts, StyleRenderMode, Visitors } from '../../types/index' */
+/** @import { ScopeClassParts, SpreadClassOptions, StyleRenderMode, Visitors } from '../../types/index' */
 
 import { walk } from 'zimmerframe';
 import * as b from '../utils/builders.js';
@@ -246,17 +246,18 @@ function build_scope_class_value(parts) {
  * every applied theme after every scope hash regardless of which scope
  * applied it.
  *
- * With `spread_class_props`, a spread written after the class attribute keeps
- * its own class: the stamped attribute goes ahead of the spreads, and each
- * spread after it joins its class with the scope classes at runtime.
+ * With `spread_class`, a spread written after the class attribute keeps its
+ * own class: the stamped attribute goes ahead of the spreads, and each spread
+ * after it joins its class with the scope classes at runtime. Where the
+ * runtime reads both class props, a spread written before the attribute drops
+ * its class, which the attribute replaces.
  *
  * @template {AST.TSRXJSXElement} T
  * @param {T} element
  * @param {string[]} hashes scope hashes to add
  * @param {Array<string | AST.Expression>} applied theme classes: literals or `theme.$class` reads
  * @param {'class' | 'className'} [class_attr_name='class']
- * @param {ReadonlyArray<'class' | 'className'> | null} [spread_class_props] the
- *   props a spread can pass a class in (the platform's `hostSpreadClassProps`)
+ * @param {SpreadClassOptions | null} [spread_class]
  * @returns {T}
  */
 export function add_scope_classes(
@@ -264,7 +265,7 @@ export function add_scope_classes(
 	hashes,
 	applied,
 	class_attr_name = 'class',
-	spread_class_props = null,
+	spread_class = null,
 ) {
 	if (hashes.length === 0 && applied.length === 0) return element;
 	const attrs = element.openingElement.attributes ?? [];
@@ -296,17 +297,17 @@ export function add_scope_classes(
 		next_attrs[index] = { ...existing, value: attr_value };
 	} else {
 		// Ahead of the spreads, the attribute is what a spread's class replaces.
-		const first_spread = spread_class_props ? attrs.findIndex(is_spread_attribute) : -1;
+		const first_spread = spread_class ? attrs.findIndex(is_spread_attribute) : -1;
 		class_index = first_spread === -1 ? attrs.length : first_spread;
 		next_attrs.splice(class_index, 0, b.jsx_attribute(b.jsx_id(class_attr_name), attr_value));
 	}
-	if (spread_class_props) {
+	if (spread_class) {
 		merge_spread_classes(
 			next_attrs,
 			class_index,
 			parts,
 			existing ? /** @type {ESTreeJSX.JSXIdentifier} */ (existing.name).name : class_attr_name,
-			spread_class_props,
+			spread_class,
 		);
 	}
 	return {
@@ -329,17 +330,22 @@ export const MERGE_SPREAD_CLASS_INTERNAL_NAME = '__merge_spread_class';
  * @param {number} class_index
  * @param {ScopeClassParts} parts
  * @param {string} class_attr_name the class attribute's name
- * @param {ReadonlyArray<'class' | 'className'>} props
+ * @param {SpreadClassOptions} spread_class
  */
-function merge_spread_classes(attrs, class_index, parts, class_attr_name, props) {
+function merge_spread_classes(attrs, class_index, parts, class_attr_name, spread_class) {
+	const { props, list } = spread_class;
 	const scope_class = build_scope_class_value({ ...parts, base: null });
 	// A runtime that reads either prop gets the spread's class under the
 	// attribute's name, so the element keeps one class prop.
 	const key = props.length === 1 ? props[0] : class_attr_name;
 	const alias = props.find((prop) => prop !== key);
-	for (let i = class_index + 1; i < attrs.length; i++) {
+	for (let i = 0; i < attrs.length; i++) {
 		const attr = attrs[i];
 		if (attr.type !== 'JSXSpreadAttribute') continue;
+		// The attribute replaces a class an earlier spread passes under its
+		// name, but not under the alias, which the spread then drops.
+		const before = i < class_index;
+		if (before && !alias) continue;
 		// A nested scope stamps the element again: wrap the authored argument.
 		const argument = is_merge_spread_class_call(attr.argument)
 			? /** @type {AST.Expression} */ (attr.argument.arguments[0])
@@ -349,9 +355,10 @@ function merge_spread_classes(attrs, class_index, parts, class_attr_name, props)
 			argument: b.call(
 				MERGE_SPREAD_CLASS_INTERNAL_NAME,
 				argument,
-				scope_class,
+				before ? b.literal(null, 'null') : scope_class,
 				b.literal(key, JSON.stringify(key)),
 				alias && b.literal(alias, JSON.stringify(alias)),
+				!before && list && b.literal(true, 'true'),
 			),
 		};
 	}

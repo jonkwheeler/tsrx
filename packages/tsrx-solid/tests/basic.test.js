@@ -872,7 +872,8 @@ describe('@tsrx/solid basic', () => {
 		});
 	});
 
-	// Solid reads a class only from `class`.
+	// Solid reads a class only from `class`, which also takes an object or a
+	// list.
 	it('keeps the class a host spread passes beside the scope classes', () => {
 		const { code, cssHash } = compile(
 			`export function App(props) @{
@@ -895,10 +896,10 @@ describe('@tsrx/solid basic', () => {
 			"import { merge_spread_class as __merge_spread_class } from '@tsrx/solid/ref';",
 		);
 		expect(code).toContain(
-			`<span class="${cssHash}" {...__normalize_spread_props(__merge_spread_class(props, "${cssHash}", "class"))} />`,
+			`<span class="${cssHash}" {...__normalize_spread_props(__merge_spread_class(props, "${cssHash}", "class", void 0, true))} />`,
 		);
 		expect(code).toContain(
-			`<span class="base ${cssHash}" {...__normalize_spread_props(__merge_spread_class(props, "${cssHash}", "class"))} />`,
+			`<span class="base ${cssHash}" {...__normalize_spread_props(__merge_spread_class(props, "${cssHash}", "class", void 0, true))} />`,
 		);
 		expect(code).toContain(`<span {...__normalize_spread_props(props)} class="last ${cssHash}" />`);
 	});

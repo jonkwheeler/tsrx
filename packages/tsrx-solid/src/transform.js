@@ -96,6 +96,7 @@ const solid_platform = {
 		// Solid reads a class only from `class`, which also takes an object or
 		// a list.
 		hostSpreadClassProps: ['class'],
+		hostSpreadClassList: true,
 		// Solid's runtime accepts an array of refs natively, so multiple
 		// `ref` attributes collapse to `ref={[a, b, ...]}` rather than
 		// going through a `mergeRefs` helper.

@@ -1956,15 +1956,51 @@ describe('merge_spread_class', () => {
 		});
 	});
 
-	it('keeps a class object or list as a list beside the scope classes', () => {
+	for (const bag of [
+		{ class: 'x', className: undefined },
+		{ className: 'x', class: undefined },
+		{ className: null, class: 'x' },
+	]) {
+		it(`reads the class prop with a value from ${Object.keys(bag).join(' then ')}`, () => {
+			expect({ ...merge_spread_class(bag, 'tsrx-a', 'class', 'className') }).toEqual({
+				class: 'x tsrx-a',
+			});
+		});
+	}
+
+	it('leaves out both class props for a spread written before the class attribute', () => {
+		const bag = { className: 'x', class: 'y', id: 'a' };
+
+		const plain = { id: 'a' };
+
+		expect({ ...merge_spread_class(bag, null, 'class', 'className') }).toEqual({ id: 'a' });
+		expect(merge_spread_class(plain, null, 'class', 'className')).toBe(plain);
+	});
+
+	it('applies a class of another type unchanged', () => {
+		const list = ['a', 'b'];
+		const promise = Promise.resolve('css-class');
+
+		expect(merge_spread_class({ className: list }, 'tsrx-a', 'className').className).toBe(list);
+		expect(merge_spread_class({ class: promise }, 'tsrx-a', 'class', 'className').class).toBe(
+			promise,
+		);
+	});
+
+	it('keeps a class object or list as a list for a target whose class takes one', () => {
 		const object = { active: true };
 		const list = ['a', { b: true }];
 
-		expect(merge_spread_class({ class: object }, 'tsrx-a', 'class').class).toEqual([
-			object,
+		expect(merge_spread_class({ class: object }, 'tsrx-a', 'class', undefined, true).class).toEqual(
+			[object, 'tsrx-a'],
+		);
+		expect(merge_spread_class({ class: list }, 'tsrx-a', 'class', undefined, true).class).toEqual([
+			list,
 			'tsrx-a',
 		]);
-		expect(merge_spread_class({ class: list }, 'tsrx-a', 'class').class).toEqual([list, 'tsrx-a']);
+		expect(merge_spread_class({ class: 'x' }, 'tsrx-a', 'class', undefined, true).class).toBe(
+			'x tsrx-a',
+		);
 	});
 
 	it('reads each prop from the bag only when the copy is read', () => {

@@ -431,12 +431,23 @@ export interface JsxPlatform {
 		 * - One prop, such as React's `['className']` or Solid's `['class']`.
 		 * - Both, `['class', 'className']`, for runtimes that read either, such
 		 *   as Preact's and Hono's: a spread's class moves to the name of the
-		 *   element's class attribute, so the element keeps one class prop.
+		 *   element's class attribute, so the element keeps one class prop. A
+		 *   spread written before the class attribute loses its class, which
+		 *   the attribute would replace anyway.
 		 * - `undefined`: spreads stay as written, for a runtime that joins
 		 *   `class` across attributes and spreads itself, such as Vue's
 		 *   `mergeProps`.
+		 *
+		 * A string class joins the scope classes. A class of another type applies
+		 * unchanged, unless `hostSpreadClassList` is set.
 		 */
 		hostSpreadClassProps?: ReadonlyArray<'class' | 'className'>;
+		/**
+		 * The runtime's class prop also takes an object or a list, as Solid's
+		 * `class` does, so a spread's non-string class joins the scope classes
+		 * as `[class, scope]`.
+		 */
+		hostSpreadClassList?: boolean;
 		/**
 		 * How to collapse multiple `ref` attributes on the same element into
 		 * one. React's and Preact's runtimes treat duplicate `ref` props as

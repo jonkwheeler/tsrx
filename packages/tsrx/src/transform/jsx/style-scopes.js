@@ -26,7 +26,7 @@
  *
  * @import * as AST from 'estree'
  * @import * as ESTreeJSX from 'estree-jsx'
- * @import { CompileError, JsxTransformContext as TransformContext } from '../../../types/index'
+ * @import { CompileError, JsxTransformContext as TransformContext, SpreadClassOptions } from '../../../types/index'
  */
 
 import { analyze_css } from '../../analyze/css-analyze.js';
@@ -64,7 +64,7 @@ import { set_node_path_metadata } from './helpers.js';
  * @typedef {{
  *   ctx: TransformContext,
  *   class_attr_name: 'class' | 'className',
- *   spread_class_props: ReadonlyArray<'class' | 'className'> | null,
+ *   spread_class: SpreadClassOptions | null,
  *   static_classes: Map<AST.JSXStyleElement, string | null>,
  *   ref_sink: AST.Statement[],
  * }} StyleScopeState `ref_sink` collects the `<style ref>` setup statements
@@ -89,9 +89,12 @@ export function prepare_style_scopes(program, ctx) {
 			ctx.platform.jsx.classAttrName ?? (ctx.platform.jsx.rewriteClassAttr ? 'className' : 'class'),
 		// Types don't depend on a spread's class, so the type-only print keeps
 		// spreads as written.
-		spread_class_props:
-			!ctx.typeOnly && ctx.platform.imports.refProp
-				? (ctx.platform.jsx.hostSpreadClassProps ?? null)
+		spread_class:
+			!ctx.typeOnly && ctx.platform.imports.refProp && ctx.platform.jsx.hostSpreadClassProps
+				? {
+						props: ctx.platform.jsx.hostSpreadClassProps,
+						list: !!ctx.platform.jsx.hostSpreadClassList,
+					}
 				: null,
 		static_classes: new Map(),
 		ref_sink: [],
@@ -768,12 +771,12 @@ function stamp_node(node, scope, state) {
 					scope.hash ? [scope.hash] : [],
 					scope.applied,
 					state.class_attr_name,
-					state.spread_class_props,
+					state.spread_class,
 				)
 			: node;
 	if (
 		out !== node &&
-		state.spread_class_props &&
+		state.spread_class &&
 		has_spread_class_merge(/** @type {AST.TSRXJSXElement} */ (out))
 	) {
 		state.ctx.needs_merge_spread_class = true;

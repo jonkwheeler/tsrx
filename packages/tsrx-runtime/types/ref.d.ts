@@ -92,6 +92,7 @@ export function merge_spread_class<T extends object | SpreadFalsy>(
 	scope_class: unknown,
 	key: 'class' | 'className',
 	alias?: 'class' | 'className',
+	list?: boolean,
 ): T;
 
 export function normalize_spread_props<T extends object | SpreadFalsy>(

@@ -217,6 +217,7 @@ function SpreadClassApp({ bag }: { bag?: SpreadBag }) @{
 		<span data-probe="class-before" class="base" {...bag} />
 		<span data-probe="class-name-before" className="base" {...bag} />
 		<span data-probe="class-after" {...bag} class="last" />
+		<span data-probe="class-name-after" {...bag} className="last" />
 	</>
 }
 
@@ -471,6 +472,7 @@ describe('@tsrx/vite-plugin-hono DOM runtime', () => {
 			expect(classes('class-before')).toEqual(['from-spread', SCOPE_HASH]);
 			expect(classes('class-name-before')).toEqual(['from-spread', SCOPE_HASH]);
 			expect(classes('class-after')).toEqual(['last', SCOPE_HASH]);
+			expect(classes('class-name-after')).toEqual(['last', SCOPE_HASH]);
 			expect(container.querySelector('[data-probe="spread"]')?.id).toBe('spread-id');
 		});
 
@@ -494,6 +496,22 @@ describe('@tsrx/vite-plugin-hono DOM runtime', () => {
 		});
 	}
 
+	// Hono renders the class prop with a value.
+	for (const bag of [
+		{ class: 'from-spread', className: undefined },
+		{ className: 'from-spread', class: undefined },
+	]) {
+		it(`keeps the class a host spread supplies beside an undefined ${Object.keys(bag)[1]}`, () => {
+			render(<SpreadClassApp bag={bag} />, container);
+
+			expect(classes('spread')).toEqual(['from-spread', SCOPE_HASH]);
+			expect(classes('class-before')).toEqual(['from-spread', SCOPE_HASH]);
+			expect(classes('class-name-before')).toEqual(['from-spread', SCOPE_HASH]);
+			expect(classes('class-after')).toEqual(['last', SCOPE_HASH]);
+			expect(classes('class-name-after')).toEqual(['last', SCOPE_HASH]);
+		});
+	}
+
 	for (const [label, bag] of [
 		['without a class', { id: 'spread-id' }],
 		['with an undefined class', { class: undefined }],
@@ -507,6 +525,7 @@ describe('@tsrx/vite-plugin-hono DOM runtime', () => {
 			expect(classes('class-before')).toEqual([...base, SCOPE_HASH]);
 			expect(classes('class-name-before')).toEqual([...base, SCOPE_HASH]);
 			expect(classes('class-after')).toEqual(['last', SCOPE_HASH]);
+			expect(classes('class-name-after')).toEqual(['last', SCOPE_HASH]);
 		});
 	}
 });

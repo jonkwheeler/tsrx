@@ -283,7 +283,11 @@ describe('@tsrx/preact basic', () => {
 		expect(code).toContain(
 			`<span className="base ${cssHash}" {...__normalize_spread_props(__merge_spread_class(props, "${cssHash}", "className", "class"))} />`,
 		);
-		expect(code).toContain(`<span {...__normalize_spread_props(props)} class="last ${cssHash}" />`);
+		// A spread before the class attribute drops its class, so its
+		// `className` can't override the attribute.
+		expect(code).toContain(
+			`<span {...__normalize_spread_props(__merge_spread_class(props, null, "class", "className"))} class="last ${cssHash}" />`,
+		);
 	});
 
 	it('applies scoped css hashes and keeps type selectors for dynamic tags', () => {

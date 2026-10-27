@@ -230,9 +230,9 @@ import b from './b';`;
 		// coalesce across the identical `) { ` gap into one span carrying the token features.
 		// The containers keep only their uncovered edges, `if (` and `}`, for diagnostics.
 		expect(spans).toEqual([
-			[0, 4, 0, 4, SpanMapKind.Atom, SpanMapFeature.None],
+			[0, 4, 0, 4, SpanMapKind.Verbatim, SpanMapFeature.None],
 			[4, 7, 4, 7, SpanMapKind.Verbatim, SpanMapFeature.All & ~SpanMapFeature.Formatting],
-			[11, 1, 11, 1, SpanMapKind.Atom, SpanMapFeature.None],
+			[11, 1, 11, 1, SpanMapKind.Verbatim, SpanMapFeature.None],
 		]);
 	});
 
@@ -263,10 +263,63 @@ import b from './b';`;
 				features,
 			]),
 		).toEqual([
-			['import(', 'import(  ', SpanMapKind.Atom, SpanMapFeature.None],
+			['import(', 'import(', SpanMapKind.Verbatim, SpanMapFeature.None],
 			["'./x'", "'./x'", SpanMapKind.Verbatim, SpanMapFeature.All & ~SpanMapFeature.Formatting],
-			[')', '  )', SpanMapKind.Atom, SpanMapFeature.None],
+			[')', ')', SpanMapKind.Verbatim, SpanMapFeature.None],
 		]);
+	});
+
+	it('splits an edge into the text it shares with the source, so a node without a span keeps its place', () => {
+		/**
+		 * One container (the call or the type reference) whose only token span is
+		 * its name, as the edges of the rest print it.
+		 * @param {string} original
+		 * @param {string} generated
+		 * @param {number} name_length
+		 */
+		const edges = (original, generated, name_length) =>
+			to_span_mappings(
+				[
+					{
+						...m(0, 0, original.length),
+						generatedLengths: [generated.length],
+						data: verify_only,
+					},
+					m(0, 0, name_length),
+				],
+				generated,
+				original,
+			)
+				.slice(1)
+				.map(([g, gl, o, ol, kind]) => [
+					generated.slice(g, g + gl),
+					o,
+					original.slice(o, o + ol),
+					kind,
+				]);
+		// `{` has a space before it in the source and after it in the output.
+		expect(edges('Record< {}, 1 >', 'Record<{  }, 1>', 6)).toEqual([
+			['<', 6, '<', SpanMapKind.Verbatim],
+			['{', 8, '{', SpanMapKind.Verbatim],
+			['}, 1', 9, '}, 1', SpanMapKind.Verbatim],
+			['>', 14, '>', SpanMapKind.Verbatim],
+		]);
+		// The first difference other than whitespace ends the runs: the rest is one Atom.
+		expect(edges('f( [] as any)', 'f([] as unknown)', 1)).toEqual([
+			['([] as unknown', 1, '( [] as any', SpanMapKind.Atom],
+			[')', 12, ')', SpanMapKind.Verbatim],
+		]);
+		// No run starts or ends inside an identifier, even across skipped whitespace,
+		// and an edge whose boundary character differs stays one Atom.
+		expect(edges('f(a, value)', 'f(a, values)', 1)).toEqual([
+			['(a, values', 1, '(a, value', SpanMapKind.Atom],
+			[')', 10, ')', SpanMapKind.Verbatim],
+		]);
+		expect(edges('f(ab c)', 'f(abc)', 1)).toEqual([
+			['(abc', 1, '(ab c', SpanMapKind.Atom],
+			[')', 6, ')', SpanMapKind.Verbatim],
+		]);
+		expect(edges('f(x) ', 'f(x);', 1)).toEqual([['(x);', 1, '(x) ', SpanMapKind.Atom]]);
 	});
 
 	it('maps no edge that a span already covers or whose original boundary is outside the container', () => {

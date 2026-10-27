@@ -210,6 +210,7 @@ export function to_span_mappings(mappings, generated_text, original_text, option
 			original_text,
 		),
 		dropped,
+		generated_text,
 		original_text,
 	).map((candidate) => [
 		candidate.generatedStart,
@@ -302,27 +303,39 @@ export function extend_verbatim_spans_over_whitespace(spans, generated_text, ori
  * TypeScript would report the diagnostic at the nearest earlier mapped
  * position instead. An edge runs from the container's boundary to the
  * neighbouring span, in both files, so it maps only when that span's original
- * range starts (or ends) inside the container's. Edges are `Atom`s without
- * feature bits: they place diagnostics and change no editor feature. Gaps
- * between a container's spans stay unmapped. Candidates are visited shortest
- * first, so a nested container's edge bounds the edge of the one around it.
+ * range starts (or ends) inside the container's. Each edge is split by
+ * {@link split_edge} so that a node inside it without a span of its own keeps
+ * its position. Edges carry no feature bits: they place diagnostics and change
+ * no editor feature. Gaps between a container's spans stay unmapped.
+ * Candidates are visited shortest first, so a nested container's edge bounds
+ * the edge of the one around it.
  * @param {Candidate[]} spans Sorted by generated start, non-overlapping.
  * @param {readonly Candidate[]} dropped
+ * @param {string} generated_text
  * @param {string} original_text
  * @returns {Candidate[]}
  */
-export function map_dropped_edges(spans, dropped, original_text) {
+export function map_dropped_edges(spans, dropped, generated_text, original_text) {
 	const result = spans.slice();
-	/** @param {Candidate | null} edge */
-	const add = (edge) => {
-		if (!edge || is_partial_identifier(original_text, edge.originalStart, edge.originalEnd)) {
-			return;
+	/**
+	 * @param {Candidate | null} edge
+	 * @param {boolean} trailing
+	 */
+	const add = (edge, trailing) => {
+		if (!edge) return;
+		for (const span of split_edge(edge, generated_text, original_text, trailing)) {
+			if (
+				span.kind === SpanMapKind.Atom &&
+				is_partial_identifier(original_text, span.originalStart, span.originalEnd)
+			) {
+				continue;
+			}
+			result.splice(last_span_at_or_before(result, span.generatedStart) + 1, 0, span);
 		}
-		result.splice(last_span_at_or_before(result, edge.generatedStart) + 1, 0, edge);
 	};
 	for (const candidate of dropped) {
-		add(leading_edge(result, candidate));
-		add(trailing_edge(result, candidate));
+		add(leading_edge(result, candidate), false);
+		add(trailing_edge(result, candidate), true);
 	}
 	return result;
 }
@@ -349,6 +362,7 @@ function leading_edge(spans, candidate) {
 		next.generatedStart,
 		candidate.originalStart,
 		next.originalStart,
+		SpanMapKind.Atom,
 	);
 }
 
@@ -373,6 +387,120 @@ function trailing_edge(spans, candidate) {
 		candidate.generatedEnd,
 		previous.originalEnd,
 		candidate.originalEnd,
+		SpanMapKind.Atom,
+	);
+}
+
+/**
+ * Split an edge into `Verbatim` runs of the text it shares with the source,
+ * matched from the container's boundary (the start of a leading edge, the end
+ * of a trailing one) with whitespace that only one side has skipped, and one
+ * `Atom` for whatever follows the first other difference. The printer mostly
+ * changes spacing: in `Record< {}, 1 >`, printed `Record<{  }, 1>`, the `{` of
+ * the `{}` that has no span of its own then maps to itself instead of to the
+ * container's `<`. An edge whose boundary character differs stays one `Atom`,
+ * and no run starts or ends inside an identifier.
+ * @param {Candidate} whole
+ * @param {string} generated_text
+ * @param {string} original_text
+ * @param {boolean} from_end
+ * @returns {Candidate[]}
+ */
+function split_edge(whole, generated_text, original_text, from_end) {
+	const generated = generated_text.slice(whole.generatedStart, whole.generatedEnd);
+	const original = original_text.slice(whole.originalStart, whole.originalEnd);
+	/**
+	 * The character `index` steps from the boundary.
+	 * @param {string} text
+	 * @param {number} index
+	 */
+	const at = (text, index) => text[from_end ? text.length - 1 - index : index];
+	if (at(generated, 0) !== at(original, 0)) return [whole];
+
+	/** Runs as `[generated step, original step, length]`, in steps from the boundary. */
+	/** @type {Array<[number, number, number]>} */
+	const runs = [];
+	let i = 0;
+	let j = 0;
+	while (i < generated.length && j < original.length) {
+		const g = at(generated, i);
+		const o = at(original, j);
+		if (g === o) {
+			const run = runs.at(-1);
+			if (run && run[0] + run[2] === i && run[1] + run[2] === j) run[2]++;
+			else runs.push([i, j, 1]);
+			i++;
+			j++;
+		} else if (/\s/.test(g)) {
+			i++;
+		} else if (/\s/.test(o)) {
+			j++;
+		} else {
+			break;
+		}
+	}
+	// Runs keep to identifier boundaries in both texts: skipped whitespace can
+	// join or split identifiers. The runs from the first one that starts inside
+	// an identifier, or the part of a run after its last boundary, go to the Atom.
+	/** @param {string} text @param {number} index */
+	const splits = (text, index) =>
+		identifier_part.test(at(text, index - 1) ?? '') && identifier_part.test(at(text, index) ?? '');
+	/** @type {Array<[number, number, number]>} */
+	const kept = [];
+	for (const [g, o, length] of runs) {
+		if (splits(generated, g) || splits(original, o)) break;
+		let end = length;
+		while (end > 0 && (splits(generated, g + end) || splits(original, o + end))) end--;
+		if (end > 0) kept.push([g, o, end]);
+		if (end < length) break;
+	}
+	const last = kept.at(-1);
+	if (!last) return [whole];
+	// The Atom starts where the last run ends.
+	i = last[0] + last[2];
+	j = last[1] + last[2];
+
+	/** @type {Candidate[]} */
+	const spans = kept.map(([g, o, length]) =>
+		from_end
+			? edge_span(whole.generatedEnd - g - length, whole.originalEnd - o - length, length)
+			: edge_span(whole.generatedStart + g, whole.originalStart + o, length),
+	);
+	if (i < generated.length && j < original.length) {
+		spans.push(
+			from_end
+				? edge(
+						whole.generatedStart,
+						whole.generatedEnd - i,
+						whole.originalStart,
+						whole.originalEnd - j,
+						SpanMapKind.Atom,
+					)
+				: edge(
+						whole.generatedStart + i,
+						whole.generatedEnd,
+						whole.originalStart + j,
+						whole.originalEnd,
+						SpanMapKind.Atom,
+					),
+		);
+	}
+	return spans;
+}
+
+/**
+ * @param {number} generated_start
+ * @param {number} original_start
+ * @param {number} length
+ * @returns {Candidate}
+ */
+function edge_span(generated_start, original_start, length) {
+	return edge(
+		generated_start,
+		generated_start + length,
+		original_start,
+		original_start + length,
+		SpanMapKind.Verbatim,
 	);
 }
 
@@ -381,15 +509,16 @@ function trailing_edge(spans, candidate) {
  * @param {number} generated_end
  * @param {number} original_start
  * @param {number} original_end
+ * @param {0 | 1 | 2} kind
  * @returns {Candidate}
  */
-function edge(generated_start, generated_end, original_start, original_end) {
+function edge(generated_start, generated_end, original_start, original_end, kind) {
 	return {
 		generatedStart: generated_start,
 		generatedEnd: generated_end,
 		originalStart: original_start,
 		originalEnd: original_end,
-		kind: SpanMapKind.Atom,
+		kind,
 		features: SpanMapFeature.None,
 	};
 }

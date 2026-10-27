@@ -2147,6 +2147,8 @@ export function App() @{
 }
 export function Plain() {
 	const a = 1
+	foo<string>
+	true
 	return a
 }
 `;
@@ -2161,6 +2163,8 @@ export function Plain() {
 				'useMem\n',
 				'n.toFixed()\n',
 				'const a = 1\n',
+				'foo<string>\n',
+				'true\n',
 				'return a\n',
 			]) {
 				expect(result.code).toContain(line);
@@ -2184,6 +2188,38 @@ export function Plain() {
 			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
 			expect(result.errors).toEqual([]);
 			expect(result.code).toContain(expected);
+		});
+
+		it.each([
+			['const h = (c)', 'const h = (c);'],
+			['x = (y)', 'x = (y);'],
+			['x = (b, c)', 'x = (b, c);'],
+			['x = async (b)', 'x = async(b);'],
+			['x = c ? d : (e)', 'x = c ? d : (e);'],
+		])('keeps the ; of %j before a block', (statement, printed) => {
+			// TypeScript reads `(c)` and a `{` on the next line as an arrow function
+			// without `=>`.
+			const source = `declare let x: unknown, y: unknown, b: unknown, c: unknown, d: unknown, e: unknown;
+declare function async(value: unknown): unknown;
+export function Plain() {
+	${statement}
+	{ x }
+}
+`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain(printed);
+			const file = ts.createSourceFile(
+				'App.tsx',
+				result.code,
+				ts.ScriptTarget.Latest,
+				true,
+				ts.ScriptKind.TSX,
+			);
+			expect(
+				/** @type {{ parseDiagnostics: unknown[] }} */ (/** @type {unknown} */ (file))
+					.parseDiagnostics,
+			).toEqual([]);
 		});
 	});
 

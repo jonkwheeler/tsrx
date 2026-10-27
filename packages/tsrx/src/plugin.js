@@ -4930,16 +4930,23 @@ export function TSRXPlugin(config) {
 			 * @type {Parse.Parser['parseBindingList']}
 			 */
 			parseBindingList(close, allowEmpty, allowTrailingComma, allowModifiers) {
-				if (this.#collect && close === tt.parenR && allowModifiers === undefined) {
+				if (
+					(this.#collect || this.isAmbientContext) &&
+					close === tt.parenR &&
+					allowModifiers === undefined
+				) {
 					// UPSTREAM(sveltejs/acorn-typescript#136): remove once a release includes the fix
 					// A function's parameters, which acorn's `parseFunctionParams` reads
 					// with no `allowModifiers` (a method's pass `true`). TypeScript's
 					// parser reads parameter property modifiers before them too, and its
-					// checker reports them (TS2369). When collecting, pass `false`, so
-					// that acorn-typescript reads the modifiers and raises TS2369, which
-					// `raise` records, instead of failing at them. A strict parse still
-					// fails: `public` is a reserved word, and a name after `readonly` is
-					// unexpected.
+					// checker reports them (TS2369). When collecting, or in an ambient
+					// context, pass `false`, so that acorn-typescript reads the modifiers
+					// and raises TS2369, which `raise` records when collecting, instead of
+					// failing at them. Elsewhere a strict parse still fails: `public` is a
+					// reserved word, and a name after `readonly` is unexpected. In an
+					// ambient context `public` is no reserved word (see
+					// `#raiseStrictModeReservedWord`), and acorn would read it as the
+					// parameter's name and fail at the next one.
 					allowModifiers = false;
 				}
 				const outer = this.#bindingListClose;
@@ -7265,7 +7272,7 @@ export function TSRXPlugin(config) {
 			#parseAssignableListItem(allowModifiers) {
 				this.#assignableListItemStart = this.start;
 				const item = /** @type {AST.Node} */ (
-					(this.#collect &&
+					((this.#collect || this.isAmbientContext) &&
 						allowModifiers !== undefined &&
 						this.#parseRestParameterProperty(allowModifiers)) ||
 						super.parseAssignableListItem(allowModifiers)
@@ -7288,8 +7295,9 @@ export function TSRXPlugin(config) {
 			 * a pattern, and fails at the `...`. When collecting, read the rest
 			 * element after the modifiers, record TS1317 at them, and keep the rest
 			 * element as the parameter, without them: typescript-estree rejects a rest
-			 * parameter property, so there is no node to mirror. A strict parse still
-			 * fails at the `...`. Returns `null`, having read nothing, when no rest
+			 * parameter property, so there is no node to mirror. A strict parse
+			 * throws TS1317 in an ambient context (see `parseBindingList`), and
+			 * elsewhere still fails at the `...`. Returns `null`, having read nothing, when no rest
 			 * element follows the modifiers. On a function's parameter
 			 * (`allowModifiers` is `false`), the modifiers are TS2369 too.
 			 * UPSTREAM(sveltejs/acorn-typescript#89)

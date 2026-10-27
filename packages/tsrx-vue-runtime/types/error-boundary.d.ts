@@ -18,6 +18,7 @@ export interface TsrxErrorBoundaryComponent {
 	 * `Block` so the component is a valid element under `vue-jsx-vapor`'s JSX.
 	 */
 	(props: TsrxErrorBoundaryProps, ctx?: unknown): Block;
+	props: string[];
 	__setup(props?: unknown, ctx?: unknown): void;
 }
 

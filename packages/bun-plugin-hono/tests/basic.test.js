@@ -1,8 +1,13 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tsrxHono } from '../src/index.js';
+
+// Bun.plugin() registrations share state across instances; start each test clean.
+afterEach(() => {
+	Reflect.deleteProperty(globalThis, Symbol.for('@tsrx/bun-plugin.runtime'));
+});
 
 function setup_plugin(options, config = {}) {
 	const hooks = { onResolve: [], onLoad: [] };
@@ -323,10 +328,38 @@ describe('@tsrx/bun-plugin-hono', () => {
 				contents: expect.stringContaining('color: red;'),
 				loader: 'css',
 			});
-			// Another instance's stylesheet is left to that instance.
-			expect(load.callback({ path: '/other.tsrx?tsrx-css&lang.css', namespace: 'file' })).toBe(
-				undefined,
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	// Bun.plugin() registration calls only the first matching onLoad hook.
+	it("serves another instance's stylesheet under Bun.plugin() registration", async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-hono-runtime-'));
+		try {
+			const file_path = path.join(dir, 'Styled.tsrx');
+			await writeFile(
+				file_path,
+				`export function Styled() @{ <><style>p { color: red; }</style><p>{'hi'}</p></> }`,
 			);
+			const first = setup_plugin(undefined, null);
+			const second = setup_plugin({ mode: 'dom' }, null);
+			await load_tsrx(second, file_path);
+			const css_id = `${file_path}?tsrx-css&lang.css`;
+			const resolve = first.onResolve.find(({ options }) => options.filter.test(css_id));
+			const load = first.onLoad.find(
+				({ options }) => (options.namespace ?? 'file') === 'file' && options.filter.test(css_id),
+			);
+
+			expect(resolve.callback({ path: css_id, namespace: 'file' })).toEqual({ path: css_id });
+			expect(load.callback({ path: css_id, namespace: 'file' })).toEqual({
+				contents: expect.stringContaining('color: red;'),
+				loader: 'css',
+			});
+			expect(load.callback({ path: '/other.tsrx?tsrx-css&lang.css', namespace: 'file' })).toEqual({
+				contents: '',
+				loader: 'css',
+			});
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
@@ -339,5 +372,9 @@ describe('@tsrx/bun-plugin-hono', () => {
 		);
 
 		expect(resolve.callback({ path: '/other.css?tsrx-css&lang.css' })).toBeUndefined();
+		const load = hooks.onLoad.find(({ options }) =>
+			options.filter.test('/other.css?tsrx-css&lang.css'),
+		);
+		expect(load.callback({ path: '/other.css?tsrx-css&lang.css' })).toBeUndefined();
 	});
 });

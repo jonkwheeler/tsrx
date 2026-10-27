@@ -451,10 +451,13 @@ function get_default_exported_component(statement) {
  * Reads that run later or not at all do not count: inside a function, a class
  * instance field or method, a type, an `export { … }` specifier, a branch a
  * constant condition skips, or a scope with its own binding of the name.
- * Reads this cannot see still hit the constant before it is initialized: a
- * call or IIFE that runs a function reading the component during module
- * evaluation, a read from another `case` of the `switch` that declares it,
- * and a circular import that reads it before this module finishes.
+ * Calls are not followed, so these still go wrong: a call or IIFE that runs a
+ * function reading the component during module evaluation hits the constant
+ * before it is initialized, and a call in the skipped statements to a
+ * function that assigns a binding a default reads (`bump()` setting `size`)
+ * runs after the moved component has captured the old value. So do a read
+ * from another `case` of the `switch` that declares the component and a
+ * circular import that reads it before this module finishes.
  *
  * @param {AST.Node[]} statements
  * @param {TransformContext} ctx
@@ -924,6 +927,7 @@ function wrap_native_function_component(fn, source, ctx, path) {
 	}
 
 	ctx.needs_define_vapor_component = true;
+	validate_prop_defaults(fn, ctx);
 	if (!ctx.typeOnly) {
 		fn = read_children_from_default_slot(fn, name, ctx);
 	}
@@ -953,6 +957,75 @@ function wrap_native_function_component(fn, source, ctx, path) {
 	);
 	declaration.metadata = { ...declaration.metadata, vue_component_binding: fn.id.name };
 	return declaration;
+}
+
+/**
+ * vue-jsx-vapor turns the defaults in a component's destructured props
+ * (`{ size = 1 }`) into prop options, and keeps only a string, number, boolean
+ * or `null` literal, an identifier, an object or array literal, or a function,
+ * seen through `as` and `!`. It drops any other default, such as `cfg.size`,
+ * `-1`, `SIZE + 1` or a template literal, so the prop is `undefined` when the
+ * caller leaves it out. Report each one (TSRX2029).
+ *
+ * @param {AST.Function} fn
+ * @param {TransformContext} ctx
+ * @returns {void}
+ */
+function validate_prop_defaults(fn, ctx) {
+	const param = fn.params[0];
+	if (param?.type !== 'ObjectPattern') return;
+	for (const property of param.properties) {
+		if (
+			property.type !== 'Property' ||
+			property.computed ||
+			property.key.type !== 'Identifier' ||
+			property.value.type !== 'AssignmentPattern' ||
+			is_kept_prop_default(property.value.right)
+		) {
+			continue;
+		}
+		const name = property.key.name;
+		const fallback = property.value.right;
+		const written =
+			ctx.source && fallback.start != null && fallback.end != null
+				? ctx.source.slice(fallback.start, fallback.end)
+				: null;
+		const example =
+			written && !written.includes('\n') ? `const ${name} = props.${name} ?? ${written}` : null;
+		error(
+			`Vue TSRX cannot keep this default for '${name}': vue-jsx-vapor turns destructured prop defaults into prop options and drops any default that is not a literal, an identifier, an object or array literal, or a function, so '${name}' would be undefined. Read the prop in the body instead${example ? `, for example \`${example}\`` : ''}.`,
+			ctx.filename,
+			fallback,
+			ctx.errors,
+			ctx.comments,
+			DIAGNOSTIC_CODES.TARGET_PROP_DEFAULT_UNSUPPORTED,
+		);
+	}
+}
+
+/**
+ * @param {AST.Node} node
+ * @returns {boolean}
+ */
+function is_kept_prop_default(node) {
+	switch (node.type) {
+		case 'TSAsExpression':
+		case 'TSNonNullExpression':
+		case 'ParenthesizedExpression':
+			return is_kept_prop_default(/** @type {AST.Node} */ (node.expression));
+		case 'Literal':
+			// vue-jsx-vapor parses a regular expression or a bigint as its own
+			// literal kind, which it drops.
+			return !('regex' in node && node.regex) && !('bigint' in node && node.bigint);
+		case 'Identifier':
+		case 'ObjectExpression':
+		case 'ArrayExpression':
+		case 'ArrowFunctionExpression':
+		case 'FunctionExpression':
+			return true;
+		default:
+			return false;
+	}
 }
 
 /**

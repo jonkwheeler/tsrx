@@ -299,8 +299,8 @@ export function Card({ s = size }: { s?: number }) @{
 				`const cfg = { size: 1 };
 const registry = { card: Card };
 cfg.size = 2;
-export function Card({ s = cfg.size }: { s?: number }) @{
-	<div>{s}</div>
+export function Card({ s = cfg }: { s?: { size: number } }) @{
+	<div>{s.size}</div>
 }`,
 				2,
 			],
@@ -462,6 +462,81 @@ export function Inner({ label = PREFIX }: { label?: string }) @{
 
 		expect(code).toContain('{props.children}');
 		expect(code).not.toContain('useSlots');
+	});
+
+	it('accepts the destructured prop defaults vue-jsx-vapor keeps', () => {
+		for (const fallback of [
+			"'x'",
+			'1',
+			'true',
+			'null',
+			'undefined',
+			'SIZE',
+			'[]',
+			'{ a: 1 }',
+			'() => 1',
+			'function () { return 1; }',
+			'(2 as number)',
+			'SIZE!',
+		]) {
+			const source = `const SIZE = 2;
+export function Card({ s = ${fallback} }: { s?: unknown }) @{
+	<div>{String(s)}</div>
+}`;
+			expect(() => compile(source, 'App.tsrx'), fallback).not.toThrow();
+		}
+	});
+
+	it('reports a destructured prop default vue-jsx-vapor drops', () => {
+		for (const fallback of [
+			'cfg.size',
+			'Math.max(3, 4)',
+			'`t`',
+			'-1',
+			'SIZE + 1',
+			'/x/',
+			'10n',
+			'SIZE ? 1 : 2',
+			'(SIZE satisfies number)',
+		]) {
+			for (const source of [
+				`const cfg = { size: 1 };
+const SIZE = 2;
+export function Card({ s = ${fallback} }: { s?: unknown }) @{
+	<div>{String(s)}</div>
+}`,
+				// A component main left unwrapped, newly wrapped here.
+				`const cfg = { size: 1 };
+const SIZE = 2;
+function Card({ s = ${fallback} }: { s?: unknown }) {
+	const el = <div>{String(s)}</div>;
+	return el;
+}`,
+			]) {
+				/** @type {any} */
+				let thrown = null;
+				try {
+					compile(source, 'App.tsrx');
+				} catch (error) {
+					thrown = error;
+				}
+				expect(thrown, `${fallback}\n${source}`).toBeInstanceOf(Error);
+				expect(thrown.code).toBe('TSRX2029');
+				expect(thrown.message).toContain("Vue TSRX cannot keep this default for 's'");
+				expect(thrown.message).toContain('Read the prop in the body instead');
+				expect(thrown.loc.start.line).toBe(3);
+			}
+		}
+
+		const { errors } = compile_to_volar_mappings(
+			`const cfg = { size: 1 };
+export function Card({ s = cfg.size }: { s?: number }) @{
+	<div>{s}</div>
+}`,
+			'App.tsrx',
+		);
+		expect(errors.map((error) => error.code)).toEqual(['TSRX2029']);
+		expect(errors[0].message).toContain('for example `const s = props.s ?? cfg.size`');
 	});
 
 	it('rejects the removed `&{ ... }` lazy destructuring syntax', () => {

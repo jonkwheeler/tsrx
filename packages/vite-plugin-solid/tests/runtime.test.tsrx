@@ -621,6 +621,41 @@ function ForPatternIndexOnlyApp() @{
 	</>
 }
 
+function ForNestedPatternApp() @{
+	const [groups] = createSignal([{ id: 'p', kids: [{ name: 'x' }, { name: 'y' }] }]);
+	<ul>
+		@for (const { id, kids } of groups(); key id) {
+			@for (const { name } of kids; key name) {
+				<li class="nested-pattern-item">{`${id}-${name}`}</li>
+			}
+		}
+	</ul>
+}
+
+function StarIcon(props: { label: string }) @{
+	<b class="icon">{`star:${props.label}`}</b>
+}
+
+function DotIcon(props: { label: string }) @{
+	<i class="icon">{`dot:${props.label}`}</i>
+}
+
+function ForPatternComponentTagApp() @{
+	const [items, setItems] = createSignal([{ Icon: StarIcon, label: 'a' }]);
+	<>
+		<ul>
+			@for (const { Icon, label } of items(); key label) {
+				<li>
+					<Icon label={label} />
+				</li>
+			}
+		</ul>
+		<button class="swap" onClick={() => setItems([{ Icon: DotIcon, label: 'a' }])}>
+			{'swap'}
+		</button>
+	</>
+}
+
 function ForSparseKeyedByIndexApp() @{
 	const [items, setItems] = createSignal<(string | undefined)[]>(['a', , 'c']);
 	<>
@@ -1512,6 +1547,21 @@ describe('tsrx-solid runtime', () => {
 
 		await click('.reverse');
 		expect(rows()).toEqual(['0b', '1a']);
+	});
+
+	it('reads the destructured names of each loop in nested keyed loops', async () => {
+		await render(ForNestedPatternApp);
+		expect(
+			Array.from(container.querySelectorAll('.nested-pattern-item'), (item) => item.textContent),
+		).toEqual(['p-x', 'p-y']);
+	});
+
+	it('renders a destructured component as a tag and follows the row', async () => {
+		await render(ForPatternComponentTagApp);
+		expect(text('.icon')).toBe('star:a');
+
+		await click('.swap');
+		expect(text('.icon')).toBe('dot:a');
 	});
 
 	it('renders the holes of a sparse array in a loop keyed by its index', async () => {

@@ -19,6 +19,8 @@
 import { walk } from 'zimmerframe';
 import {
 	DIAGNOSTIC_CODES,
+	DYNAMIC_FACTORY_LOCAL,
+	DYNAMIC_IMPORT_LOCAL,
 	IDENTIFIER_OBFUSCATION_PREFIX,
 	isReference as is_reference,
 	TSRX_ERRORS,
@@ -1044,6 +1046,12 @@ const FOR_KEYED_ROWS_INTERNAL_NAME = '__for_keyed_rows';
 const FOR_ROW_PARAM_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'row';
 const FOR_ITEM_PARAM_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'item';
 const FOR_BINDINGS_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'bindings';
+/**
+ * How many loops each compile has given a bindings memo, so each loop's memo
+ * has its own name and a nested loop's can't capture the outer loop's names.
+ * @type {WeakMap<TransformContext, number>}
+ */
+const for_bindings_counts = new WeakMap();
 const CREATE_MEMO_INTERNAL_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'createMemo';
 
 /**
@@ -1222,29 +1230,20 @@ function bind_loop_item(arrow, item, param, value, transform_context) {
 		arrow.body.type === 'BlockStatement'
 			? arrow.body.body
 			: [b.return(/** @type {AST.Expression} */ (arrow.body))];
-	/** @type {AST.Statement} */
-	let declaration;
+	/** @type {AST.Statement[]} */
+	let declarations;
 	if (item.type === 'Identifier') {
-		declaration = b.const(item, b.arrow([], value));
+		declarations = [b.const(item, b.arrow([], value))];
+	} else if (transform_context.typeOnly) {
+		// The type view only needs the names and their types: it keeps the
+		// authored names, so `typeof id` and `<Icon />` stay as written.
+		declarations = [b.const(item, value)];
 	} else {
 		transform_context.needs_for_memo = true;
-		const bindings = create_generated_identifier(FOR_BINDINGS_NAME);
+		const count = (for_bindings_counts.get(transform_context) ?? 0) + 1;
+		for_bindings_counts.set(transform_context, count);
+		const bindings = create_generated_identifier(`${FOR_BINDINGS_NAME}_${count}`);
 		const names = [...collect_param_bindings([item]).keys()];
-		declaration = b.const(
-			bindings,
-			b.call(
-				CREATE_MEMO_INTERNAL_NAME,
-				b.arrow(
-					[],
-					b.block([
-						b.const(item, value),
-						b.return(
-							b.object(names.map((name) => b.prop('init', b.id(name), b.id(name), false, true))),
-						),
-					]),
-				),
-			),
-		);
 		/** @type {Map<string, AST.Expression>} */
 		const replacements = new Map(
 			names.map((name) => [
@@ -1252,12 +1251,34 @@ function bind_loop_item(arrow, item, param, value, transform_context) {
 				b.member(b.call(clone_ast_node(bindings)), create_generated_identifier(name)),
 			]),
 		);
-		body = body.map((statement) => rewrite_binding_refs(statement, replacements));
+		/** @type {AST.Statement[]} */
+		const tag_declarations = [];
+		body = body.map((statement) =>
+			rewrite_binding_refs(statement, replacements, tag_declarations, transform_context),
+		);
+		declarations = [
+			b.const(
+				bindings,
+				b.call(
+					CREATE_MEMO_INTERNAL_NAME,
+					b.arrow(
+						[],
+						b.block([
+							b.const(item, value),
+							b.return(
+								b.object(names.map((name) => b.prop('init', b.id(name), b.id(name), false, true))),
+							),
+						]),
+					),
+				),
+			),
+			...tag_declarations,
+		];
 	}
 	return {
 		...arrow,
 		params: [param, ...arrow.params.slice(1)],
-		body: b.block([declaration, ...body]),
+		body: b.block([...declarations, ...body]),
 		expression: false,
 	};
 }
@@ -1285,14 +1306,19 @@ function is_type_only_node(node) {
 
 /**
  * Replaces each reference to a name in `replacements` with its expression,
- * leaving names that a nested function, block, or loop declares again.
+ * leaving names that a nested function, block, or loop declares again. A
+ * component tag that names one (`<Icon />`, `<icons.Star />`) becomes a
+ * `dynamic` component, declared in `tag_declarations`, so it follows the
+ * row too.
  *
  * @template {AST.Node} T
  * @param {T} node
  * @param {Map<string, AST.Expression>} replacements
+ * @param {AST.Statement[]} tag_declarations
+ * @param {TransformContext} transform_context
  * @returns {T}
  */
-function rewrite_binding_refs(node, replacements) {
+function rewrite_binding_refs(node, replacements, tag_declarations, transform_context) {
 	/**
 	 * @param {Set<string>} shadowed
 	 * @param {Map<string, AST.Identifier>} declared
@@ -1303,6 +1329,7 @@ function rewrite_binding_refs(node, replacements) {
 		return next;
 	};
 	/**
+	 * The names a block's statements declare for the whole block.
 	 * @param {AST.Node[]} statements
 	 * @returns {Map<string, AST.Identifier>}
 	 */
@@ -1310,15 +1337,41 @@ function rewrite_binding_refs(node, replacements) {
 		/** @type {Map<string, AST.Identifier>} */
 		const names = new Map();
 		for (const statement of statements) {
-			if (statement.type !== 'VariableDeclaration' || statement.kind !== 'var') {
+			if (
+				(statement.type === 'TSEnumDeclaration' || statement.type === 'TSModuleDeclaration') &&
+				statement.id.type === 'Identifier'
+			) {
+				names.set(statement.id.name, statement.id);
+			} else if (statement.type !== 'VariableDeclaration' || statement.kind !== 'var') {
 				collect_statement_bindings(statement, names);
 			}
 		}
 		return names;
 	};
-	/** @param {AST.Node} child */
-	const replacement_for = (child) =>
-		child.type === 'Identifier' ? replacements.get(child.name) : undefined;
+	/**
+	 * @param {Set<string>} shadowed
+	 * @param {string} name
+	 */
+	const replacement_for = (shadowed, name) =>
+		shadowed.has(name) ? undefined : replacements.get(name);
+	/**
+	 * The expression a component tag name stands for, with its root replaced.
+	 * A lowercase name is an intrinsic element, not a reference.
+	 * @param {ESTreeJSX.JSXOpeningElement["name"]} name
+	 * @param {Set<string>} shadowed
+	 * @returns {AST.Expression | undefined}
+	 */
+	const tag_expression = (name, shadowed) => {
+		if (name.type === 'JSXIdentifier') {
+			return /^[A-Z]/.test(name.name) ? replacement_for(shadowed, name.name) : undefined;
+		}
+		if (name.type !== 'JSXMemberExpression') return;
+		const object =
+			name.object.type === 'JSXIdentifier'
+				? replacement_for(shadowed, name.object.name)
+				: tag_expression(name.object, shadowed);
+		return object && b.member(clone_ast_node(object), b.id(name.property.name));
+	};
 
 	return /** @type {T} */ (
 		walk(/** @type {AST.Node} */ (node), /** @type {Set<string>} */ (new Set()), {
@@ -1327,26 +1380,47 @@ function rewrite_binding_refs(node, replacements) {
 			},
 			Identifier(identifier, { path, state }) {
 				const parent = path.at(-1);
-				const replacement = replacement_for(identifier);
+				const replacement = replacement_for(state, identifier.name);
 				if (
 					replacement &&
-					!state.has(identifier.name) &&
 					parent &&
+					!is_declaration_name(identifier, parent) &&
 					is_reference(identifier, parent)
 				) {
 					return clone_ast_node(replacement);
 				}
 			},
 			Property(property, { state, next }) {
-				const replacement = replacement_for(property.value);
-				if (
-					property.shorthand &&
-					replacement &&
-					!state.has(/** @type {AST.Identifier} */ (property.value).name)
-				) {
+				const replacement =
+					property.value.type === 'Identifier'
+						? replacement_for(state, property.value.name)
+						: undefined;
+				if (property.shorthand && replacement) {
 					return { ...property, shorthand: false, value: clone_ast_node(replacement) };
 				}
 				next(state);
+			},
+			JSXElement(element, { state, next }) {
+				const expression = tag_expression(
+					/** @type {ESTreeJSX.JSXOpeningElement['name']} */ (element.openingElement.name),
+					state,
+				);
+				const walked = /** @type {ESTreeJSX.JSXElement} */ (next(state) ?? element);
+				if (!expression) return walked;
+				transform_context.local_statement_component_index += 1;
+				const local = `${DYNAMIC_IMPORT_LOCAL}_${transform_context.local_statement_component_index}`;
+				transform_context.needs_dynamic_factory = true;
+				tag_declarations.push(
+					b.const(b.id(local), b.call(b.id(DYNAMIC_FACTORY_LOCAL), b.arrow([], expression))),
+				);
+				return {
+					...walked,
+					openingElement: { ...walked.openingElement, name: b.jsx_id(local) },
+					closingElement: walked.closingElement && {
+						...walked.closingElement,
+						name: b.jsx_id(local),
+					},
+				};
 			},
 			BlockStatement(block, { state, next }) {
 				next(with_declared(state, lexical_names(block.body)));
@@ -1370,13 +1444,49 @@ function rewrite_binding_refs(node, replacements) {
 	);
 
 	/**
+	 * A function's parameters, its own name, and the `var`s anywhere in its
+	 * body (outside nested functions) are its own.
 	 * @param {AST.Function} fn
 	 * @param {{ state: Set<string>, next: (state: Set<string>) => unknown }} context
 	 */
 	function shadow_function(fn, { state, next }) {
 		const declared = collect_param_bindings(fn.params);
 		if (fn.type !== 'ArrowFunctionExpression' && fn.id) declared.set(fn.id.name, fn.id);
+		walk(/** @type {AST.Node} */ (fn.body), null, {
+			VariableDeclaration(declaration, { next }) {
+				if (declaration.kind === 'var') collect_statement_bindings(declaration, declared);
+				next();
+			},
+			FunctionDeclaration() {},
+			FunctionExpression() {},
+			ArrowFunctionExpression() {},
+		});
 		next(with_declared(state, declared));
+	}
+}
+
+/**
+ * Whether `identifier` is the name a declaration introduces rather than a
+ * reference (`is_reference` counts these as references).
+ *
+ * @param {AST.Identifier} identifier
+ * @param {AST.Node} parent
+ * @returns {boolean}
+ */
+function is_declaration_name(identifier, parent) {
+	switch (parent.type) {
+		case 'VariableDeclarator':
+			return parent.id === identifier;
+		case 'FunctionDeclaration':
+		case 'FunctionExpression':
+		case 'ClassDeclaration':
+		case 'ClassExpression':
+		case 'TSEnumDeclaration':
+		case 'TSModuleDeclaration':
+		case 'TSEnumMember':
+			return parent.id === identifier;
+		default:
+			return false;
 	}
 }
 

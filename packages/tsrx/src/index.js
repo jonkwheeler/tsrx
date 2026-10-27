@@ -176,6 +176,8 @@ export {
 	create_script_body as createScriptBody,
 	build_return_expression as buildReturnExpression,
 	createJsxTransform,
+	DYNAMIC_FACTORY_LOCAL,
+	DYNAMIC_IMPORT_LOCAL,
 	extract_jsx_setup_declarations as extractJsxSetupDeclarations,
 	is_component_like_element,
 	is_svg_tag_name as isSvgTagName,

@@ -358,6 +358,48 @@ describe('@tsrx/solid basic', () => {
 			expect(code).toMatch(/\(_\$_row, i\) => \{\s*const item = \(\) => _\$_row\(\)\.item;/);
 		});
 
+		it('leaves names a nested function or enum declares again in a destructured keyed loop', () => {
+			const { code } = compile(
+				`function App({ items }: { items: { id: number }[] }) @{
+					@for (const { id } of items; key id) {
+						<li onClick={() => {
+							var id = 1;
+							enum Kind { A = id }
+							return [id, Kind.A];
+						}} title={() => {
+							function id() {}
+							return id;
+						}}>{id}</li>
+					}
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain('var id = 1;');
+			expect(code).toContain('A = id');
+			expect(code).toContain('return [id, Kind.A];');
+			expect(code).toContain('function id() {}');
+			expect(code).toMatch(/\{_\$_bindings_\d+\(\)\.id\}<\/li>/);
+		});
+
+		it('keeps the authored names in the type view of a destructured keyed loop', () => {
+			const { code, errors } = compile_to_volar_mappings(
+				`function App({ items }: { items: { id: number; Icon: () => any }[] }) @{
+					@for (const { id, Icon } of items; key id) {
+						<li title={String(id satisfies typeof id)}><Icon /></li>
+					}
+				}`,
+				'App.tsrx',
+				{ loose: true },
+			);
+
+			expect(errors).toEqual([]);
+			expect(code).toContain('const { id, Icon } = _$_item();');
+			expect(code).toContain('id satisfies typeof id');
+			expect(code).toContain('<Icon />');
+			expect(code).not.toContain('_$_bindings');
+		});
+
 		it('for-of keyed without its index keeps the item key', () => {
 			const { code } = compile(
 				`function App({ items }: { items: { i: string }[] }) @{

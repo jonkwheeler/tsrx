@@ -385,70 +385,169 @@ function wrap_native_function_components(program, ctx) {
 		Program: visit_statement_list_owner,
 		BlockStatement: visit_statement_list_owner,
 		StaticBlock: visit_statement_list_owner,
-		SwitchCase: visit_statement_list_owner,
 	});
 	program.body = /** @type {AST.Program} */ (wrapped).body;
 }
 
 /**
- * @param {AST.Program | AST.BlockStatement | AST.StaticBlock | AST.SwitchCase} node
+ * @param {AST.Program | AST.BlockStatement | AST.StaticBlock} node
  * @param {import('zimmerframe').Context<AST.Node, TransformContext>} context
  * @returns {AST.Node | void}
  */
-function visit_statement_list_owner(node, { next }) {
+function visit_statement_list_owner(node, { next, state }) {
 	const walked = /** @type {typeof node} */ (next() ?? node);
-	const statements = /** @type {AST.Node[]} */ (
-		walked.type === 'SwitchCase' ? walked.consequent : walked.body
-	);
-	const hoisted = hoist_component_bindings(statements);
-	if (hoisted === statements) {
+	const statements = split_default_exported_components(/** @type {AST.Node[]} */ (walked.body));
+	const hoisted = hoist_component_bindings(statements, state);
+	if (hoisted === walked.body) {
 		return walked === node ? undefined : walked;
 	}
-	return /** @type {AST.Node} */ (
-		walked.type === 'SwitchCase' ? { ...walked, consequent: hoisted } : { ...walked, body: hoisted }
-	);
+	return /** @type {AST.Node} */ ({ ...walked, body: hoisted });
 }
 
 /**
- * Wrapping turns a component's function declaration into a `const`, which,
- * unlike the declaration, is not hoisted. Move each wrapped component above
- * the first statement in its scope that reads it while the scope runs, so
- * `const registry = { inner: Inner }` above `function Inner` still works. A
- * read inside a nested function runs later and needs no move.
+ * `export default function Card` binds `Card` in the module too, so a wrapped
+ * one becomes `const Card = defineVaporComponent(…); export default Card;`.
  *
  * @param {AST.Node[]} statements
  * @returns {AST.Node[]}
  */
-function hoist_component_bindings(statements) {
+function split_default_exported_components(statements) {
+	if (!statements.some((statement) => get_default_exported_component(statement))) {
+		return statements;
+	}
+	return statements.flatMap((statement) => {
+		const declaration = get_default_exported_component(statement);
+		if (!declaration) return [statement];
+		const name = /** @type {string} */ (declaration.metadata.vue_component_binding);
+		return [declaration, b.export_default(b.id(name))];
+	});
+}
+
+/**
+ * @param {AST.Node} statement
+ * @returns {AST.VariableDeclaration | null}
+ */
+function get_default_exported_component(statement) {
+	const declaration = /** @type {AST.Node | null} */ (
+		statement.type === 'ExportDefaultDeclaration' ? statement.declaration : null
+	);
+	return declaration?.type === 'VariableDeclaration' && declaration.metadata?.vue_component_binding
+		? declaration
+		: null;
+}
+
+/**
+ * Wrapping turns a component's function declaration into a `const`, which,
+ * unlike the declaration, is not hoisted. When a statement above the
+ * component reads it while its scope runs, such as
+ * `const registry = { inner: Inner }` above `function Inner`, move the
+ * component above that statement, but only when that changes nothing else:
+ * vue-jsx-vapor evaluates a destructured prop default that names a binding
+ * (`{ label = PREFIX }`) when the component is defined, so a default that
+ * reads a binding declared in the statements the component would move past
+ * is reported instead (TSRX2027).
+ *
+ * Reads that run later or not at all do not count: inside a function, a class
+ * instance field or method, a type, an `export { … }` specifier, a branch a
+ * constant condition skips, or a scope with its own binding of the name.
+ * Reads this cannot see still hit the constant before it is initialized: a
+ * call or IIFE that runs a function reading the component during module
+ * evaluation, a read from another `case` of the `switch` that declares it,
+ * and a circular import that reads it before this module finishes.
+ *
+ * @param {AST.Node[]} statements
+ * @param {TransformContext} ctx
+ * @returns {AST.Node[]}
+ */
+function hoist_component_bindings(statements, ctx) {
 	let result = statements;
+	/** @type {Map<string, AST.Literal['value']> | null} */
+	let constants = null;
 	for (const statement of statements) {
-		const name = get_component_binding_name(statement);
-		if (!name) continue;
+		const declaration = get_component_declaration(statement);
+		if (!declaration) continue;
+		const name = /** @type {string} */ (declaration.metadata.vue_component_binding);
 
 		const index = result.indexOf(statement);
-		const first_read = result
-			.slice(0, index)
-			.findIndex((other) => reads_binding_eagerly(other, name));
-		if (first_read === -1) continue;
+		constants ??= collect_literal_constants(statements);
+		let first_read = -1;
+		/** @type {AST.Node | null} */
+		let read = null;
+		for (let i = 0; i < index && !read; i += 1) {
+			read = find_eager_read(result[i], name, /** @type {Map<string, any>} */ (constants));
+			if (read) first_read = i;
+		}
+		if (!read) continue;
 
-		result = [
-			...result.slice(0, first_read),
-			statement,
-			...result.slice(first_read, index),
-			...result.slice(index + 1),
-		];
+		const passed = result.slice(first_read, index);
+		if (initializer_reads_declared(declaration, passed)) {
+			error(
+				`'${name}' is read here before its declaration. Vue TSRX compiles the component to a constant, which is not hoisted like a function, and moving its declaration above this read would change what its prop defaults read. Move the declaration of '${name}' above this read.`,
+				ctx.filename,
+				read,
+				ctx.errors,
+				ctx.comments,
+				DIAGNOSTIC_CODES.TARGET_COMPONENT_READ_BEFORE_DECLARATION,
+			);
+			continue;
+		}
+
+		result = [...result.slice(0, first_read), statement, ...passed, ...result.slice(index + 1)];
 	}
 	return result;
 }
 
 /**
  * @param {AST.Node} statement
- * @returns {string | null}
+ * @returns {(AST.VariableDeclaration & { metadata: { vue_component_binding: string } }) | null}
  */
-function get_component_binding_name(statement) {
+function get_component_declaration(statement) {
 	const declaration =
 		statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
-	return declaration?.metadata?.vue_component_binding ?? null;
+	return declaration?.type === 'VariableDeclaration' && declaration.metadata?.vue_component_binding
+		? /** @type {any} */ (declaration)
+		: null;
+}
+
+/**
+ * `const NAME = <literal>` declarations in a statement list, for skipping the
+ * branches a constant condition never takes (`const DEBUG = false; if (DEBUG)`).
+ *
+ * @param {AST.Node[]} statements
+ * @returns {Map<string, AST.Literal['value']>}
+ */
+function collect_literal_constants(statements) {
+	/** @type {Map<string, AST.Literal['value']>} */
+	const constants = new Map();
+	for (const statement of statements) {
+		const declaration =
+			statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
+		if (declaration?.type !== 'VariableDeclaration' || declaration.kind !== 'const') continue;
+		for (const declarator of declaration.declarations) {
+			if (declarator.id.type === 'Identifier' && declarator.init?.type === 'Literal') {
+				constants.set(declarator.id.name, declarator.init.value);
+			}
+		}
+	}
+	return constants;
+}
+
+/**
+ * @param {AST.Node | null | undefined} node
+ * @param {Map<string, AST.Literal['value']>} constants
+ * @returns {boolean | null} the condition's truthiness, or null when unknown
+ */
+function constant_truthiness(node, constants) {
+	if (node?.type === 'Literal') return !!node.value || 'regex' in node;
+	if (node?.type === 'Identifier') {
+		if (node.name === 'undefined') return false;
+		return constants.has(node.name) ? !!constants.get(node.name) : null;
+	}
+	if (node?.type === 'UnaryExpression' && node.operator === '!') {
+		const value = constant_truthiness(node.argument, constants);
+		return value === null ? null : !value;
+	}
+	return null;
 }
 
 /**
@@ -470,44 +569,231 @@ const RUNTIME_TS_NODE_TYPES = new Set([
 ]);
 
 /**
- * Whether evaluating `node` reads `name`, not counting reads inside nested
- * functions or types.
+ * The first read of `name` that evaluating `root` performs: not inside a
+ * function, a class instance field or method, a type or an `export { … }`
+ * specifier, not in a branch a constant condition skips, and not in a scope
+ * with its own binding of `name`.
  *
- * @param {AST.Node} node
+ * @param {AST.Node} root
+ * @param {string} name
+ * @param {Map<string, AST.Literal['value']>} constants
+ * @returns {AST.Node | null}
+ */
+function find_eager_read(root, name, constants) {
+	/** @type {AST.Node | null} */
+	let found = null;
+
+	/**
+	 * @param {unknown} value
+	 * @param {AST.Node | undefined} parent
+	 */
+	const visit = (value, parent) => {
+		if (found || !value || typeof value !== 'object') return;
+		if (Array.isArray(value)) {
+			for (const child of value) visit(child, parent);
+			return;
+		}
+		const node = /** @type {AST.Node} */ (value);
+		if (typeof node.type !== 'string') return;
+
+		switch (node.type) {
+			case 'FunctionDeclaration':
+			case 'FunctionExpression':
+			case 'ArrowFunctionExpression':
+			case 'ExportSpecifier':
+				return;
+			case 'Identifier':
+				if (node.name === name && parent && is_reference(node, parent)) found = node;
+				return;
+			case 'JSXIdentifier':
+				if (
+					node.name === name &&
+					((parent?.type === 'JSXOpeningElement' && parent.name === node) ||
+						(parent?.type === 'JSXMemberExpression' && parent.object === node))
+				) {
+					found = node;
+				}
+				return;
+			case 'BlockStatement':
+			case 'StaticBlock':
+				if (declares_lexically(node.body, name)) return;
+				break;
+			case 'SwitchStatement':
+				visit(node.discriminant, node);
+				if (!node.cases.some((c) => declares_lexically(c.consequent, name))) {
+					visit(node.cases, node);
+				}
+				return;
+			case 'ForStatement':
+			case 'ForInStatement':
+			case 'ForOfStatement': {
+				const head = node.type === 'ForStatement' ? node.init : node.left;
+				if (
+					head?.type === 'VariableDeclaration' &&
+					head.kind !== 'var' &&
+					declares_lexically([head], name)
+				) {
+					return;
+				}
+				break;
+			}
+			case 'CatchClause':
+				if (node.param && get_pattern_names([node.param]).has(name)) return;
+				break;
+			case 'IfStatement': {
+				visit(node.test, node);
+				const truthy = constant_truthiness(node.test, constants);
+				if (truthy !== false) visit(node.consequent, node);
+				if (truthy !== true) visit(node.alternate, node);
+				return;
+			}
+			case 'ConditionalExpression': {
+				visit(node.test, node);
+				const truthy = constant_truthiness(node.test, constants);
+				if (truthy !== false) visit(node.consequent, node);
+				if (truthy !== true) visit(node.alternate, node);
+				return;
+			}
+			case 'LogicalExpression': {
+				visit(node.left, node);
+				const truthy = constant_truthiness(node.left, constants);
+				if (
+					!(node.operator === '&&' && truthy === false) &&
+					!(node.operator === '||' && truthy === true)
+				) {
+					visit(node.right, node);
+				}
+				return;
+			}
+			case 'PropertyDefinition':
+			case 'MethodDefinition':
+				// An instance field runs when an instance is created, and a method
+				// when it is called; only a computed key, a decorator or a static
+				// field runs with the class.
+				if (node.computed) visit(node.key, node);
+				visit(/** @type {{ decorators?: AST.Node[] }} */ (node).decorators, node);
+				if (node.type === 'PropertyDefinition' && node.static) visit(node.value, node);
+				return;
+		}
+
+		if (node.type.startsWith('TS') && !RUNTIME_TS_NODE_TYPES.has(node.type)) return;
+		const record = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (node));
+		for (const key of Object.keys(record)) {
+			if (key === 'metadata' || key === 'loc' || key === 'start' || key === 'end') continue;
+			visit(record[key], node);
+		}
+	};
+
+	visit(root, undefined);
+	return found;
+}
+
+/**
+ * Whether a statement list declares `name` in its own scope.
+ *
+ * @param {AST.Node[]} statements
  * @param {string} name
  * @returns {boolean}
  */
-function reads_binding_eagerly(node, name) {
-	let found = false;
-	walk(node, null, {
-		_(node, { next }) {
-			if (node.type.startsWith('TS') && !RUNTIME_TS_NODE_TYPES.has(node.type)) return;
-			next();
-		},
-		FunctionDeclaration() {},
-		FunctionExpression() {},
-		ArrowFunctionExpression() {},
-		ExportSpecifier() {},
-		Identifier(node, { path, stop }) {
-			const parent = path.at(-1);
-			if (node.name === name && parent && is_reference(node, parent)) {
-				found = true;
-				stop();
-			}
-		},
-		JSXIdentifier(node, { path, stop }) {
-			const parent = path.at(-1);
-			if (
-				node.name === name &&
-				((parent?.type === 'JSXOpeningElement' && parent.name === node) ||
-					(parent?.type === 'JSXMemberExpression' && parent.object === node))
-			) {
-				found = true;
-				stop();
-			}
-		},
-	});
-	return found;
+function declares_lexically(statements, name) {
+	for (const statement of statements) {
+		const declaration =
+			statement.type === 'ExportNamedDeclaration' && statement.declaration
+				? statement.declaration
+				: statement;
+		if (declaration.type === 'VariableDeclaration' && declaration.kind !== 'var') {
+			if (get_pattern_names(declaration.declarations.map((d) => d.id)).has(name)) return true;
+		} else if (
+			(declaration.type === 'FunctionDeclaration' || declaration.type === 'ClassDeclaration') &&
+			declaration.id?.name === name
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Whether defining the component reads a binding that `passed`, the
+ * statements it would move above, declares. vue-jsx-vapor evaluates a
+ * destructured prop default that names a binding when the component is
+ * defined; every name read in the props pattern's defaults is counted.
+ *
+ * @param {AST.VariableDeclaration} declaration
+ * @param {AST.Node[]} passed
+ * @returns {boolean}
+ */
+function initializer_reads_declared(declaration, passed) {
+	const call = /** @type {AST.CallExpression} */ (declaration.declarations[0]?.init);
+	const fn = /** @type {AST.Function | undefined} */ (call?.arguments?.[0]);
+	const reads = new Set();
+	collect_default_reads(fn?.params?.[0], undefined, reads);
+	if (reads.size === 0) return false;
+
+	/** @type {Set<string>} */
+	const declared = new Set();
+	for (const statement of passed) {
+		const node =
+			(statement.type === 'ExportNamedDeclaration' ||
+				statement.type === 'ExportDefaultDeclaration') &&
+			statement.declaration
+				? statement.declaration
+				: statement;
+		if (node.type === 'VariableDeclaration') {
+			for (const declarator of node.declarations) collect_pattern_names(declarator.id, declared);
+		} else if (
+			(node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') &&
+			node.id
+		) {
+			declared.add(node.id.name);
+		}
+		collect_function_var_names(statement, declared);
+	}
+	for (const read of reads) {
+		if (declared.has(read)) return true;
+	}
+	return false;
+}
+
+/**
+ * The names read by the default values in a parameter pattern, outside
+ * nested functions.
+ *
+ * @param {unknown} value
+ * @param {AST.Node | undefined} parent
+ * @param {Set<string>} reads
+ * @param {boolean} [in_default]
+ * @returns {void}
+ */
+function collect_default_reads(value, parent, reads, in_default = false) {
+	if (!value || typeof value !== 'object') return;
+	if (Array.isArray(value)) {
+		for (const child of value) collect_default_reads(child, parent, reads, in_default);
+		return;
+	}
+	const node = /** @type {AST.Node} */ (value);
+	if (typeof node.type !== 'string') return;
+	if (
+		node.type === 'FunctionExpression' ||
+		node.type === 'ArrowFunctionExpression' ||
+		(node.type.startsWith('TS') && !RUNTIME_TS_NODE_TYPES.has(node.type))
+	) {
+		return;
+	}
+	if (node.type === 'AssignmentPattern') {
+		collect_default_reads(node.left, node, reads, in_default);
+		collect_default_reads(node.right, node, reads, true);
+		return;
+	}
+	if (node.type === 'Identifier') {
+		if (in_default && parent && is_reference(node, parent)) reads.add(node.name);
+		return;
+	}
+	const record = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (node));
+	for (const key of Object.keys(record)) {
+		if (key === 'metadata' || key === 'loc' || key === 'start' || key === 'end') continue;
+		collect_default_reads(record[key], node, reads, in_default);
+	}
 }
 
 /**
@@ -555,10 +841,6 @@ function wrap_native_function_component(fn, source, ctx, path) {
 	);
 
 	if (fn.type !== 'FunctionDeclaration') {
-		return call;
-	}
-
-	if (parent?.type === 'ExportDefaultDeclaration' && parent.declaration === source) {
 		return call;
 	}
 

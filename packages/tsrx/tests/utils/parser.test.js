@@ -9841,6 +9841,65 @@ export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
 		}
 	});
 
+	// The rule decides only where an expression starts. A template's render
+	// node and its children are tags wherever they start, as before the rule.
+	it('reads a template render node or child as a tag, an `extends` attribute included', () => {
+		/** @type {Array<[shape: string, tag: string]>} */
+		const shapes = [
+			['<Foo extends bar>x</Foo>', 'Foo'],
+			['<Foo extends bar />', 'Foo'],
+			['<Foo extends {...p} />', 'Foo'],
+			['<div extends className="a">x</div>', 'div'],
+			['<const T extends x />', 'const'],
+		];
+		/** @type {Array<(shape: string) => string>} */
+		const positions = [
+			(shape) => `export function App() @{\n\t${shape}\n}`,
+			(shape) => `export function App() @{\n\tconst a = 1;\n\t${shape}\n}`,
+			(shape) => `export function App() @{\n\tconst a = 1\n\t${shape}\n}`,
+			(shape) => `export function App() @{ ${shape} }`,
+			(shape) => `export function App() @{ const a = 1; /* c */ ${shape} }`,
+			(shape) => `export function App(p) @{\n\tif (p) { p = 1 }\n\t${shape}\n}`,
+			(shape) => `export function App() { return <div>@{\n\tconst a = 1;\n\t${shape}\n}</div>; }`,
+			(shape) =>
+				`export function App(p) @{\n\t<div>@if (p.a) {\n\t\tconst b = 1\n\t\t${shape}\n\t}</div>\n}`,
+			(shape) =>
+				`export function App(p) @{\n\t<ul>@for (const i of p.xs) {\n\t\t${shape}\n\t}</ul>\n}`,
+			(shape) =>
+				`export function App(p) @{\n\t<div>@switch (p.a) {\n\t\t@case 1: {\n\t\t\tconst b = 1\n\t\t\t${shape}\n\t\t}\n\t}</div>\n}`,
+			(shape) =>
+				`export function App(p) @{\n\t<div>@try {\n\t\t${shape}\n\t} @catch (e) {\n\t\t<b />\n\t}</div>\n}`,
+			(shape) => `export const App = (p) => @if (p.a) {\n\t${shape}\n}`,
+			(shape) => `export function App(p) @{\n\t<div>@if (p.a) {\n\t\t<b />\n\t}${shape}</div>\n}`,
+		];
+		for (const position of positions) {
+			for (const [shape, tag] of shapes) {
+				const source = position(shape);
+				for (const options of [undefined, { collect: true, errors: [], comments: [] }]) {
+					const ast = parseModule(source, 'App.tsrx', options);
+					const label = `${source} ${options ? 'collecting' : 'strict'}`;
+					// The element named `tag` with an `extends` attribute
+					const element = find_first(ast, (node) => {
+						if (node.type !== 'JSXElement') return false;
+						const opening = /** @type {AST.TSRXJSXElement} */ (node).openingElement;
+						return (
+							'name' in opening.name &&
+							opening.name.name === tag &&
+							opening.attributes.some(
+								(attribute) =>
+									attribute.type === 'JSXAttribute' &&
+									attribute.name.type === 'JSXIdentifier' &&
+									attribute.name.name === 'extends',
+							)
+						);
+					});
+					expect(element, label).toBeDefined();
+					expect(options?.errors ?? [], label).toEqual([]);
+				}
+			}
+		}
+	});
+
 	it('keeps an element whose text starts like an arrow function as an element (#734)', () => {
 		for (const source of [
 			'export const f = <b>(i) => i</b>;',

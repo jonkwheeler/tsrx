@@ -1000,6 +1000,10 @@ export function TSRXPlugin(config) {
 			// `?` allows an expression next, so the tokenizer would otherwise read the
 			// `<` of the type parameters as a JSX tag.
 			#afterOptionalMemberName = false;
+			// Set while a `<` known to start a tag, a template's render node or
+			// child, is re-read (see `#rereadAsTagStart`), so the generic-arrow rule
+			// doesn't apply to it.
+			#rereadingTagStart = false;
 			// The node `tsParseModifiers` is reading modifiers for, so that
 			// `tsParseModifier` can tell whether it has already read `static`.
 			/** @type {{ static?: unknown } | null} */
@@ -2353,8 +2357,10 @@ export function TSRXPlugin(config) {
 			 * the start of a line, or in an expression position such as after `;`/`{`/`=>` —
 			 * which the `jsxTagStart` fast path below covers. The char-based fallback for a
 			 * raw `<` therefore only treats it as render output when the tag starts its own
-			 * line or follows a `;` on the same line (so one-liners such as
-			 * `@{ const foo = 1; <>{foo}</> }` work). A `<` the tokenizer left as a
+			 * line or follows a `;`, `{`, or `}` on the same line (so one-liners such as
+			 * `@{ const foo = 1; <>{foo}</> }` work, and `@{ <Foo extends bar /> }`, whose
+			 * `<` the tokenizer reads as a generic arrow's by TypeScript's rule for an
+			 * expression). A `<` the tokenizer left as a
 			 * relational operator while trailing a value on the same line is the comparison
 			 * it looks like (`aaa <b` is `aaa < b`, never a `<b>` tag), so it stays setup
 			 * code rather than being mistaken for render output.
@@ -2366,10 +2372,13 @@ export function TSRXPlugin(config) {
 				if (ch === CharCode.lessThan) {
 					if (this.input.charCodeAt(index + 1) === CharCode.slash) return false;
 					const tagLike = can_start_tag_after_lt(this.input, index);
-					const previous = this.#previousNonSpaceTabIndex(index);
-					const afterSemicolon =
-						previous >= 0 && this.input.charCodeAt(previous) === CharCode.semicolon;
-					return tagLike && (this.#isLineStartPosition(index) || afterSemicolon);
+					const previous = this.#previousNonSpaceTabCommentIndex(index);
+					const before = previous >= 0 ? this.input.charCodeAt(previous) : -1;
+					const afterStatement =
+						before === CharCode.semicolon ||
+						before === CharCode.openBrace ||
+						before === CharCode.closeBrace;
+					return tagLike && (this.#isLineStartPosition(index) || afterStatement);
 				}
 				return this.#isCodeBlockStart(index) || this.#isJSXControlFlowDirectiveAt(index);
 			}
@@ -2441,6 +2450,36 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
+			 * Whether the parser is reading a setup statement of a template's code
+			 * block, directive body, or `@case` arm.
+			 */
+			#readingTemplateSetupStatement() {
+				return (
+					this.#templateScriptParsingDepth > 0 || this.#parsingJSXSwitchCaseScriptStatementDepth > 0
+				);
+			}
+
+			/**
+			 * Re-read the `<` at `index`, where a template's render node or child
+			 * starts, so its `jsxTagStart` pushes the opening-tag contexts in place
+			 * of the ones it pushed when it was first read. A tag starts there, so
+			 * the generic-arrow rule that may have read it as a `<` operator
+			 * (`<Foo extends bar />`) doesn't apply.
+			 * @param {number} index
+			 */
+			#rereadAsTagStart(index) {
+				this.#truncateContext(this.context.length - this.#currentTokenContextCount());
+				this.pos = index;
+				this.exprAllowed = true;
+				this.#rereadingTagStart = true;
+				try {
+					this.next();
+				} finally {
+					this.#rereadingTagStart = false;
+				}
+			}
+
+			/**
 			 * Parse the single bare render node of a code block — a JSX element/fragment
 			 * (parsed as a native TSRX element so its own body may again be plain JSX or
 			 * a nested `@{ … }`) or an `@if`/`@for`/`@switch`/`@try` directive.
@@ -2468,12 +2507,7 @@ export function TSRXPlugin(config) {
 					return this.#parseJSXControlFlowExpression();
 				}
 
-				// Re-read the `<` so its `jsxTagStart` pushes the opening-tag contexts,
-				// in place of the ones it pushed when it was first read.
-				this.#truncateContext(this.context.length - this.#currentTokenContextCount());
-				this.pos = at_index;
-				this.exprAllowed = true;
-				this.next();
+				this.#rereadAsTagStart(at_index);
 				if (this.type !== tstt.jsxTagStart) {
 					this.unexpected();
 				}
@@ -3177,6 +3211,9 @@ export function TSRXPlugin(config) {
 				) {
 					const startPos = this.start;
 					const startLoc = this.startLoc;
+					if (this.type === tt.relational && this.value === '<') {
+						this.#rereadAsTagStart(startPos);
+					}
 					if (this.type === tstt.jsxTagStart) {
 						this.next();
 					} else {
@@ -7435,8 +7472,15 @@ export function TSRXPlugin(config) {
 					if (
 						afterOptionalMemberName ||
 						(next !== CharCode.slash &&
-							// Between JSX children, as in TypeScript, a `<` only opens a tag.
-							((context !== tstc.tc_expr && looks_like_generic_arrow(this.input, this.pos)) ||
+							// The rule applies only where an expression can start, as in
+							// TypeScript: not between JSX children, nor where a template's
+							// render node or child starts, where a `<` only opens a tag. In a
+							// template's setup code, that includes a `<` after an operand,
+							// which starts the render node on its line.
+							(((this.exprAllowed || !this.#readingTemplateSetupStatement()) &&
+								context !== tstc.tc_expr &&
+								!this.#rereadingTagStart &&
+								looks_like_generic_arrow(this.input, this.pos)) ||
 								this.#canStartTypeParameterOrArgumentList(this.pos)))
 					) {
 						++this.pos;
@@ -10250,6 +10294,16 @@ export function TSRXPlugin(config) {
 					body.push(this.#parseCodeBlock());
 					this.parseTemplateBody(body);
 					return;
+				}
+
+				// A child's `<` starts a tag, even where the generic-arrow rule read it
+				// as an operator (`}<Foo extends bar />` after a directive).
+				if (
+					this.type === tt.relational &&
+					this.value === '<' &&
+					can_start_tag_after_lt(this.input, this.start)
+				) {
+					this.#rereadAsTagStart(this.start);
 				}
 
 				if (this.type === tt.braceL) {

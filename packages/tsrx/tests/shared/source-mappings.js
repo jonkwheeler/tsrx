@@ -2658,6 +2658,142 @@ export function D() @{
 				expect(generated_at(result, offset, 2), element).toEqual(['/>']);
 			}
 		});
+
+		/**
+		 * The verification mappings that start at `offset` and cover `length`
+		 * source characters.
+		 * @param {{ mappings: CodeMapping[] }} result
+		 * @param {number} offset
+		 * @param {number} length
+		 */
+		const mappings_at = (result, offset, length) =>
+			result.mappings.filter(
+				(mapping) =>
+					mapping.sourceOffsets[0] === offset &&
+					mapping.lengths[0] === length &&
+					mapping.data.verification,
+			);
+
+		it('maps the keyword of a declaration and the brackets of a binding pattern (#1062)', () => {
+			// TypeScript reports TS6199 on a declaration whose variables are all unused,
+			// from its keyword, and TS6198 on a binding pattern whose elements are all
+			// unused, from its bracket. In a `@{` body no other mapping covers them.
+			const source = `export async function A({ x }: { x: number }, [y]: number[]) @{
+	const [a, b] = [x, y];
+	let { c, d: [e] } = { c: 1, d: [2] };
+	var [, f, ...g] = [1, 2, 3];
+	await using h = null;
+	try {} catch ({ message }) {}
+	for (const [k, v] of [[1, 2]]) {}
+	<p>{a}{b}{c}{e}{f}{g}{h}</p>
+}
+declare const i: number;`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			expect(result.errors).toEqual([]);
+			/** @type {Array<[string, number]>} */
+			const tokens = [
+				['const', source.indexOf('const [a')],
+				['let', source.indexOf('let {')],
+				['var', source.indexOf('var [')],
+				['await using', source.indexOf('await using')],
+				['const', source.indexOf('const [k')],
+				['declare', source.indexOf('declare')],
+				['const', source.indexOf('const i')],
+			];
+			for (const pattern of [
+				'{ x }',
+				'[y]',
+				'[a, b]',
+				'{ c, d: [e] }',
+				'[e]',
+				'[, f, ...g]',
+				'{ message }',
+				'[k, v]',
+			]) {
+				const start = source.indexOf(pattern);
+				tokens.push([pattern[0], start], [pattern[pattern.length - 1], start + pattern.length - 1]);
+			}
+			for (const [text, offset] of tokens) {
+				expect(generated_at(result, offset, text.length), `${text} at ${offset}`).toEqual([text]);
+				// Like the `function` keyword, with every feature, so that TypeScript 7
+				// joins it with the names around it into one span.
+				expect(mappings_at(result, offset, text.length)[0].data.completion).toBe(true);
+			}
+		});
+
+		it('maps the keywords that start a statement and the ends of its blocks, for diagnostics only', () => {
+			// TypeScript reports unreachable code (TS7027) from the start of the first
+			// unreachable statement to the end of the last, and TS2367 on a whole
+			// `typeof x` comparison.
+			const source = `let x: unknown;
+declare function foo(): void;
+export function f(n: number) {
+	if (x) {}
+	while (x) {}
+	do foo(); while (x);
+	for (;;) {}
+	for (const y of [n]) {}
+	switch (n) {}
+	throw new Error();
+	try {} catch {}
+	try {} finally {}
+	debugger;
+	typeof x;
+	void x;
+	delete (x as any).y;
+	label: for (;;) { break label; continue label; }
+	enum E { A }
+	return;
+}`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			expect(result.errors).toEqual([]);
+			/** @type {Array<[string, number]>} */
+			const tokens = [];
+			for (const statement of [
+				'if (x)',
+				'while (x) {}',
+				'do foo()',
+				'for (;;) {}',
+				'for (const y',
+				'for (;;) { break',
+				'switch (n)',
+				'throw new',
+				'new Error',
+				'try {} catch',
+				'try {} finally',
+				'debugger;',
+				'typeof x',
+				'void x',
+				'delete (x',
+				'break label',
+				'continue label',
+				'enum E',
+			]) {
+				const keyword = statement.split(/[ (;]/)[0];
+				tokens.push([keyword, source.indexOf(statement)]);
+			}
+			const last_character = (/** @type {string} */ statement) =>
+				source.indexOf(statement) + statement.length - 1;
+			tokens.push(
+				['}', last_character('while (x) {}')],
+				['}', last_character('try {} catch {}')],
+				['}', last_character('try {} finally {}')],
+				['}', last_character('enum E { A }')],
+				[';', last_character('while (x);')],
+				[';', last_character('throw new Error();')],
+				[';', last_character('debugger;')],
+				[';', last_character('break label;')],
+				[';', last_character('continue label;')],
+				[';', last_character('return;')],
+			);
+			for (const [text, offset] of tokens) {
+				expect(generated_at(result, offset, text.length), `${text} at ${offset}`).toEqual([text]);
+				expect(
+					mappings_at(result, offset, text.length)[0].data.completion,
+					`${text} at ${offset}`,
+				).toBeFalsy();
+			}
+		});
 	});
 
 	describe(`[${name}] input AST immutability`, () => {

@@ -464,6 +464,24 @@ describe('native language server on a configured project', () => {
 		client.close('Unused.tsrx');
 	});
 
+	it('reports an unused destructuring in a @{ body on the pattern (#1062)', async () => {
+		const source = [
+			'export function UnusedPattern() @{',
+			'\tconst [a, b] = [1, 2];',
+			'\tconst { c, d } = { c: 1, d: 2 };',
+			'\t<p />',
+			'}',
+			'',
+		].join('\n');
+		client.open('UnusedPattern.tsrx', source);
+		const diagnostics = await client.diagnostics('UnusedPattern.tsrx');
+		expect(diagnostics.map((d) => [d.code, range_text(source, d.range)])).toEqual([
+			[6198, '[a, b]'],
+			[6198, '{ c, d }'],
+		]);
+		client.close('UnusedPattern.tsrx');
+	});
+
 	it('reports unused imports with several names and type names as in a .ts file', async () => {
 		const tsrx = `${MIXED_IMPORTS}
 export function Mixed(props: { value: M | O3 }) @{

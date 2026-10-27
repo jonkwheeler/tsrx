@@ -728,6 +728,96 @@ export function convert_source_map_to_mappings(
 	}
 
 	/**
+	 * Map a source token to the same text where the printer writes it. A token
+	 * the printer leaves out or writes differently gets no mapping.
+	 * @param {AST.SourceLocation | null | undefined} loc
+	 * @param {string} text
+	 * @param {Partial<CodeMapping['data']>} [data]
+	 * @returns {void}
+	 */
+	function push_printed_token(loc, text, data = mapping_data) {
+		if (!loc || generated_offset_for_text(loc.start, text) === undefined) return;
+		tokens.push({ source: text, generated: text, loc, metadata: {}, mappingData: data });
+	}
+
+	/**
+	 * TypeScript reports unreachable code (TS7027) from the start of the first
+	 * unreachable statement to the end of the last. Map the keyword that starts
+	 * a statement, for diagnostics only.
+	 * @param {AST.Node} node
+	 * @param {string} keyword
+	 * @returns {void}
+	 */
+	function push_statement_keyword_token(node, keyword) {
+		if (!has_location(node)) return;
+		const token = find_source_token(source_tokens, keyword, node.start, 'after');
+		if (token?.start === node.start) {
+			push_printed_token(token.loc, keyword, mapping_data_verify_only);
+		}
+	}
+
+	/**
+	 * Map the `}` that ends a block, for diagnostics only, so that unreachable
+	 * code (TS7027) that ends with the block keeps its end.
+	 * @param {AST.Node | null | undefined} node
+	 * @returns {void}
+	 */
+	function push_block_end_token(node) {
+		if (!has_location(node) || source[node.end - 1] !== '}') return;
+		const token = find_source_token(source_tokens, '}', node.end, 'before');
+		if (token?.end === node.end) push_printed_token(token.loc, '}', mapping_data_verify_only);
+	}
+
+	/**
+	 * TypeScript reports some errors on a whole declaration, from its keyword
+	 * (TS6199 when all its variables are unused, TS7027), and on a whole binding
+	 * pattern, from its bracket (TS6198 when all its elements are unused).
+	 * In a `@{` body these start where no other mapping covers (#1062).
+	 * @param {AST.VariableDeclaration & AST.NodeWithLocation} node
+	 * @returns {void}
+	 */
+	function push_declaration_keyword_tokens(node) {
+		const keywords = node.declare ? ['declare', node.kind] : [node.kind];
+		const bound = node.declarations[0]?.start ?? node.end;
+		let from = node.start;
+		for (const keyword of keywords) {
+			// The printer writes `await using` as one piece.
+			const token = find_source_token(source_tokens, keyword.split(' ')[0], from, 'after');
+			if (!token?.loc || !source.startsWith(keyword, token.start)) return;
+			// The first keyword starts the declaration, which a declaration the
+			// compiler adds with the location of other code does not.
+			if (keyword === keywords[0] ? token.start !== node.start : token.start >= bound) return;
+			const { line, column } = token.loc.start;
+			push_printed_token(
+				{ start: token.loc.start, end: { line, column: column + keyword.length } },
+				keyword,
+			);
+			from = token.start + keyword.length;
+		}
+	}
+
+	/**
+	 * Map the opening or the closing bracket of a binding pattern.
+	 * @param {AST.ObjectPattern | AST.ArrayPattern} node
+	 * @param {'open' | 'close'} side
+	 * @returns {void}
+	 */
+	function push_pattern_bracket_token(node, side) {
+		if (!has_location(node)) return;
+		const [open, close] = node.type === 'ObjectPattern' ? ['{', '}'] : ['[', ']'];
+		const opening = find_source_token(source_tokens, open, node.start, 'after');
+		if (opening?.start !== node.start) return;
+		if (side === 'open') {
+			push_printed_token(opening.loc, open);
+			return;
+		}
+		const children = node.type === 'ObjectPattern' ? node.properties : node.elements;
+		const last = children.findLast((child) => has_location(child));
+		const closing = find_source_token(source_tokens, close, last?.end ?? opening.end, 'after');
+		if (closing && closing.end <= node.end) push_printed_token(closing.loc, close);
+	}
+
+	/**
 	 * TypeScript reports some errors on a whole statement, up to its `;` (TS7027
 	 * on unreachable code), and Volar drops a diagnostic whose end no mapping
 	 * covers. Map the `;` the printer writes after a statement: an authored one
@@ -1427,6 +1517,9 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'VariableDeclaration') {
+				if (has_location(node)) {
+					push_declaration_keyword_tokens(node);
+				}
 				// Visit declarators in order
 				if (node.declarations) {
 					for (const declarator of node.declarations) {
@@ -1452,6 +1545,7 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'IfStatement') {
+				push_statement_keyword_token(node, 'if');
 				// Visit in source order: test, consequent, alternate
 				if (node.test) {
 					visit(node.test);
@@ -1541,6 +1635,7 @@ export function convert_source_map_to_mappings(
 
 				return;
 			} else if (node.type === 'ForStatement') {
+				push_statement_keyword_token(node, 'for');
 				// Visit in source order: init, test, update, body
 				if (node.init) {
 					visit(node.init);
@@ -1560,6 +1655,7 @@ export function convert_source_map_to_mappings(
 				);
 				return;
 			} else if (node.type === 'ForOfStatement' || node.type === 'ForInStatement') {
+				push_statement_keyword_token(node, 'for');
 				// Visit in source order: left, right, TSRX index extension, body
 				if (node.left) {
 					visit(node.left);
@@ -1598,22 +1694,27 @@ export function convert_source_map_to_mappings(
 			} else if (node.type === 'WhileStatement' || node.type === 'DoWhileStatement') {
 				// Visit in source order: test, body (while) or body, test (do-while)
 				if (node.type === 'WhileStatement') {
+					push_statement_keyword_token(node, 'while');
 					if (node.test) {
 						visit(node.test);
 					}
 					if (node.body) {
 						visit(node.body);
+						push_block_end_token(node.body);
 					}
 				} else {
+					push_statement_keyword_token(node, 'do');
 					if (node.body) {
 						visit(node.body);
 					}
 					if (node.test) {
 						visit(node.test);
 					}
+					push_statement_end_mapping(node);
 				}
 				return;
 			} else if (node.type === 'TryStatement') {
+				push_statement_keyword_token(node, 'try');
 				// Visit in source order: block, pending, handler, finalizer
 				if (node.block) {
 					mappings.push(
@@ -1640,9 +1741,11 @@ export function convert_source_map_to_mappings(
 				}
 				if (node.handler) {
 					visit(node.handler);
+					if (!node.finalizer) push_block_end_token(node.handler.body);
 				}
 				if (node.finalizer) {
 					visit(node.finalizer);
+					push_block_end_token(node.finalizer);
 				}
 				return;
 			} else if (node.type === 'CatchClause') {
@@ -1662,6 +1765,7 @@ export function convert_source_map_to_mappings(
 					mappings.push(
 						get_mapping_from_node(node, src_to_gen_map, gen_line_offsets, mapping_data_verify_only),
 					);
+					push_statement_keyword_token(node, 'new');
 				}
 
 				if (node.arguments) {
@@ -1750,12 +1854,18 @@ export function convert_source_map_to_mappings(
 						get_mapping_from_node(node, src_to_gen_map, gen_line_offsets, mapping_data_verify_only),
 					);
 				}
+				if (node.type === 'ObjectPattern') {
+					push_pattern_bracket_token(node, 'open');
+				}
 
 				// Visit properties in order
 				if (node.properties) {
 					for (const prop of node.properties) {
 						visit(prop);
 					}
+				}
+				if (node.type === 'ObjectPattern') {
+					push_pattern_bracket_token(node, 'close');
 				}
 				return;
 			} else if (node.type === 'Property') {
@@ -1782,11 +1892,17 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'ArrayExpression' || node.type === 'ArrayPattern') {
+				if (node.type === 'ArrayPattern') {
+					push_pattern_bracket_token(node, 'open');
+				}
 				// Visit elements in order
 				if (node.elements) {
 					for (const element of node.elements) {
 						if (element) visit(element);
 					}
+				}
+				if (node.type === 'ArrayPattern') {
+					push_pattern_bracket_token(node, 'close');
 				}
 				return;
 			} else if (node.type === 'ConditionalExpression') {
@@ -1802,6 +1918,12 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'UnaryExpression' || node.type === 'UpdateExpression') {
+				// TypeScript reports some errors on a whole `typeof x` (TS2367 when it
+				// is compared with a string it can never be) or on a statement that
+				// starts with the keyword (TS7027).
+				if (node.type === 'UnaryExpression' && /^[a-z]/.test(node.operator)) {
+					push_statement_keyword_token(node, node.operator);
+				}
 				// Visit argument
 				if (node.argument) {
 					visit(node.argument);
@@ -1834,6 +1956,9 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'ReturnStatement' || node.type === 'ThrowStatement') {
+				if (node.type === 'ThrowStatement') {
+					push_statement_keyword_token(node, 'throw');
+				}
 				// Visit argument
 				if (node.argument) {
 					visit(node.argument);
@@ -1866,6 +1991,9 @@ export function convert_source_map_to_mappings(
 					mapping.generatedLengths = [RETURN_KEYWORD.length];
 
 					mappings.push(mapping);
+					push_statement_end_mapping(node);
+				} else if (node.type === 'ThrowStatement') {
+					push_statement_end_mapping(node);
 				}
 				return;
 			} else if (node.type === 'ExpressionStatement') {
@@ -1883,6 +2011,7 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'SwitchStatement') {
+				push_statement_keyword_token(node, 'switch');
 				// Visit in source order: discriminant, cases
 				if (node.discriminant) {
 					visit(node.discriminant);
@@ -2071,7 +2200,10 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'EmptyStatement' || node.type === 'DebuggerStatement') {
-				// No children to visit
+				if (node.type === 'DebuggerStatement') {
+					push_statement_keyword_token(node, 'debugger');
+					push_statement_end_mapping(node);
+				}
 				return;
 			} else if (node.type === 'LabeledStatement') {
 				// Visit label and statement
@@ -2083,10 +2215,12 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'BreakStatement' || node.type === 'ContinueStatement') {
+				push_statement_keyword_token(node, node.type === 'BreakStatement' ? 'break' : 'continue');
 				// Visit label if present
 				if (node.label) {
 					visit(node.label);
 				}
+				push_statement_end_mapping(node);
 				return;
 			} else if (node.type === 'WithStatement') {
 				// Visit object and body
@@ -2568,6 +2702,13 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'TSEnumDeclaration') {
+				if (has_location(node)) {
+					const start = node.start;
+					const keyword = ['declare', 'const', 'enum'].find((text) =>
+						source.startsWith(text, start),
+					);
+					if (keyword) push_statement_keyword_token(node, keyword);
+				}
 				// Visit id and members
 				if (node.id) {
 					visit(node.id);
@@ -2575,6 +2716,7 @@ export function convert_source_map_to_mappings(
 				for (const member of node.body.members) {
 					visit(member);
 				}
+				push_block_end_token(node);
 				return;
 			} else if (node.type === 'TSEnumMember') {
 				// Visit id and initializer
@@ -2850,11 +2992,18 @@ export function convert_source_map_to_mappings(
 	});
 
 	// Add a mapping for the very beginning of the file to handle import additions
-	// This ensures that code actions adding imports at the top work correctly
+	// This ensures that code actions adding imports at the top work correctly.
+	// A completion maps its import edit only through a mapping with completions,
+	// so a keyword mapped for diagnostics only does not replace it.
 	if (
 		!isImportDeclarationPresent &&
 		mappings.length > 0 &&
-		(mappings[0].sourceOffsets[0] > 0 || mappings[0].generatedOffsets[0] > 0)
+		!mappings.some(
+			(mapping) =>
+				mapping.sourceOffsets[0] === 0 &&
+				mapping.generatedOffsets[0] === 0 &&
+				mapping.data.completion,
+		)
 	) {
 		mappings.unshift({
 			sourceOffsets: [0],

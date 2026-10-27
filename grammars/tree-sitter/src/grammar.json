@@ -3591,7 +3591,28 @@
                     ]
                   },
                   {
-                    "type": "STRING",
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "TOKEN",
+                      "content": {
+                        "type": "SEQ",
+                        "members": [
+                          {
+                            "type": "STRING",
+                            "value": "</style"
+                          },
+                          {
+                            "type": "PATTERN",
+                            "value": "[\\t\\n\\f\\r ]*"
+                          },
+                          {
+                            "type": "STRING",
+                            "value": ">"
+                          }
+                        ]
+                      }
+                    },
+                    "named": false,
                     "value": "</style>"
                   }
                 ]

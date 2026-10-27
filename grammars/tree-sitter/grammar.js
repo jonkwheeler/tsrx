@@ -778,16 +778,24 @@ module.exports = grammar({
 		jsx_finally_clause: ($) => seq('finally', field('body', $.jsx_template_block)),
 
 		// Raw-text `<style>` element: the body is verbatim CSS (scanned by the
-		// external scanner up to the literal `</style>`, so `<` and comments in the
-		// CSS stay in it), never template markup. The self-closing form
-		// (`<style apply={theme} />`) has no body.
+		// external scanner up to `</style>`, so `<` and comments in the CSS stay in
+		// it), never template markup. As in the compiler, the closing tag may have
+		// whitespace before its `>`; it stays the single `</style>` token either way.
+		// The self-closing form (`<style apply={theme} />`) has no body.
 		style_element: ($) =>
 			prec(
 				1,
 				seq(
 					'<style',
 					repeat($._jsx_attribute),
-					choice('/>', seq('>', optional(alias($._style_content, $.raw_text)), '</style>')),
+					choice(
+						'/>',
+						seq(
+							'>',
+							optional(alias($._style_content, $.raw_text)),
+							alias(token(seq('</style', /[\t\n\f\r ]*/, '>')), '</style>'),
+						),
+					),
 				),
 			),
 

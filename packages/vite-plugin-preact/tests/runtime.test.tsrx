@@ -263,6 +263,57 @@ function MultiSpreadExplicitRefApp() @{
 	/>
 }
 
+// ── Refs beside a host spread across renders ──
+
+const spread_ref_render_log: string[] = [];
+
+function log_spread_ref(name: string) {
+	return (node: HTMLInputElement | null) => {
+		spread_ref_render_log.push(`${name}:${node ? 'attach' : 'detach'}`);
+	};
+}
+
+const own_before_ref = log_spread_ref('own-before');
+const own_after_ref = log_spread_ref('own-after');
+const own_beside_ref = log_spread_ref('own-beside');
+const bag_beside_ref = log_spread_ref('bag-beside');
+const swap_first_ref = log_spread_ref('swap-first');
+const swap_second_ref = log_spread_ref('swap-second');
+const shared_own_ref = log_spread_ref('shared-own');
+const plain_bag = { title: 'bag' };
+const ref_bag = { title: 'bag', ref: bag_beside_ref };
+const shared_bag = { title: 'shared', ref: log_spread_ref('shared-bag') };
+
+function SpreadRefRenderApp() @{
+	const [count, setCount] = useState(0);
+	const [swapped, setSwapped] = useState(false);
+	const [shared, setShared] = useState(true);
+
+	<>
+		<input class="own-before" ref={own_before_ref} {...plain_bag} />
+		<input class="own-after" {...plain_bag} ref={own_after_ref} />
+		<input class="own-beside" ref={own_beside_ref} data-count={count} {...ref_bag} />
+		<input
+			class="swap"
+			ref={swapped ? swap_second_ref : swap_first_ref}
+			{...{ 'data-count': count }}
+		/>
+		<input class="shared" ref={shared_own_ref} {...shared_bag} />
+		@if (shared) {
+			<input class="shared" ref={shared_own_ref} {...shared_bag} />
+		}
+		<button class="spread-ref-rerender" onClick={() => setCount(count + 1)}>
+			{count}
+		</button>
+		<button class="spread-ref-swap" onClick={() => setSwapped(true)}>
+			{'swap'}
+		</button>
+		<button class="spread-ref-unshare" onClick={() => setShared(false)}>
+			{'unshare'}
+		</button>
+	</>
+}
+
 // ── Conditional host spreads ──
 
 let conditional_spread_and_node: HTMLInputElement | null = null;
@@ -522,6 +573,45 @@ describe('@tsrx/vite-plugin-preact runtime', () => {
 		expect(multi_spread_first_node).toBe(multi_spread_native_node);
 		expect(multi_spread_native_calls).toBe(1);
 		expect(container.querySelector('.multi-spread-explicit-ref')!.hasAttribute('ref')).toBe(false);
+	});
+
+	it('applies refs beside a host spread again only when a ref changes', async () => {
+		async function click(selector: string) {
+			await act(() => {
+				(container.querySelector(selector) as HTMLButtonElement).click();
+			});
+		}
+
+		spread_ref_render_log.length = 0;
+		await render(SpreadRefRenderApp);
+		expect(spread_ref_render_log).toEqual([
+			'own-before:attach',
+			'own-after:attach',
+			'own-beside:attach',
+			'bag-beside:attach',
+			'swap-first:attach',
+			'shared-own:attach',
+			'shared-bag:attach',
+			'shared-own:attach',
+			'shared-bag:attach',
+		]);
+
+		spread_ref_render_log.length = 0;
+		await click('.spread-ref-rerender');
+		await click('.spread-ref-rerender');
+		expect(text('.spread-ref-rerender')).toBe('2');
+		expect(container.querySelector('.own-beside')!.getAttribute('data-count')).toBe('2');
+		expect(spread_ref_render_log).toEqual([]);
+
+		await click('.spread-ref-swap');
+		expect(spread_ref_render_log).toEqual(['swap-first:detach', 'swap-second:attach']);
+
+		// Both `.shared` inputs get the same merged ref; removing one detaches
+		// its refs once and leaves the other attached.
+		spread_ref_render_log.length = 0;
+		await click('.spread-ref-unshare');
+		expect(container.querySelectorAll('.shared')).toHaveLength(1);
+		expect(spread_ref_render_log).toEqual(['shared-own:detach', 'shared-bag:detach']);
 	});
 
 	for (const enabled of [false, true]) {

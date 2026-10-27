@@ -461,8 +461,11 @@ export interface JsxPlatform {
 		 * platform's `imports.refProp` module must export them, as
 		 * `@tsrx/runtime/ref` does. With `multiRefStrategy:
 		 * 'merge-refs'` as well, the merged `ref` stays where the element's own
-		 * `ref` is written and reads the ref of a bag spread after it when it is
-		 * applied.
+		 * `ref` is written. When a spread follows that `ref`, its expression is
+		 * assigned to a binding where it is written instead, and the merged `ref`
+		 * follows the spreads. The merge calls `merge_element_refs`, which returns
+		 * the same ref for the same refs, so the platform's `imports.mergeRefs`
+		 * module must export it too.
 		 */
 		hostSpreadRefBinding?: 'in-place';
 		/**

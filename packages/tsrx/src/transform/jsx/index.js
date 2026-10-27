@@ -2307,14 +2307,23 @@ function collect_descendant_declaration_bindings(node, bindings) {
 }
 
 /**
- * @param {AST.Identifier} helper_id
+ * The name of a generated helper component: `StatementBodyHook<n>`, with the
+ * component's name as a prefix inside a component (`App__StatementBodyHook1`),
+ * wherever the helper is declared. It skips any name the module source already
+ * uses, so the helper can't shadow or redeclare a binding the author wrote.
+ *
  * @param {TransformContext} transform_context
  * @returns {AST.Identifier}
  */
-function create_module_scoped_hook_component_id(helper_id, transform_context) {
-	return create_generated_identifier(
-		`${transform_context.helper_state?.base_name || 'TSRXTemplate'}__${helper_id.name}`,
-	);
+function create_helper_component_id(transform_context) {
+	const helper_state = transform_context.helper_state;
+	const prefix = helper_state ? `${helper_state.base_name || 'TSRXTemplate'}__` : '';
+	/** @type {string} */
+	let name;
+	do {
+		name = prefix + create_local_statement_component_name(transform_context);
+	} while (source_mentions_identifier(transform_context.source, name));
+	return create_generated_identifier(name);
 }
 
 /**
@@ -3713,19 +3722,13 @@ function get_referenced_helper_bindings(body_nodes, available_bindings) {
  * @returns {{ setup_statements: AST.Statement[], component_element: AST.TSRXJSXElement }}
  */
 export function create_hook_safe_helper(body_nodes, source_node, transform_context, options = {}) {
-	const helper_id = create_generated_identifier(
-		create_local_statement_component_name(transform_context),
-	);
 	// A local helper state can't reach module level, so the helper is declared
 	// in place, as outside a component. Inside a component it still takes the
-	// component's prefix, so it neither collides with nor shadows an authored
-	// `StatementBodyHook1`.
+	// component's prefix (see `create_helper_component_id`).
 	const helper_state = transform_context.helper_state?.local
 		? null
 		: transform_context.helper_state;
-	const component_id = transform_context.helper_state
-		? create_module_scoped_hook_component_id(helper_id, transform_context)
-		: helper_id;
+	const component_id = create_helper_component_id(transform_context);
 	const helper_bindings = get_referenced_helper_bindings(
 		body_nodes,
 		transform_context.available_bindings,

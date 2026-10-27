@@ -9821,6 +9821,8 @@ export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
 			'const a = <T extends />;',
 			'const a = <T extends="a">text</T>;',
 			'const a = <T extends={1} />;',
+			// `enum` is reserved, so it names no type parameter
+			'const a = <enum extends foo>ok</enum>;',
 		]) {
 			const [attribute] = findNode(source, 'JSXElement').openingElement.attributes;
 			expect(as_type(attribute, 'JSXAttribute').name.name, source).toBe('extends');
@@ -10011,6 +10013,9 @@ export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
 				'const a = <T>text;',
 				'const a = <T x>(text);',
 				'const a = <T.U>(x);',
+				// An HTML element's lowercase name, and `const` without a name
+				'const a = <div>(hello);',
+				'const a = <const>(x);',
 			]) {
 				/** @type {unknown} */
 				let thrown_error;
@@ -10025,6 +10030,25 @@ export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
 				);
 			}
 		});
+	});
+
+	it('reports `async <T>(x) => x`, which TypeScript reads as a call, with the trailing comma', () => {
+		const source = 'const f = async <T>(x: T) => x;';
+		expect(() => parseModule(source, 'App.tsrx')).toThrow(
+			error_with(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER, '1:16'),
+		);
+		/** @type {CompileError[]} */
+		const errors = [];
+		parseModule(source, 'App.tsrx', { collect: true, errors, comments: [] });
+		expect(errors).toEqual([
+			expect.objectContaining({ code: TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER.code, pos: 16 }),
+		]);
+		for (const allowed of [
+			'const f = async <T,>(x: T) => x;',
+			'const f = async <T extends U>(x: T) => x;',
+		]) {
+			expect(arrowTypeParameterCount(allowed), allowed).toBe(1);
+		}
 	});
 
 	// A `@{ … }` body hands a `<` that starts a line to `parseElement`; the rule

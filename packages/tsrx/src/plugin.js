@@ -123,8 +123,12 @@ const CharCode = Object.freeze({
 });
 
 const TYPE_PARAMETER_MODIFIERS = new Set(['const']);
-// JavaScript's reserved words, which never name a type parameter.
-const RESERVED_WORDS = new Set(Object.values(acorn.tokTypes).flatMap((type) => type.keyword ?? []));
+// The reserved words, which never name a type parameter: acorn's keywords and
+// `enum`, as TypeScript's `isIdentifier` has them.
+const RESERVED_WORDS = new Set([
+	...Object.values(acorn.tokTypes).flatMap((type) => type.keyword ?? []),
+	'enum',
+]);
 
 // Nodes that ESTree's decorators extension gives a `decorators` array.
 const DECORATABLE_NODE_TYPES = new Set([
@@ -895,7 +899,8 @@ function is_lone_equals(input, i) {
 /**
  * The type parameter that the opening tag `open` reads as in a `.ts` file,
  * where `<T>(x) => x` is a generic arrow function: `T` for `<T>` and `const T`
- * for `<const T>`, when a `(` follows. Null for any other tag.
+ * for `<const T>`, when a `(` follows. Null for any other tag, and for an HTML
+ * element's lowercase name (`<div>(hello)`).
  * @param {string} input
  * @param {ESTreeJSX.TSRXJSXOpeningElement & AST.NodeWithLocation} open
  * @param {string} tag_name
@@ -914,8 +919,14 @@ function lone_type_parameter(input, open, tag_name) {
 			return null;
 		}
 		parameter += ` ${attribute.name.name}`;
-	} else if (open.attributes.length > 0) {
-		return null;
+	} else {
+		const first = tag_name.charCodeAt(0);
+		if (
+			open.attributes.length > 0 ||
+			(first >= CharCode.lowercaseA && first <= CharCode.lowercaseZ)
+		) {
+			return null;
+		}
 	}
 	const next = skip_space_and_comments_from(input, open.end);
 	return next !== -1 && input.charCodeAt(next) === CharCode.openParen ? parameter : null;
@@ -7829,7 +7840,27 @@ export function TSRXPlugin(config) {
 						);
 					if (this.type === tt.parenL) return this.#parseAsyncArguments(parse);
 					if (this.tsMatchLeftRelational()) {
-						return this.#parseGenericArrowFunction(startPos, parse);
+						const type_parameters_start = this.start;
+						const node = this.#parseGenericArrowFunction(startPos, parse);
+						// In a `.tsx` file TypeScript reads `async <T>(x) => x` as a call:
+						// only the type parameters its rule reads as a generic arrow
+						// function's are one (see `looks_like_generic_arrow`).
+						if (
+							node.type === 'ArrowFunctionExpression' &&
+							!looks_like_generic_arrow(this.input, type_parameters_start)
+						) {
+							const end = /** @type {number} */ (node.typeParameters?.end);
+							if (this.#collect) {
+								this.#report_recoverable_error_range(
+									type_parameters_start,
+									end,
+									TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER,
+								);
+							} else {
+								this.raise(type_parameters_start, TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER);
+							}
+						}
+						return node;
 					}
 				}
 				return super.parseSubscript(

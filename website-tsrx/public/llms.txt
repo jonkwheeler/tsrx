@@ -817,7 +817,10 @@ inside each braced branch render into the current template. Use ordinary
 JavaScript `if` statements for guard returns before template output; direct
 `return`, `continue`, and `break` statements are invalid inside template `@if`
 branches. `@if`, `@for`, `@switch`, and `@try` bodies are implicit statement
-containers, so every body uses `{...}`.
+containers, so every body uses `{...}`. Declare a body's variables with `const`
+or `let`: a `var` in a body, or in a plain block or loop inside it, is an error,
+since it can't be read outside the body. A function inside the body keeps
+ordinary `var` scoping.
 
 ### `if` / `else if` / `else`
 

@@ -799,6 +799,13 @@ export const FeaturesPage = () => @{
 								,<code class="inline-code">@switch</code>,<code class="inline-code">@try</code>
 								). Each one has its own scope.
 							</p>
+							<p class="section-body">
+								Declare a control-flow body's variables with
+								<code class="inline-code">const</code> or <code class="inline-code">let</code>. A
+								<code class="inline-code">var</code> in a body, or in a plain block or loop inside
+								it, is an error, since it can't be read outside the body. A function inside the body
+								keeps ordinary <code class="inline-code">var</code> scoping.
+							</p>
 						</section>
 						<section class="doc-section" id="if">
 							<h2 class="section-heading">Conditional rendering</h2>

@@ -1,9 +1,12 @@
 /** @import { MergeableRef, RefProp, RefValue, SpreadFalsy, SpreadProps } from '../types/ref' */
 
 import {
+	define_property,
+	get_prototype_of,
 	has_own_property,
 	has_prototype_accessor,
 	is_array,
+	object_prototype,
 	property_is_enumerable,
 } from '@tsrx/runtime/language-helpers';
 
@@ -566,4 +569,81 @@ function is_dom_node(value) {
 			'nodeName' in value &&
 			typeof (/** @type {{ nodeName?: unknown }} */ (value).nodeName) === 'string')
 	);
+}
+
+/**
+ * Join the class a host spread passes an element with the scope classes TSRX
+ * adds to it. The compiler wraps each spread written after the element's
+ * class attribute, so the spread's class replaces the authored one, as in
+ * plain JSX, and the scope classes stay. A bag without a class comes back as
+ * itself, leaving the class attribute to apply. Otherwise the copy reads the
+ * bag through getters, so a JSX runtime that reads a spread lazily (Solid's)
+ * still tracks each prop, and the bag is never written to.
+ *
+ * @param {object | SpreadFalsy} props
+ * @param {unknown} scope_class the element's scope hashes and applied classes
+ * @param {string} key the class prop the copy carries
+ * @param {string} [alias] another prop the target reads a class from, such as
+ *   `className` beside Preact's `class`; its class moves to `key` so the
+ *   element keeps one class prop
+ * @returns {object | SpreadFalsy}
+ */
+export function merge_spread_class(props, scope_class, key, alias) {
+	if (props === null || (typeof props !== 'object' && typeof props !== 'function')) {
+		return props;
+	}
+
+	const source = /** @type {SpreadProps} */ (props);
+	const keys = Reflect.ownKeys(source);
+	/** @type {PropertyKey | undefined} */
+	let class_key;
+	for (let i = 0; i < keys.length; i++) {
+		const name = keys[i];
+		if ((name === key || name === alias) && property_is_enumerable.call(source, name)) {
+			class_key = name;
+		}
+	}
+	if (class_key === undefined) {
+		return props;
+	}
+
+	/** @type {SpreadProps} */
+	const next = {};
+	for (let i = 0; i < keys.length; i++) {
+		const name = keys[i];
+		if (name === key || name === alias || !property_is_enumerable.call(source, name)) {
+			continue;
+		}
+		define_property(next, name, {
+			enumerable: true,
+			configurable: true,
+			get: () => source[name],
+		});
+	}
+	const from = class_key;
+	define_property(next, key, {
+		enumerable: true,
+		configurable: true,
+		get: () => join_class(source[from], scope_class),
+	});
+	return next;
+}
+
+/**
+ * @param {unknown} value
+ * @param {unknown} scope_class
+ * @returns {unknown}
+ */
+function join_class(value, scope_class) {
+	if (value == null || value === false || value === '') {
+		return scope_class;
+	}
+	// A class object or list, as Solid's `class` accepts, keeps its shape.
+	if (
+		is_array(value) ||
+		(typeof value === 'object' && get_prototype_of(value) === object_prototype)
+	) {
+		return [value, scope_class];
+	}
+	return `${value} ${scope_class}`;
 }

@@ -86,6 +86,14 @@ export function merge_ref_props<T = Element>(...refs: Array<RefValue<T>>): RefVa
  */
 export type SpreadFalsy = false | 0 | '' | 0n | null | undefined | void;
 
+// Joins the class a host spread passes an element with its scope classes.
+export function merge_spread_class<T extends object | SpreadFalsy>(
+	props: T,
+	scope_class: unknown,
+	key: 'class' | 'className',
+	alias?: 'class' | 'className',
+): T;
+
 export function normalize_spread_props<T extends object | SpreadFalsy>(
 	props: T,
 	...outer_refs: Array<RefValue<Element>>

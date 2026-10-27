@@ -421,6 +421,36 @@ createVaporApp(App).mount('#root');`,
 		}
 	});
 
+	it('returns unchanged sources to Bun.plugin() registration, which needs an object', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-'));
+		try {
+			const hooks = setup_plugin(undefined, null);
+			for (const [name, loader] of [
+				['helper.js', 'jsx'],
+				['helper.mjs', 'js'],
+				['helper.ts', 'ts'],
+				['helper.tsx', 'tsx'],
+			]) {
+				const file_path = path.join(dir, name);
+				const source = `export const answer = 42;\n`;
+				await writeFile(file_path, source);
+
+				expect(await load_source(hooks, file_path)).toEqual({ contents: source, loader });
+			}
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('leaves dependencies to Bun before calling the interop hook', () => {
+		const hooks = setup_plugin(undefined, null);
+		const hook = hooks.onLoad.find(({ options }) => options.filter.test('/app/src/main.ts'));
+
+		expect(hook?.options.filter.test('/app/src/main.ts')).toBe(true);
+		expect(hook?.options.filter.test('/app/node_modules/vue/index.mjs')).toBe(false);
+		expect(hook?.options.filter.test('C:\\app\\node_modules\\vue\\index.mjs')).toBe(false);
+	});
+
 	it('leaves manually installed interop alone', async () => {
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-'));
 		try {

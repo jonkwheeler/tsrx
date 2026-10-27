@@ -13,10 +13,11 @@ const require = createRequire(import.meta.url);
 const { transformVueJsxVapor } = require('vue-jsx-vapor/api');
 
 const DEFAULT_INCLUDE = /\.tsrx$/;
-const SOURCE_EXTENSION_PATTERN = /\.[cm]?[jt]sx?$/;
+// JavaScript and TypeScript sources outside node_modules. Bun evaluates the
+// lookahead itself, so dependencies never reach the interop hook.
+const PROJECT_SOURCE_PATTERN = /^(?!.*[/\\]node_modules[/\\]).*\.[cm]?[jt]sx?$/;
 const CSS_QUERY = '?tsrx-css&lang.css';
 const CSS_QUERY_PATTERN = /\?tsrx-css&lang\.css$/;
-const NODE_MODULES_PATTERN = /[/\\]node_modules[/\\]/;
 const DEFAULT_VAPOR_OPTIONS = {
 	macros: true,
 	compiler: {
@@ -80,13 +81,15 @@ function to_css_id(file_path) {
 }
 
 /**
+ * Bun's default loader for the file: `.js` files may contain JSX.
+ *
  * @param {string} file_path
  * @returns {'js' | 'jsx' | 'ts' | 'tsx'}
  */
 function get_source_loader(file_path) {
 	if (/\.[cm]?tsx$/.test(file_path)) return 'tsx';
 	if (/\.[cm]?ts$/.test(file_path)) return 'ts';
-	if (/\.[cm]?jsx$/.test(file_path)) return 'jsx';
+	if (/\.(?:[cm]?jsx|js)$/.test(file_path)) return 'jsx';
 	return 'js';
 }
 
@@ -260,12 +263,12 @@ export function tsrxVue(options = {}) {
 				},
 			);
 
-			build.onLoad({ filter: SOURCE_EXTENSION_PATTERN, namespace: 'file' }, async (args) => {
-				if (NODE_MODULES_PATTERN.test(args.path)) return undefined;
-
+			build.onLoad({ filter: PROJECT_SOURCE_PATTERN, namespace: 'file' }, async (args) => {
 				const source = await readFile(args.path, 'utf-8');
 				const transformed = addVaporInteropToCreateVaporApp(source);
-				if (transformed === source) return undefined;
+				// Bun.build() loads the file itself when a hook returns nothing, but
+				// Bun.plugin() registration requires an object from every hook.
+				if (transformed === source && build.config) return undefined;
 
 				return {
 					contents: transformed,

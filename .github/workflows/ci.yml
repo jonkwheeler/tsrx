@@ -83,6 +83,9 @@ jobs:
       - name: Test Preact with Bun
         run: pnpm --filter @tsrx/bun-plugin-preact test:native
 
+      - name: Test Vue with Bun
+        run: pnpm --filter @tsrx/bun-plugin-vue test:native
+
   lint:
     runs-on: ubuntu-latest
 

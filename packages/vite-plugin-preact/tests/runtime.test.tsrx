@@ -263,54 +263,41 @@ function MultiSpreadExplicitRefApp() @{
 	/>
 }
 
-// ── Refs beside a host spread across renders ──
+// ── Elements that merge the same refs ──
 
-const spread_ref_render_log: string[] = [];
+const shared_ref_log: string[] = [];
 
-function log_spread_ref(name: string) {
-	return (node: HTMLInputElement | null) => {
-		spread_ref_render_log.push(`${name}:${node ? 'attach' : 'detach'}`);
+function shared_cleanup_ref(node: HTMLParagraphElement | null) {
+	const name = node?.className;
+	shared_ref_log.push(`own:${name}`);
+	return () => {
+		shared_ref_log.push(`own-cleanup:${name}`);
 	};
 }
 
-const own_before_ref = log_spread_ref('own-before');
-const own_after_ref = log_spread_ref('own-after');
-const own_beside_ref = log_spread_ref('own-beside');
-const bag_beside_ref = log_spread_ref('bag-beside');
-const swap_first_ref = log_spread_ref('swap-first');
-const swap_second_ref = log_spread_ref('swap-second');
-const shared_own_ref = log_spread_ref('shared-own');
-const plain_bag = { title: 'bag' };
-const ref_bag = { title: 'bag', ref: bag_beside_ref };
-const shared_bag = { title: 'shared', ref: log_spread_ref('shared-bag') };
+const shared_ref_bag = {
+	ref: (node: HTMLParagraphElement | null) => {
+		shared_ref_log.push(`bag:${node ? node.className : 'null'}`);
+	},
+};
 
-function SpreadRefRenderApp() @{
-	const [count, setCount] = useState(0);
-	const [swapped, setSwapped] = useState(false);
-	const [shared, setShared] = useState(true);
+function SharedRefToggle() @{
+	const [shown, setShown] = useState(true);
 
 	<>
-		<input class="own-before" ref={own_before_ref} {...plain_bag} />
-		<input class="own-after" {...plain_bag} ref={own_after_ref} />
-		<input class="own-beside" ref={own_beside_ref} data-count={count} {...ref_bag} />
-		<input
-			class="swap"
-			ref={swapped ? swap_second_ref : swap_first_ref}
-			{...{ 'data-count': count }}
-		/>
-		<input class="shared" ref={shared_own_ref} {...shared_bag} />
-		@if (shared) {
-			<input class="shared" ref={shared_own_ref} {...shared_bag} />
+		@if (shown) {
+			<p class="shared-ref-b" ref={shared_cleanup_ref} {...shared_ref_bag} />
 		}
-		<button class="spread-ref-rerender" onClick={() => setCount(count + 1)}>
-			{count}
+		<button class="shared-ref-hide" onClick={() => setShown(false)}>
+			{'hide'}
 		</button>
-		<button class="spread-ref-swap" onClick={() => setSwapped(true)}>
-			{'swap'}
-		</button>
-		<button class="spread-ref-unshare" onClick={() => setShared(false)}>
-			{'unshare'}
-		</button>
+	</>
+}
+
+function SharedRefApp() @{
+	<>
+		<p class="shared-ref-a" ref={shared_cleanup_ref} {...shared_ref_bag} />
+		<SharedRefToggle />
 	</>
 }
 
@@ -575,43 +562,24 @@ describe('@tsrx/vite-plugin-preact runtime', () => {
 		expect(container.querySelector('.multi-spread-explicit-ref')!.hasAttribute('ref')).toBe(false);
 	});
 
-	it('applies refs beside a host spread again only when a ref changes', async () => {
-		async function click(selector: string) {
-			await act(() => {
-				(container.querySelector(selector) as HTMLButtonElement).click();
-			});
-		}
-
-		spread_ref_render_log.length = 0;
-		await render(SpreadRefRenderApp);
-		expect(spread_ref_render_log).toEqual([
-			'own-before:attach',
-			'own-after:attach',
-			'own-beside:attach',
-			'bag-beside:attach',
-			'swap-first:attach',
-			'shared-own:attach',
-			'shared-bag:attach',
-			'shared-own:attach',
-			'shared-bag:attach',
+	it("keeps each element's ref cleanup when two elements merge the same refs", async () => {
+		shared_ref_log.length = 0;
+		await render(SharedRefApp);
+		// Mounting the second element runs no cleanup of the first.
+		expect(shared_ref_log).toEqual([
+			'own:shared-ref-a',
+			'bag:shared-ref-a',
+			'own:shared-ref-b',
+			'bag:shared-ref-b',
 		]);
 
-		spread_ref_render_log.length = 0;
-		await click('.spread-ref-rerender');
-		await click('.spread-ref-rerender');
-		expect(text('.spread-ref-rerender')).toBe('2');
-		expect(container.querySelector('.own-beside')!.getAttribute('data-count')).toBe('2');
-		expect(spread_ref_render_log).toEqual([]);
-
-		await click('.spread-ref-swap');
-		expect(spread_ref_render_log).toEqual(['swap-first:detach', 'swap-second:attach']);
-
-		// Both `.shared` inputs get the same merged ref; removing one detaches
-		// its refs once and leaves the other attached.
-		spread_ref_render_log.length = 0;
-		await click('.spread-ref-unshare');
-		expect(container.querySelectorAll('.shared')).toHaveLength(1);
-		expect(spread_ref_render_log).toEqual(['shared-own:detach', 'shared-bag:detach']);
+		shared_ref_log.length = 0;
+		await act(() => {
+			(container.querySelector('.shared-ref-hide') as HTMLButtonElement).click();
+		});
+		expect(container.querySelector('.shared-ref-b')).toBeNull();
+		expect(container.querySelector('.shared-ref-a')).not.toBeNull();
+		expect(shared_ref_log).toEqual(['own-cleanup:shared-ref-b', 'bag:null']);
 	});
 
 	for (const enabled of [false, true]) {

@@ -1021,33 +1021,23 @@ describe('merge_element_refs', () => {
 		expect(merge_element_refs(first, second, third)).toBe(merge_element_refs(first, second, third));
 	});
 
-	it('applies every ref, and every ref with null when no ref returned a cleanup', () => {
+	it('leaves out a value that is not a ref, such as the false of `cond && cb`', () => {
+		const callback = () => {};
+		const object = { current: null };
+
+		expect(merge_element_refs(/** @type {any} */ (false), callback)).toBe(callback);
+		expect(merge_element_refs(/** @type {any} */ (0), /** @type {any} */ (''))).toBeUndefined();
+		expect(merge_element_refs(callback, /** @type {any} */ (false), object)).toBe(
+			merge_element_refs(callback, object),
+		);
+	});
+
+	it('applies every ref and returns a cleanup that clears them', () => {
 		/** @type {Array<unknown>} */
 		const events = [];
 		const node = {};
 		/** @type {{ current: object | null }} */
 		const object = { current: null };
-		/** @param {object | null} value */
-		const callback = (value) => {
-			events.push(value);
-		};
-		const merged = /** @type {(node: object | null) => void | (() => void)} */ (
-			merge_element_refs(callback, object)
-		);
-
-		expect(merged(node)).toBeUndefined();
-		expect(events).toEqual([node]);
-		expect(object.current).toBe(node);
-
-		expect(merged(null)).toBeUndefined();
-		expect(events).toEqual([node, null]);
-		expect(object.current).toBeNull();
-	});
-
-	it('returns a cleanup when a ref returns one', () => {
-		/** @type {Array<unknown>} */
-		const events = [];
-		const node = {};
 		/** @param {object | null} value */
 		const legacy = (value) => {
 			events.push(['legacy', value]);
@@ -1058,11 +1048,11 @@ describe('merge_element_refs', () => {
 			return () => events.push(['modern cleanup']);
 		};
 		const merged = /** @type {(node: object | null) => void | (() => void)} */ (
-			merge_element_refs(legacy, modern)
+			merge_element_refs(legacy, object, modern)
 		);
 
 		const cleanup = merged(node);
-		expect(typeof cleanup).toBe('function');
+		expect(object.current).toBe(node);
 		cleanup?.();
 		expect(events).toEqual([
 			['legacy', node],
@@ -1070,17 +1060,7 @@ describe('merge_element_refs', () => {
 			['legacy', null],
 			['modern cleanup'],
 		]);
-	});
-
-	it('leaves out a value that is not a ref, such as the false of `cond && cb`', () => {
-		const callback = () => {};
-		const object = { current: null };
-
-		expect(merge_element_refs(/** @type {any} */ (false), callback)).toBe(callback);
-		expect(merge_element_refs(/** @type {any} */ (0), /** @type {any} */ (''))).toBeUndefined();
-		expect(merge_element_refs(callback, /** @type {any} */ (false), object)).toBe(
-			merge_element_refs(callback, object),
-		);
+		expect(object.current).toBeNull();
 	});
 });
 

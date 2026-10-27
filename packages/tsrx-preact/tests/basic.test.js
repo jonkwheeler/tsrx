@@ -470,9 +470,11 @@ describe('@tsrx/preact basic', () => {
 				}`;
 			const { code } = compile(source, 'App.tsrx');
 
-			// The merged ref follows the spread whose ref it reads, so it gets plain
-			// values, which `merge_element_refs` maps to the same ref on every render.
-			expect(code).toContain('merge_element_refs as __mergeRefs');
+			// The merged ref follows the spread whose ref it reads. Preact stores a
+			// ref's cleanup on the function, so each element keeps its own
+			// `mergeRefs` callback rather than sharing a `merge_element_refs` one.
+			expect(code).toContain('mergeRefs as __mergeRefs');
+			expect(code).not.toContain('merge_element_refs');
 			expect(code).toContain(
 				'<div {...(App__ref1 = init(), null)} data-first="1" {...(App__spread_props2 = __normalize_spread_props_for_ref_attr(bag))} ref={__mergeRefs(App__ref1, App__spread_props2?.ref)} />',
 			);

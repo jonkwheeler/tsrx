@@ -5121,9 +5121,9 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 			ref_imports,
 			merge_refs_source,
 			b.import_specifier(
-				// A JSX runtime that applies a `ref` again when its identity changes
-				// gets the same merged ref for the same refs on every render.
-				binds_host_spread_in_place(transform_context) ? 'merge_element_refs' : 'mergeRefs',
+				!transform_context.typeOnly && transform_context.platform.jsx?.shareMergedRefs
+					? 'merge_element_refs'
+					: 'mergeRefs',
 				MERGE_REFS_INTERNAL_NAME,
 			),
 		);

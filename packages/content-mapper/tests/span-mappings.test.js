@@ -228,12 +228,67 @@ import b from './b';`;
 		);
 		// The verify-only containers lose to the tokens they enclose; the two tokens then
 		// coalesce across the identical `) { ` gap into one span carrying the token features.
+		// The containers keep only their uncovered edges, `if (` and `}`, for diagnostics.
 		expect(spans).toEqual([
+			[0, 4, 0, 4, SpanMapKind.Atom, SpanMapFeature.None],
 			[4, 7, 4, 7, SpanMapKind.Verbatim, SpanMapFeature.All & ~SpanMapFeature.Formatting],
+			[11, 1, 11, 1, SpanMapKind.Atom, SpanMapFeature.None],
 		]);
 	});
 
-	it('keeps container-only regions unmapped when tokens have different features', () => {
+	it("keeps a dropped container's edges, so a diagnostic over the whole container maps to it", () => {
+		// The printed import type loses the source's inner spaces, so the container is
+		// an Atom that encloses the Verbatim specifier and loses to it.
+		const original = "type M = import(  './x'  );";
+		const generated = "type M = import('./x');";
+		const container = original.indexOf('import');
+		const specifier = original.indexOf("'./x'");
+		const spans = to_span_mappings(
+			[
+				{
+					...m(container, container, original.indexOf(';') - container),
+					generatedLengths: [generated.indexOf(';') - container],
+					data: verify_only,
+				},
+				m(specifier, generated.indexOf("'./x'"), 5),
+			],
+			generated,
+			original,
+		);
+		expect(
+			spans.map(([g, gl, o, ol, kind, features]) => [
+				generated.slice(g, g + gl),
+				original.slice(o, o + ol),
+				kind,
+				features,
+			]),
+		).toEqual([
+			['import(', 'import(  ', SpanMapKind.Atom, SpanMapFeature.None],
+			["'./x'", "'./x'", SpanMapKind.Verbatim, SpanMapFeature.All & ~SpanMapFeature.Formatting],
+			[')', '  )', SpanMapKind.Atom, SpanMapFeature.None],
+		]);
+	});
+
+	it('maps no edge that a span already covers or whose original boundary is outside the container', () => {
+		const text = 'f(a, b)';
+		// The token spans cover both edges of the container.
+		const spans = to_span_mappings(
+			[{ ...m(0, 0, text.length), data: verify_only }, m(0, 0, 2), m(5, 5, 2)],
+			text,
+			text,
+		);
+		expect(spans.map((span) => span[4])).toEqual([SpanMapKind.Verbatim]);
+		// `g(b)` prints as `f(a)`, whose `a` is projected from the statement before it,
+		// so the container's edges have no original boundary.
+		const hoisted = to_span_mappings(
+			[{ ...m(3, 0, 4), data: verify_only }, m(0, 2, 1)],
+			'f(a)',
+			'a; g(b)',
+		);
+		expect(hoisted.map((span) => [span[0], span[1], span[2]])).toEqual([[2, 1, 0]]);
+	});
+
+	it("keeps a container's inner gaps unmapped when tokens have different features", () => {
 		const text = 'if (x) { y }';
 		const spans = to_span_mappings(
 			[
@@ -245,8 +300,10 @@ import b from './b';`;
 			text,
 		);
 		expect(spans.map((span) => [span[0], span[1], span[5]])).toEqual([
+			[0, 4, SpanMapFeature.None],
 			[4, 1, SpanMapFeature.All & ~SpanMapFeature.Formatting],
 			[9, 2, SpanMapFeature.None],
+			[11, 1, SpanMapFeature.None],
 		]);
 		for (let index = 1; index < spans.length; index++) {
 			expect(spans[index][0]).toBeGreaterThanOrEqual(spans[index - 1][0] + spans[index - 1][1]);

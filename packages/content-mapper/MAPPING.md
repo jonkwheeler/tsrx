@@ -64,3 +64,8 @@ diagnostic text shows the authored name.
   become one edit-safe span.
 - Atom candidates that are fragments of an identifier (the one-character
   file-start anchor) are dropped.
+- A container that lost keeps its uncovered edges, from its start to its first
+  span and from its last span to its end, as Atoms without feature bits, so an
+  error TypeScript reports over the whole container (TS1340 on an import type
+  printed without its inner spaces) starts and ends where the container does in
+  the source. Gaps between its spans stay unmapped.

@@ -108,6 +108,9 @@ export function features_from_mapping_data(data) {
  * `import { a } from './x';` is one edit-safe span rather than four tokens
  * with unmapped punctuation between them. TypeScript only applies text edits
  * (auto-import, rename, code actions) that fit inside a single Verbatim span.
+ * Last, a dropped candidate keeps its uncovered edges (see
+ * {@link map_dropped_edges}), so a diagnostic over a whole container starts and
+ * ends where the container does in the original.
  * @param {readonly CodeMapping[]} mappings
  * @param {string} generated_text
  * @param {string} original_text
@@ -188,18 +191,25 @@ export function to_span_mappings(mappings, generated_text, original_text, option
 
 	/** @type {Candidate[]} */
 	const selected = [];
+	/** @type {Candidate[]} */
+	const dropped = [];
 	const occupied = new IntervalSet();
 	for (const candidate of candidates) {
-		if (!occupied.add(candidate.generatedStart, candidate.generatedEnd)) {
-			continue;
+		if (occupied.add(candidate.generatedStart, candidate.generatedEnd)) {
+			selected.push(candidate);
+		} else {
+			dropped.push(candidate);
 		}
-		selected.push(candidate);
 	}
 
 	selected.sort((left, right) => left.generatedStart - right.generatedStart);
-	return extend_verbatim_spans_over_whitespace(
-		coalesce_verbatim_spans(selected, generated_text, original_text),
-		generated_text,
+	return map_dropped_edges(
+		extend_verbatim_spans_over_whitespace(
+			coalesce_verbatim_spans(selected, generated_text, original_text),
+			generated_text,
+			original_text,
+		),
+		dropped,
 		original_text,
 	).map((candidate) => [
 		candidate.generatedStart,
@@ -279,6 +289,125 @@ export function extend_verbatim_spans_over_whitespace(spans, generated_text, ori
 		}
 	}
 	return spans;
+}
+
+/**
+ * Map the uncovered edges of each candidate that lost to the spans it
+ * overlaps: the part before its first span and the part after its last.
+ *
+ * A container (a whole import type, a statement) encloses the token spans that
+ * beat it, and TypeScript reports some diagnostics over the whole container.
+ * When the printed text differs from the source (`import(  './x'  )` printed
+ * as `import('./x')`), the container's start lies in unmapped text, and
+ * TypeScript would report the diagnostic at the nearest earlier mapped
+ * position instead. An edge runs from the container's boundary to the
+ * neighbouring span, in both files, so it maps only when that span's original
+ * range starts (or ends) inside the container's. Edges are `Atom`s without
+ * feature bits: they place diagnostics and change no editor feature. Gaps
+ * between a container's spans stay unmapped. Candidates are visited shortest
+ * first, so a nested container's edge bounds the edge of the one around it.
+ * @param {Candidate[]} spans Sorted by generated start, non-overlapping.
+ * @param {readonly Candidate[]} dropped
+ * @param {string} original_text
+ * @returns {Candidate[]}
+ */
+export function map_dropped_edges(spans, dropped, original_text) {
+	const result = spans.slice();
+	/** @param {Candidate | null} edge */
+	const add = (edge) => {
+		if (!edge || is_partial_identifier(original_text, edge.originalStart, edge.originalEnd)) {
+			return;
+		}
+		result.splice(last_span_at_or_before(result, edge.generatedStart) + 1, 0, edge);
+	};
+	for (const candidate of dropped) {
+		add(leading_edge(result, candidate));
+		add(trailing_edge(result, candidate));
+	}
+	return result;
+}
+
+/**
+ * @param {readonly Candidate[]} spans
+ * @param {Candidate} candidate
+ * @returns {Candidate | null}
+ */
+function leading_edge(spans, candidate) {
+	const index = last_span_at_or_before(spans, candidate.generatedStart);
+	if (index >= 0 && spans[index].generatedEnd > candidate.generatedStart) return null;
+	const next = spans[index + 1];
+	if (
+		!next ||
+		next.generatedStart >= candidate.generatedEnd ||
+		next.originalStart <= candidate.originalStart ||
+		next.originalStart > candidate.originalEnd
+	) {
+		return null;
+	}
+	return edge(
+		candidate.generatedStart,
+		next.generatedStart,
+		candidate.originalStart,
+		next.originalStart,
+	);
+}
+
+/**
+ * @param {readonly Candidate[]} spans
+ * @param {Candidate} candidate
+ * @returns {Candidate | null}
+ */
+function trailing_edge(spans, candidate) {
+	const previous = spans[last_span_at_or_before(spans, candidate.generatedEnd - 1)];
+	if (
+		!previous ||
+		previous.generatedEnd >= candidate.generatedEnd ||
+		previous.generatedEnd <= candidate.generatedStart ||
+		previous.originalEnd < candidate.originalStart ||
+		previous.originalEnd >= candidate.originalEnd
+	) {
+		return null;
+	}
+	return edge(
+		previous.generatedEnd,
+		candidate.generatedEnd,
+		previous.originalEnd,
+		candidate.originalEnd,
+	);
+}
+
+/**
+ * @param {number} generated_start
+ * @param {number} generated_end
+ * @param {number} original_start
+ * @param {number} original_end
+ * @returns {Candidate}
+ */
+function edge(generated_start, generated_end, original_start, original_end) {
+	return {
+		generatedStart: generated_start,
+		generatedEnd: generated_end,
+		originalStart: original_start,
+		originalEnd: original_end,
+		kind: SpanMapKind.Atom,
+		features: SpanMapFeature.None,
+	};
+}
+
+/**
+ * The index of the last span that starts at or before `position`, or -1.
+ * @param {readonly Candidate[]} spans Sorted by generated start.
+ * @param {number} position
+ */
+function last_span_at_or_before(spans, position) {
+	let low = 0;
+	let high = spans.length;
+	while (low < high) {
+		const middle = (low + high) >>> 1;
+		if (spans[middle].generatedStart <= position) low = middle + 1;
+		else high = middle;
+	}
+	return low - 1;
 }
 
 const identifier_part = /[\p{ID_Continue}$\u200c\u200d]/u;

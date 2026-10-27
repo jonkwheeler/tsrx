@@ -7,4 +7,6 @@ Next App Router builds with Turbopack no longer fail on components with a scoped
 
 `create_tsrx_react_turbopack_css_rule()` and the `TsrxReactTurbopackCssRule` type now use `as: '*.css'` instead of `type: 'css'`. If you spread or inspect this rule, expect `as: '*.css'`.
 
+The `next` peer dependency is now `>=16.2.0`, the first release whose `turbopack.rules` accept the `condition.query` these rules use. Next 16.1 rejects the config with "Unrecognized key(s) in object: 'query'".
+
 With a platform selected, ordinary `.js`, `.jsx`, `.ts` and `.tsx` modules are read with their own grammar while platform flags are replaced: comment-like JSX text such as `<pre>/*</pre>` no longer fails with "Unclosed tag", a flag inside `{…}` next to such text is replaced, and `.ts` files can use `<T>value` type assertions ([#910](https://github.com/tsrx-org/tsrx/issues/910)).

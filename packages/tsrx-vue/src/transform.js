@@ -21,6 +21,7 @@ import {
 	NORMALIZE_SPREAD_PROPS_FOR_REF_ATTR_INTERNAL_NAME,
 	NORMALIZE_SPREAD_PROPS_INTERNAL_NAME,
 	setLocation,
+	TSRX_ERRORS,
 } from '@tsrx/core';
 
 /**
@@ -484,12 +485,11 @@ function hoist_component_bindings(statements, ctx) {
 		const passed = result.slice(first_read, index);
 		if (initializer_reads_declared(declaration, passed)) {
 			error(
-				`'${name}' is read here before its declaration. Vue TSRX compiles the component to a constant, which is not hoisted like a function, and moving its declaration above this read would change what its prop defaults read. Move the declaration of '${name}' above this read.`,
+				TSRX_ERRORS.TARGET_COMPONENT_READ_BEFORE_DECLARATION(ctx.platform.name, name),
 				ctx.filename,
 				read,
 				ctx.errors,
 				ctx.comments,
-				DIAGNOSTIC_CODES.TARGET_COMPONENT_READ_BEFORE_DECLARATION,
 			);
 			continue;
 		}
@@ -988,12 +988,11 @@ function validate_prop_defaults(fn, ctx) {
 		const example =
 			written && !written.includes('\n') ? `const ${name} = props.${name} ?? ${written}` : null;
 		error(
-			`Vue TSRX cannot keep this default for '${name}': vue-jsx-vapor turns destructured prop defaults into prop options and drops any default that is not a literal, an identifier, an object or array literal, or a function, so '${name}' would be undefined. Read the prop in the body instead${example ? `, for example \`${example}\`` : ''}.`,
+			TSRX_ERRORS.TARGET_PROP_DEFAULT_UNSUPPORTED(ctx.platform.name, name, example ?? ''),
 			ctx.filename,
 			fallback,
 			ctx.errors,
 			ctx.comments,
-			DIAGNOSTIC_CODES.TARGET_PROP_DEFAULT_UNSUPPORTED,
 		);
 	}
 }

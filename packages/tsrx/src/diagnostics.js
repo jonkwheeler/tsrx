@@ -412,6 +412,22 @@ export const TSRX_ERRORS = {
 		'TOP_LEVEL_AWAIT_USE_SERVER',
 		'Top-level `await` in TSRX functions requires a module-level `"use server"` directive.',
 	),
+	/** `target` is the target's name, and `name` the component's. */
+	TARGET_COMPONENT_READ_BEFORE_DECLARATION: tsrx_with_values(
+		'TARGET_COMPONENT_READ_BEFORE_DECLARATION',
+		(target, name) =>
+			`'${name}' is read here before its declaration. ${target} TSRX compiles the component to a constant, which is not hoisted like a function, and moving its declaration above this read would change what its prop defaults read. Move the declaration of '${name}' above this read.`,
+	),
+	/**
+	 * `target` is the target's name, `name` the prop's, and `example`, which can
+	 * be empty, a statement that reads the prop with its default. Only Vue's
+	 * vue-jsx-vapor drops defaults.
+	 */
+	TARGET_PROP_DEFAULT_UNSUPPORTED: tsrx_with_values(
+		'TARGET_PROP_DEFAULT_UNSUPPORTED',
+		(target, name, example) =>
+			`${target} TSRX cannot keep this default for '${name}': vue-jsx-vapor turns destructured prop defaults into prop options and drops any default that is not a literal, an identifier, an object or array literal, or a function, so '${name}' would be undefined. Read the prop in the body instead${example ? `, for example \`${example}\`` : ''}.`,
+	),
 
 	// TSRX3xxx
 	STYLE_APPLY_VALUE: tsrx(

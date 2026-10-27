@@ -303,6 +303,25 @@ export const ERROR_EXAMPLES = [
 		compiler: '@tsrx/solid',
 	},
 	{
+		error: TSRX_ERRORS.TARGET_COMPONENT_READ_BEFORE_DECLARATION,
+		source: `export const registry = { inner: Inner };
+const PREFIX = 'p';
+export function Inner({ label = PREFIX }: { label?: string }) @{
+	<span>{label}</span>
+}
+`,
+		compiler: '@tsrx/vue',
+	},
+	{
+		error: TSRX_ERRORS.TARGET_PROP_DEFAULT_UNSUPPORTED,
+		source: `const cfg = { size: 1 };
+export function Card({ s = cfg.size }: { s?: number }) @{
+	<div>{s}</div>
+}
+`,
+		compiler: '@tsrx/vue',
+	},
+	{
 		error: TSRX_ERRORS.TARGET_YIELD_UNSUPPORTED,
 		source: `export function* C(props: { items: string[] }) @{
 	<ul>

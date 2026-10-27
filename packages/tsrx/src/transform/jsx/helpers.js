@@ -278,6 +278,27 @@ export function tsx_with_ts_locations(
 			}
 			/** @type {NonNullable<typeof base.Program>} */ (base.Program)(node, context);
 		},
+		// The editor output writes an import as it is in the source: TypeScript 7
+		// applies an Organize Imports edit only to text that is the same in both
+		// files. An import the compiler changed prints in esrap's layout.
+		ImportDeclaration: (node, context) => {
+			const names =
+				type_only && source !== undefined ? import_names_as_written(node, source) : null;
+			if (!names || source === undefined) {
+				/** @type {NonNullable<typeof base.ImportDeclaration>} */ (base.ImportDeclaration)(
+					node,
+					context,
+				);
+				return;
+			}
+			let offset = /** @type {number} */ (node.start);
+			for (const name of names) {
+				write_source_text(source.slice(offset, name.start), context);
+				context.visit(name);
+				offset = name.end;
+			}
+			write_source_text(source.slice(offset, node.end), context);
+		},
 		ArrayPattern: (node, context) => {
 			print_binding_pattern(
 				/** @type {NonNullable<typeof base.ArrayPattern>} */ (base.ArrayPattern),
@@ -785,6 +806,95 @@ function is_name_chain(node) {
 function write_keyword(keyword, node, context) {
 	context.write(keyword);
 	if (node.loc) context.location(node.loc.start.line, node.loc.start.column + keyword.length);
+}
+
+/**
+ * The text of an import around its names: spaces, comments, and the keywords
+ * and punctuation of the import syntax.
+ */
+const regex_import_text_token =
+	/\s+|\/\/[^\n\r\u2028\u2029]*|\/\*[\s\S]*?\*\/|[{},*:;]|[\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*|[^]/gu;
+const regex_spaces_or_comment = /^(?:\s|\/\/|\/\*)/;
+const regex_line_break = /[\n\r\u2028\u2029]/;
+const IMPORT_SYNTAX = new Set([
+	'{',
+	'}',
+	',',
+	'*',
+	':',
+	';',
+	'import',
+	'defer',
+	'source',
+	'type',
+	'typeof',
+	'as',
+	'from',
+	'with',
+	'assert',
+]);
+
+/**
+ * The names, module string and attribute keys and values of an import that
+ * the compiler did not change, in source order, or `null` when it changed the
+ * import: a name has no location or another spelling, or the text between two
+ * names holds more than the import syntax, as after a removed name.
+ * @param {AST.ImportDeclaration | AST.TSRXImportDeclaration} node
+ * @param {string} source
+ * @returns {Array<AST.Node & AST.NodeWithLocation> | null}
+ */
+function import_names_as_written(node, source) {
+	if (!has_location(node)) return null;
+	/** @type {AST.Node[]} */
+	const nodes = [];
+	for (const specifier of node.specifiers) {
+		if (!has_location(specifier)) return null;
+		if (specifier.type === 'ImportSpecifier') nodes.push(specifier.imported);
+		nodes.push(specifier.local);
+	}
+	nodes.push(node.source);
+	for (const attribute of node.attributes ?? []) nodes.push(attribute.key, attribute.value);
+
+	/** @type {Array<AST.Node & AST.NodeWithLocation>} */
+	const names = [];
+	for (const name of nodes) {
+		if (!has_location(name)) return null;
+		const text = source.slice(name.start, name.end);
+		const printed =
+			name.type === 'Identifier' ? name.name : name.type === 'Literal' ? name.raw : undefined;
+		if (printed !== text) return null;
+		// A name written once (`{ a }`) is both the imported and the local name.
+		if (!names.some((other) => other.start === name.start)) names.push(name);
+	}
+	names.sort((a, b) => a.start - b.start);
+
+	let offset = /** @type {number} */ (node.start);
+	for (const name of [...names, null]) {
+		const end = name ? name.start : /** @type {number} */ (node.end);
+		if (end < offset) return null;
+		let line_break = false;
+		for (const [token] of source.slice(offset, end).matchAll(regex_import_text_token)) {
+			if (!IMPORT_SYNTAX.has(token) && !regex_spaces_or_comment.test(token)) return null;
+			// TypeScript reads `with` or `assert` after a line break as a new
+			// statement.
+			if ((token === 'with' || token === 'assert') && line_break) return null;
+			line_break ||= regex_line_break.test(token);
+		}
+		if (name) offset = name.end;
+	}
+	return names;
+}
+
+/**
+ * Write source text one token at a time, so that each keyword and punctuation
+ * maps to its source token.
+ * @param {string} text
+ * @param {ESRap.Context} context
+ */
+function write_source_text(text, context) {
+	for (const [token] of text.matchAll(regex_import_text_token)) {
+		context.write(token);
+	}
 }
 
 /**

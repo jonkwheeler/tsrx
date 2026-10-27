@@ -445,23 +445,41 @@ describe('native language server on a configured project', () => {
 		return resolved.edit?.changes?.[uri] ?? [];
 	}
 
-	it.each(['source.organizeImports', 'source.sortImports', 'source.removeUnusedImports'])(
-		'returns no %s edits when an import does not end with a semicolon (#1023)',
-		async (kind) => {
-			// The generated import always ends with `;`, so the end of each line is not the
-			// same text in both files, and TypeScript 7 drops every edit.
-			const source = [
-				"import Panel from './Panel.tsrx'",
-				"import Button from './Button.tsrx'",
-				'',
-				'export default function NoSemicolons() @{',
-				'\t<Button label="x" />',
-				'}',
-				'',
-			].join('\n');
-			expect(await source_action_edits('NoSemicolons.tsrx', source, kind)).toEqual([]);
-		},
-	);
+	const NO_SEMICOLONS = "import Panel from './Panel.tsrx'\nimport Button from './Button.tsrx'";
+	const SEVERAL_LINES = `import {
+	helperA,
+	helperB,
+} from './lib';
+import Panel from './Panel.tsrx';
+import Button from './Button.tsrx';`;
+	it.each([
+		['source.organizeImports', 'without semicolons (#1023)', NO_SEMICOLONS],
+		['source.sortImports', 'without semicolons (#1023)', NO_SEMICOLONS],
+		['source.removeUnusedImports', 'without semicolons (#1023)', NO_SEMICOLONS],
+		['source.organizeImports', 'over several lines (#1033)', SEVERAL_LINES],
+		['source.sortImports', 'over several lines (#1033)', SEVERAL_LINES],
+		[
+			'source.removeUnusedImports',
+			'without spaces (#1033)',
+			"import {helperA, helperB} from './lib';\nimport Button from './Button.tsrx';",
+		],
+		[
+			'source.removeUnusedImports',
+			'with a trailing comma (#1033)',
+			"import { helperA, helperB, } from './lib';\nimport Button from './Button.tsrx';",
+		],
+	])('applies %s to imports %s as in a .ts file', async (kind, _layout, imports) => {
+		// The editor output writes the imports as written, so TypeScript 7 finds the
+		// text of its edits in both files.
+		const tsrx = `${imports}\n\nexport default function Imports() @{\n\thelperA()\n\t<Button label="x" />\n}\n`;
+		const ts = `${imports}\n\nexport default function Imports() {\n\thelperA()\n\treturn Button\n}\n`;
+		const in_ts = apply_edits(ts, await source_action_edits('Imports.ts', ts, kind));
+		const in_tsrx = apply_edits(tsrx, await source_action_edits('Imports.tsrx', tsrx, kind));
+		expect(in_ts).not.toBe(ts);
+		/** @param {string} text */
+		const imports_of = (text) => text.slice(0, text.indexOf('export default'));
+		expect(imports_of(in_tsrx)).toBe(imports_of(in_ts));
+	});
 
 	it.each([
 		['source.sortImports', ' // keep this'],

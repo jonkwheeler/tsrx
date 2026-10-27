@@ -2040,6 +2040,75 @@ export function App() @{
 			).toBe('second');
 		});
 
+		it.each([
+			["import { label } from './label'", 'no semicolon'],
+			["import {\n\tfirst, // the first\n\tsecond,\n} from './label';", 'names on several lines'],
+			["import {first} from './label';", 'no spaces'],
+			["import { first, } from './label';", 'a trailing comma'],
+			["import def, * as all from './label';", 'a default and a namespace import'],
+			["import { type Label, 'a-b' as ab } from './label';", 'a type name and a string name'],
+			["import data from './label' with { type: 'json' }", 'import attributes'],
+		])('writes the import %j as written in the editor output (%s, #1023, #1033)', (statement) => {
+			// TypeScript 7 applies an Organize Imports edit only to text that is the same
+			// in both files.
+			const source = `${statement}
+
+export function App() @{
+	<p />
+}
+`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			expect(result.errors).toEqual([]);
+			expect(result.code).toContain(`${statement}\n`);
+		});
+
+		it("keeps the printer's layout of an import in the build", () => {
+			const source = `import {
+	first,
+	second,
+} from './label'
+
+export function App() @{
+	<p>{first}{second}</p>
+}
+`;
+			expect(compile(source, 'App.tsrx').code).toContain(
+				"import { first, second } from './label';",
+			);
+		});
+
+		it('writes an import attribute after a line break in the printer layout', () => {
+			// TypeScript reads `with` after a line break as a new statement.
+			const source = `import data from './label'
+with { type: 'json' };
+
+export function App() @{
+	<p>{data}</p>
+}
+`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			expect(result.code).toContain("import data from './label' with { type: 'json' };");
+		});
+
+		it.each([
+			['the comma before the last name', ', ', 'helperB'],
+			['the first name with the comma after it', 'helperA, ', 'helperA'],
+		])('maps an edit of %s (#1025)', (_name, text, start_at) => {
+			// Removing one unused name deletes it with the text between it and the
+			// next name or the previous one, in an edit of its own.
+			const statement = "import { helperA, helperB } from './lib';";
+			const source = `${statement}
+
+export function App() @{
+	<p />
+}
+`;
+			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			const from = start_at === 'helperB' ? 'helperA'.length : 0;
+			const start = result.code.indexOf('helperA') + from;
+			expect(mapped_text(source, result.mappings, start, start + text.length, 'edit')).toBe(text);
+		});
+
 		it.runIf(name === 'vue')('does not map an import the compiler adds a name to', () => {
 			const source = `import { VaporFor } from 'vue-jsx-vapor';
 

@@ -1584,6 +1584,9 @@ export namespace Parse {
 		 */
 		tsParseTypePredicatePrefix(): AST.Identifier | undefined;
 
+		/** Read `asserts` before a type predicate's name or `this`, or return `false`. */
+		tsParseTypePredicateAsserts(): boolean;
+
 		/** Parse `this` in a type, or a `this is T` predicate (@sveltejs/acorn-typescript). */
 		tsParseThisTypeOrThisTypePredicate(): AST.TSThisType | AST.TSTypePredicate;
 

@@ -5349,11 +5349,31 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
+			 * acorn-typescript reads the type parameters of a function type, a
+			 * constructor type, a call, construct or method signature (`tsFillSignature`)
+			 * and a method (`parseClassFunctionParams`) without the `const` modifier,
+			 * which TypeScript takes on each, so `type F = <const T>(x: T) => T;`
+			 * failed with `Unexpected keyword 'const'` (#731). Read it where no other
+			 * modifiers are given.
 			 * @type {Parse.Parser['tsTryParseTypeParameters']}
 			 */
 			tsTryParseTypeParameters(parseModifiers) {
 				this.#readTagStartAsTypeParameterStart();
-				return super.tsTryParseTypeParameters(parseModifiers);
+				return super.tsTryParseTypeParameters(parseModifiers ?? this.tsParseConstModifier);
+			}
+
+			/**
+			 * TypeScript reads `asserts` in a return type as the modifier of a type
+			 * predicate only before a name or `this` on its line
+			 * (`nextTokenIsIdentifierOrKeywordOnSameLine`), and otherwise as a type
+			 * named `asserts`, so `asserts` with `x` on the next line ends the return
+			 * type there. acorn-typescript read the predicate across the line break,
+			 * and the formatter joined the lines into code TypeScript accepts (#682).
+			 * @type {Parse.Parser['tsParseTypePredicateAsserts']}
+			 */
+			tsParseTypePredicateAsserts() {
+				if (this.type === tstt.asserts && this.#lineBreakAfter(this.end)) return false;
+				return super.tsParseTypePredicateAsserts();
 			}
 
 			// UPSTREAM(sveltejs/acorn-typescript#119): remove once a release includes the fix
@@ -5541,6 +5561,11 @@ export function TSRXPlugin(config) {
 				}
 				const superClass = heading.superClass;
 				if (!superClass) return;
+				// TypeScript reads a left-hand-side expression there, which an element
+				// isn't without parentheses: `Expression expected.` at its `<` (#745).
+				if (is_tsrx_render_output_node(superClass) && !superClass.metadata?.parenthesized) {
+					this.raise(/** @type {number} */ (superClass.start), TS_ERRORS.EXPRESSION_EXPECTED);
+				}
 				if (
 					this.type === tstt.jsxTagStart &&
 					superClass.type !== 'TSInstantiationExpression' &&

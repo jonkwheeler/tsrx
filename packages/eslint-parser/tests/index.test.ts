@@ -322,4 +322,22 @@ export function Button(props: { onPress?: () => void }) @{
 			expect(node.params.map((param: any) => param.name)).toEqual(['a', 'b', 'c']);
 		}
 	});
+
+	it('lints a {name} shorthand attribute', () => {
+		const code = `export function App({ fetchProject }) @{
+	<Child
+		{fetchProject}
+		{missing}
+		other={1}
+	/>
+}`;
+		const rules = {
+			rules: { indent: ['error', 'tab'], 'no-undef': 'error', 'no-unused-vars': 'error' },
+		} as const;
+		expect(lint(code, rules)).toEqual(["4: no-undef: 'missing' is not defined."]);
+		expect(lint(code.replace('\t\tother', '\tother'), rules)).toEqual([
+			"4: no-undef: 'missing' is not defined.",
+			'5: indent: Expected indentation of 2 tabs but found 1.',
+		]);
+	});
 });

@@ -1732,7 +1732,95 @@ function SwitchQueueApp() @{
 	}
 }
 
+// ── Whole-body `@{ }` blocks ──
+
+const block_runs = { if: 0, elseIf: 0, case: 0 };
+
+function WholeBodyBlockApp() @{
+	const [k, setK] = createSignal(0);
+	const [on] = createSignal(true);
+	const [off] = createSignal(false);
+	const kind = 'a';
+	const other = 'z';
+	<div>
+		@if (on()) {
+			@{
+				const value = (block_runs.if++, k());
+				<i class="whole-if">{`if ${value}`}</i>
+			}
+		}
+		@if (off()) {
+			<b />
+		} @else if (on()) {
+			@{
+				const value = (block_runs.elseIf++, k());
+				<i class="whole-else-if">{`else-if ${value}`}</i>
+			}
+		}
+		@switch (kind) {
+			@case 'a': {
+				@{
+					const value = (block_runs.case++, k());
+					<i class="whole-case">{`case ${value}`}</i>
+				};
+			}
+		}
+		@switch (other) {
+			@case 'a': {
+				<b />
+			}
+			@default: {
+				@{
+					const value = 'default';
+					<i class="whole-default">{value}</i>
+				};
+			}
+		}
+		<button class="bump-k" onClick={() => setK(k() + 1)}>
+			{'bump'}
+		</button>
+	</div>
+}
+
+// ── Switch discriminant that is a promise ──
+
+const switch_promise: Promise<string> = Promise.resolve('a');
+
+function SwitchPromiseApp() @{
+	const read = (): unknown => switch_promise;
+	@switch (read()) {
+		@case 'a': {
+			<p class="promise-branch">{'a'}</p>
+		}
+		@default: {
+			<p class="promise-branch">{'default'}</p>
+		}
+	}
+}
+
 describe('tsrx-solid control-flow bodies', () => {
+	it('renders a whole-body @{ } block and runs its setup once', async () => {
+		block_runs.if = block_runs.elseIf = block_runs.case = 0;
+		await render(WholeBodyBlockApp);
+		expect(text('.whole-if')).toBe('if 0');
+		expect(text('.whole-else-if')).toBe('else-if 0');
+		expect(text('.whole-case')).toBe('case 0');
+		expect(text('.whole-default')).toBe('default');
+		const nodes = Array.from(container.querySelectorAll('i'));
+
+		await click('.bump-k');
+		await click('.bump-k');
+		// The setup reads `k()` but runs untracked, as a body without `@{ }` does.
+		expect(block_runs).toEqual({ if: 1, elseIf: 1, case: 1 });
+		expect(Array.from(container.querySelectorAll('i'))).toEqual(nodes);
+	});
+
+	it('compares a promise discriminant as a value, as a JavaScript switch does', async () => {
+		await render(SwitchPromiseApp);
+		await flush();
+		expect(text('.promise-branch')).toBe('default');
+	});
+
 	it("renders an element's @{ } child inside @if, @for, @switch and @try bodies", async () => {
 		await render(BlockChildControlFlowApp);
 		expect(Array.from(container.querySelectorAll('.for-block'), (node) => node.innerHTML)).toEqual([

@@ -54,12 +54,18 @@ import {
 	isTemplateSwitchNode as is_template_switch_node,
 	isTemplateTryNode as is_template_try_node,
 	isFunctionOrClassNode as is_function_or_class_boundary,
+	IDENTIFIER_OBFUSCATION_PREFIX,
 } from '@tsrx/core';
 
 import { builders as b } from '@tsrx/core';
 
-/** Local name of the `createMemo` import that holds a `@switch` discriminant. */
-const SWITCH_MEMO_INTERNAL_NAME = '__createMemo';
+/**
+ * Local name of the `createMemo` import that holds a `@switch` discriminant.
+ * The reserved prefix keeps it and {@link SWITCH_VALUE_NAME} clear of authored
+ * names.
+ */
+const SWITCH_MEMO_INTERNAL_NAME = `${IDENTIFIER_OBFUSCATION_PREFIX}createMemo`;
+const SWITCH_VALUE_NAME = `${IDENTIFIER_OBFUSCATION_PREFIX}switch_value`;
 
 /**
  * Solid platform descriptor consumed by `createJsxTransform`. Everything
@@ -374,6 +380,7 @@ function tsrx_node_to_jsx_expression(node, transform_context, in_jsx_child = fal
  * @returns {AST.Expression}
  */
 function body_to_jsx_child(body_nodes, transform_context) {
+	body_nodes = expand_code_block_body(body_nodes);
 	// When non-JSX statements are interleaved with JSX children, preserve
 	// source order by capturing each JSX child into a const at its textual
 	// position. Otherwise all statements would run before any JSX is
@@ -429,6 +436,33 @@ function body_to_jsx_child(body_nodes, transform_context) {
 	const arrow = b.arrow([], lowered_block(block_body));
 	arrow.metadata.is_branch_arrow = true;
 	return arrow;
+}
+
+/**
+ * A body whose only node is a `@{ }` block is that block's scope: its setup
+ * statements and output are spliced into the body, so they lower like any
+ * other branch body, as a function child that Solid runs untracked. As an
+ * expression child, the block's IIFE would run inside the `<Show>` or
+ * `<Switch>` memo and re-run whenever a signal its setup reads changes. A
+ * block beside other nodes keeps its own scope as an expression child.
+ *
+ * @param {AST.Node[]} body_nodes
+ * @returns {AST.Node[]}
+ */
+function expand_code_block_body(body_nodes) {
+	// A `@case` body holds its block as an expression statement.
+	const nodes = body_nodes.map((node) =>
+		node?.type === 'ExpressionStatement' &&
+		/** @type {AST.Node} */ (node.expression).type === 'JSXCodeBlock'
+			? /** @type {AST.JSXCodeBlock} */ (/** @type {unknown} */ (node.expression))
+			: node,
+	);
+	const meaningful = nodes.filter((node) => node && node.type !== 'EmptyStatement');
+	if (meaningful.length !== 1 || meaningful[0].type !== 'JSXCodeBlock') {
+		return nodes;
+	}
+	const block = /** @type {AST.JSXCodeBlock} */ (meaningful[0]);
+	return expand_code_block_body([...(block.body || []), ...(block.render ? [block.render] : [])]);
 }
 
 /**
@@ -653,6 +687,7 @@ function validate_if_body_control_flow(node, transform_context) {
  * @returns {AST.Node[]}
  */
 function loop_body_to_callback_statements(body_nodes, transform_context) {
+	body_nodes = expand_code_block_body(body_nodes);
 	/** @type {AST.Node[]} */
 	const statements = [];
 	/** @type {ESTreeJSX.JSXRenderChild[]} */
@@ -1209,7 +1244,7 @@ function switch_statement_to_jsx_child(node, transform_context) {
 	const switch_value =
 		transform_context.typeOnly || is_reference_expression(node.discriminant)
 			? null
-			: create_generated_identifier('__switch_value');
+			: create_generated_identifier(SWITCH_VALUE_NAME);
 
 	/** @type {AST.Expression | null} */
 	let fallback = null;
@@ -1236,7 +1271,9 @@ function switch_statement_to_jsx_child(node, transform_context) {
 		// for editor IntelliSense and don't clone it.
 		const test = b.binary(
 			'===',
-			switch_value ? b.call(clone_identifier(switch_value)) : clone_ast_node(node.discriminant),
+			switch_value
+				? b.member(b.call(clone_identifier(switch_value)), b.literal(0), true)
+				: clone_ast_node(node.discriminant),
 			/** @type {AST.Expression} */ (original_case.test),
 		);
 
@@ -1272,7 +1309,12 @@ function switch_statement_to_jsx_child(node, transform_context) {
 			b.arrow(
 				[],
 				b.block([
-					b.const(switch_value, b.call(SWITCH_MEMO_INTERNAL_NAME, b.arrow([], node.discriminant))),
+					// Boxed, so a thenable discriminant is compared as a value, as a
+					// JavaScript switch compares it, instead of suspending the memo.
+					b.const(
+						switch_value,
+						b.call(SWITCH_MEMO_INTERNAL_NAME, b.arrow([], b.array([node.discriminant]))),
+					),
 					b.return(switch_element),
 				]),
 			),

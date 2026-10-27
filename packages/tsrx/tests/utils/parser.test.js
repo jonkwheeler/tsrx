@@ -4,6 +4,7 @@
 /** @import * as ESTreeJSX from 'estree-jsx' */
 /** @import { ErrorKind } from '../shared/errors.js' */
 
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { acorn, analyzeTsrx, isLayoutWhitespace, parseModule } from '../../src/index.js';
 import { TS_ERRORS, TSRX_ERRORS, UPSTREAM_ERRORS } from '../../src/diagnostics.js';
@@ -7844,11 +7845,13 @@ describe('comments placed like Prettier', () => {
 	}
 
 	/**
+	 * The first statement of `source`, read as a `.tsx` file, since some hold
+	 * elements, which a `.ts` file has none of.
 	 * @param {string} source
 	 * @returns {any}
 	 */
 	function firstStatement(source) {
-		return parseModule(source, 'App.ts').body[0];
+		return parseModule(source, 'App.tsx').body[0];
 	}
 
 	it('trails the operand before a comment at the end of an operator line', () => {
@@ -10034,14 +10037,15 @@ export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
 
 	it('reports `async <T>(x) => x`, which TypeScript reads as a call, with the trailing comma', () => {
 		const source = 'const f = async <T>(x: T) => x;';
+		// At the type parameter, as TS7060 is reported
 		expect(() => parseModule(source, 'App.tsrx')).toThrow(
-			error_with(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER, '1:16'),
+			error_with(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER, '1:17'),
 		);
 		/** @type {CompileError[]} */
 		const errors = [];
 		parseModule(source, 'App.tsrx', { collect: true, errors, comments: [] });
 		expect(errors).toEqual([
-			expect.objectContaining({ code: TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER.code, pos: 16 }),
+			expect.objectContaining({ code: TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER.code, pos: 17 }),
 		]);
 		for (const allowed of [
 			'const f = async <T,>(x: T) => x;',
@@ -10078,6 +10082,106 @@ export const node = <Box fn={<T extends () => void,>(x: T) => x} />;`,
 		expect(
 			arrowTypeParameterCount('function App() @{\n\t<b>{1}</b>\n}\nconst f = <T,>(x: T) => x;'),
 		).toBe(1);
+	});
+});
+
+// TypeScript reads a `.ts`, `.mts`, or `.cts` file without JSX: a `<` where an
+// expression starts is a generic arrow function's type parameters, or else a
+// type assertion's type, never a tag. In a `.mts` or `.cts` file it reports
+// the forms a JSX file would read as a tag (TS7059, TS7060).
+describe('a `<` in a file without JSX', () => {
+	/**
+	 * What TypeScript reads the initializer of the first declaration in `source`
+	 * as in a file named `filename`, and the codes of the TS7059 and TS7060
+	 * errors it reports there.
+	 * @param {string} source
+	 * @param {string} filename
+	 */
+	function typescript(source, filename) {
+		const path = `/${filename}`;
+		const host = ts.createCompilerHost({});
+		const get_source_file = host.getSourceFile;
+		host.getSourceFile = (name, version) =>
+			name === path ? ts.createSourceFile(name, source, version) : get_source_file(name, version);
+		const options = {
+			noLib: true,
+			types: [],
+			module: ts.ModuleKind.NodeNext,
+			moduleResolution: ts.ModuleResolutionKind.NodeNext,
+		};
+		const program = ts.createProgram([path], options, host);
+		const file = /** @type {ts.SourceFile} */ (program.getSourceFile(path));
+		const statement = /** @type {ts.VariableStatement} */ (file.statements[0]);
+		const init = statement.declarationList.declarations[0].initializer;
+		const codes = [
+			...program.getSyntacticDiagnostics(file),
+			...program.getSemanticDiagnostics(file),
+		]
+			.filter((diagnostic) => diagnostic.code === 7059 || diagnostic.code === 7060)
+			.map((diagnostic) => `TS${diagnostic.code}`);
+		return {
+			type: init && ts.isArrowFunction(init) ? 'ArrowFunctionExpression' : 'TSTypeAssertion',
+			codes,
+		};
+	}
+
+	const sources = [
+		'let f = <T>() => 1;',
+		'let f = <T>(x: T): T => x;',
+		'let f = <T extends object>(x: T) => x;',
+		'let f = <T = unknown>(x: T) => x;',
+		'let f = <const T>(x: T) => x;',
+		'let f = <T,>(x: T) => x;',
+		'let f = async <T>(x: T) => x;',
+		'let a = <T>x;',
+		'let a = <string>(x as any);',
+	];
+
+	// TS7060 for a generic arrow function is `reportReservedArrowTypeParam`'s
+	// (#880), which the comparison leaves out.
+	it.each(['a.ts', 'a.mts', 'a.cts'])('reads %s as TypeScript does', (filename) => {
+		for (const source of sources) {
+			const label = `${filename}: ${source}`;
+			const expected = typescript(source, filename);
+			const codes = expected.codes.filter((code) => code !== 'TS7060');
+			/** @type {CompileError[]} */
+			const errors = [];
+			const ast = parseModule(source, filename, { collect: true, errors, comments: [] });
+			const declaration = as_type(ast.body[0], 'VariableDeclaration');
+			expect(declaration.declarations[0].init?.type, label).toBe(expected.type);
+			expect(
+				errors.map((error) => error.code).filter((code) => code !== 'TS7060'),
+				label,
+			).toEqual(codes);
+			// A strict parse throws the first, and nothing TypeScript doesn't report.
+			/** @type {unknown} */
+			let thrown_error = null;
+			try {
+				parseModule(source, filename);
+			} catch (error) {
+				thrown_error = error;
+			}
+			if (codes.length > 0) {
+				expect(thrown_error, label).toEqual(expect.objectContaining({ code: codes[0] }));
+			} else if (thrown_error) {
+				expect(expected.codes, label).toContain(/** @type {CompileError} */ (thrown_error).code);
+			}
+		}
+	});
+
+	it('reads a tag where a file has JSX', () => {
+		for (const filename of ['App.tsrx', 'a.tsx', 'a.jsx', 'a.js']) {
+			expect(() => parseModule('let a = <T>x;', filename), filename).toThrow(
+				error_with(TSRX_ERRORS.UNCLOSED_TAG),
+			);
+			expect(
+				find_first(
+					parseModule('let a = <b>x</b>;', filename),
+					(node) => node.type === 'JSXElement',
+				),
+				filename,
+			).toBeDefined();
+		}
 	});
 });
 

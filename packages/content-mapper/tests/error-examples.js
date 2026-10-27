@@ -840,6 +840,10 @@ export const WITHOUT_EXAMPLE = new Map(
 		[TS_ERRORS.JSX_UNESCAPED_CLOSING_BRACE, 'No source found (#964).'],
 		[TS_ERRORS.SIGNATURE_PARAMETER_NAME, 'No source found (#964).'],
 		[
+			TS_ERRORS.RESERVED_TYPE_ASSERTION,
+			'Only in a `.mts` or `.cts` file, which no TSRX compiler reads: a `.tsrx` file has JSX, where `<T>x` is a tag.',
+		],
+		[
 			UPSTREAM_ERRORS.LET_BINDING,
 			"`let` as a name gives `The keyword 'let' is reserved` (TS1212) at the same place first (#962).",
 		],

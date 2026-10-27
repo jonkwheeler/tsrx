@@ -138,6 +138,10 @@ const DECORATABLE_NODE_TYPES = new Set([
 	'PropertyDefinition',
 ]);
 const regex_identifier = /[$_\p{ID_Start}][$_\u200c\u200d\p{ID_Continue}]*/uy;
+// The files TypeScript reads without JSX, and the ones where it reserves the
+// syntax a JSX file would read as a tag (TS7059, TS7060).
+const regex_file_without_jsx = /\.[cm]?ts$/;
+const regex_reserved_jsx_like_file = /\.[cm]ts$/;
 
 const regex_line_break = /\r\n?|[\n\u2028\u2029]/;
 // A word written with an escape, from `lastIndex`.
@@ -980,6 +984,13 @@ export function TSRXPlugin(config) {
 			#errors = undefined;
 			/** @type {string | null} */
 			#filename = null;
+			// Whether the file has JSX, as TypeScript reads every file but a `.ts`,
+			// `.mts`, or `.cts` file. Without JSX, a `<` where an expression starts
+			// is a generic arrow function's or a type assertion's.
+			#jsxFile = true;
+			// Where a `<` must not start a type assertion, while
+			// `#parseArrowOrTypeAssertion` reads it as a generic arrow function's.
+			#arrowFirstAt = -1;
 			/** @type {WeakMap<object, { names: Set<string>, lengths: number[] }>} */
 			#localExportNamesByScope = new WeakMap();
 			#functionBodyDepth = 0;
@@ -1185,6 +1196,7 @@ export function TSRXPlugin(config) {
 				this.#loose = tsrx_options?.loose === true;
 				this.#errors = tsrx_options?.errors;
 				this.#filename = tsrx_options?.filename || null;
+				this.#jsxFile = !regex_file_without_jsx.test(this.#filename ?? '');
 				if (this.#collect) {
 					// With private-field checks on, acorn rejects `#x in obj` outside a class
 					// with `Unexpected token`. TypeScript parses it and reports TS18016 from
@@ -4237,6 +4249,11 @@ export function TSRXPlugin(config) {
 			 * @type {Parse.Parser['parseMaybeUnary']}
 			 */
 			parseMaybeUnary(refDestructuringErrors, sawUnary, incDec, forInit) {
+				if (!this.#jsxFile && this.tsMatchLeftRelational() && this.start !== this.#arrowFirstAt) {
+					return /** @type {AST.Expression} */ (
+						/** @type {unknown} */ (this.#parseTypeAssertion())
+					);
+				}
 				if (
 					!sawUnary &&
 					!forInit &&
@@ -7498,7 +7515,7 @@ export function TSRXPlugin(config) {
 							(((this.exprAllowed || !this.#readingTemplateSetupStatement()) &&
 								context !== tstc.tc_expr &&
 								!this.#rereadingTagStart &&
-								looks_like_generic_arrow(this.input, this.pos)) ||
+								(!this.#jsxFile || looks_like_generic_arrow(this.input, this.pos))) ||
 								(next !== CharCode.slash && this.#canStartTypeParameterOrArgumentList(this.pos))))
 					) {
 						++this.pos;
@@ -7844,20 +7861,27 @@ export function TSRXPlugin(config) {
 						const node = this.#parseGenericArrowFunction(startPos, parse);
 						// In a `.tsx` file TypeScript reads `async <T>(x) => x` as a call:
 						// only the type parameters its rule reads as a generic arrow
-						// function's are one (see `looks_like_generic_arrow`).
+						// function's are one (see `looks_like_generic_arrow`). Reported at
+						// the type parameter, as TS7060 is. A file without JSX has the
+						// generic arrow function.
 						if (
+							this.#jsxFile &&
 							node.type === 'ArrowFunctionExpression' &&
+							node.typeParameters &&
 							!looks_like_generic_arrow(this.input, type_parameters_start)
 						) {
-							const end = /** @type {number} */ (node.typeParameters?.end);
+							const parameter = node.typeParameters.params[0];
 							if (this.#collect) {
 								this.#report_recoverable_error_range(
-									type_parameters_start,
-									end,
+									/** @type {number} */ (parameter.start),
+									/** @type {number} */ (parameter.end),
 									TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER,
 								);
 							} else {
-								this.raise(type_parameters_start, TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER);
+								this.raise(
+									/** @type {number} */ (parameter.start),
+									TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER,
+								);
 							}
 						}
 						return node;
@@ -8264,8 +8288,65 @@ export function TSRXPlugin(config) {
 					return super.parseMaybeAssign(forInit, refDestructuringErrors, afterLeftParse);
 				}
 				return this.#parseGenericArrowFunction(-1, () =>
-					super.parseMaybeAssign(forInit, refDestructuringErrors, afterLeftParse),
+					this.#jsxFile
+						? super.parseMaybeAssign(forInit, refDestructuringErrors, afterLeftParse)
+						: this.#parseArrowOrTypeAssertion(forInit, refDestructuringErrors, afterLeftParse),
 				);
+			}
+
+			/**
+			 * A `<` where an expression starts in a file without JSX, as TypeScript
+			 * reads it there: a generic arrow function's type parameters when an
+			 * arrow function follows them, and a type assertion's type otherwise
+			 * (`<T>x`). acorn-typescript reads it as an element first, which fails at
+			 * the `<` here, then as a generic arrow function; the type assertion,
+			 * which it reads only without JSX, comes after.
+			 * @type {Parse.Parser['parseMaybeAssign']}
+			 */
+			#parseArrowOrTypeAssertion(forInit, refDestructuringErrors, afterLeftParse) {
+				const outer = this.#arrowFirstAt;
+				this.#arrowFirstAt = this.start;
+				let arrow;
+				try {
+					arrow = this.tryParse(() =>
+						super.parseMaybeAssign(forInit, refDestructuringErrors, afterLeftParse),
+					);
+				} finally {
+					this.#arrowFirstAt = outer;
+				}
+				if (!arrow.error) return /** @type {AST.Expression} */ (arrow.node);
+				return this.parseMaybeAssignOrigin(forInit, refDestructuringErrors, afterLeftParse);
+			}
+
+			/**
+			 * A type assertion, `<T>x`, which only a file without JSX has. TypeScript
+			 * reserves it in a `.mts` or `.cts` file (TS7059), where a strict parse
+			 * throws that and a collecting one records it.
+			 * @returns {AST.TSTypeAssertion}
+			 */
+			#parseTypeAssertion() {
+				const node = /** @type {AST.TSTypeAssertion} */ (this.startNode());
+				const constant = this.tsTryNextParseConstantContext();
+				node.typeAnnotation = /** @type {any} */ (constant || this.tsNextThenParseType());
+				this.expect(tt.relational);
+				node.expression = this.parseMaybeUnary();
+				const assertion = this.finishNode(
+					node,
+					/** @type {AST.TSTypeAssertion['type']} */ ('TSTypeAssertion'),
+				);
+				if (regex_reserved_jsx_like_file.test(this.#filename ?? '')) {
+					const start = /** @type {number} */ (assertion.start);
+					if (this.#collect) {
+						this.#report_recoverable_error_range(
+							start,
+							/** @type {number} */ (assertion.end),
+							TS_ERRORS.RESERVED_TYPE_ASSERTION,
+						);
+					} else {
+						this.raise(start, TS_ERRORS.RESERVED_TYPE_ASSERTION);
+					}
+				}
+				return assertion;
 			}
 
 			// UPSTREAM(sveltejs/acorn-typescript#136): remove once a release includes the fix

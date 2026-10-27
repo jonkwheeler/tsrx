@@ -267,7 +267,7 @@ function Card({ title = DEFAULT }: { title?: string }) {
 			}
 			const name = source.includes('Card') ? 'Card' : 'Inner';
 			expect(thrown, source).toBeInstanceOf(Error);
-			expect(thrown.code).toBe('TSRX2027');
+			expect(thrown.code).toBe('TSRX2028');
 			expect(thrown.message).toContain(`'${name}' is read here before its declaration.`);
 			expect(thrown.message).toContain(`Move the declaration of '${name}' above this read.`);
 			expect(thrown.loc.start.line).toBe(read_line);
@@ -281,7 +281,7 @@ export function Inner({ label = PREFIX }: { label?: string }) @{
 }`,
 			'App.tsrx',
 		);
-		expect(errors.map((error) => error.code)).toEqual(['TSRX2027']);
+		expect(errors.map((error) => error.code)).toEqual(['TSRX2028']);
 	});
 
 	it('reads props.children from the default slot when no children prop is passed', () => {

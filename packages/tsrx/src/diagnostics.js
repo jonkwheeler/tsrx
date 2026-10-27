@@ -95,7 +95,7 @@ export const DIAGNOSTIC_CODES = {
 	/** An `@catch` reset parameter on a target whose error boundary has none. */
 	TARGET_CATCH_RESET_UNSUPPORTED: 'TSRX2026',
 	/** A component read above its declaration on a target that compiles it to a constant, where moving the declaration up would change what it reads. */
-	TARGET_COMPONENT_READ_BEFORE_DECLARATION: 'TSRX2027',
+	TARGET_COMPONENT_READ_BEFORE_DECLARATION: 'TSRX2028',
 
 	/** `<style apply>` carries no expression value. */
 	STYLE_APPLY_VALUE: 'TSRX3001',

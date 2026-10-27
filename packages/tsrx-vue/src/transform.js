@@ -446,7 +446,7 @@ function get_default_exported_component(statement) {
  * vue-jsx-vapor evaluates a destructured prop default that names a binding
  * (`{ label = PREFIX }`) when the component is defined, so a default that
  * reads a binding declared in the statements the component would move past
- * is reported instead (TSRX2027).
+ * is reported instead (TSRX2028).
  *
  * Reads that run later or not at all do not count: inside a function, a class
  * instance field or method, a type, an `export { … }` specifier, a branch a

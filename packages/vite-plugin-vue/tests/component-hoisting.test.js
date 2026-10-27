@@ -91,6 +91,20 @@ function Inner() {
 }
 export const result = log;`,
 
+	'dropped-default.tsrx': `const cfg = { size: 3 };
+function Card({ s = cfg.size }: { s?: number }) {
+	const el = <div>{s}</div>;
+	return el;
+}
+export { Card };`,
+
+	'kept-default.tsrx': `const SIZE = 3;
+function Card({ s = SIZE, t = [1] }: { s?: number; t?: number[] }) {
+	const el = <div>{s}</div>;
+	return el;
+}
+export const result = [(Card as any).props.s.default, (Card as any).props.t.default()];`,
+
 	'unsafe.tsrx': `export const registry = { inner: Inner };
 const PREFIX = 'p';
 export function Inner({ label = PREFIX }: { label?: string }) @{
@@ -124,6 +138,18 @@ afterAll(async () => {
 
 /** @param {string} file */
 const load = (file) => server.ssrLoadModule(`/${file}`);
+
+describe('[vue] destructured prop defaults', () => {
+	it('keeps the defaults vue-jsx-vapor turns into prop options', async () => {
+		expect((await load('kept-default.tsrx')).result).toEqual([3, [1]]);
+	});
+
+	it('reports TSRX2029 for a default vue-jsx-vapor would drop', async () => {
+		await expect(load('dropped-default.tsrx')).rejects.toThrow(
+			"Vue TSRX cannot keep this default for 's'",
+		);
+	});
+});
 
 describe('[vue] components read above their declaration', () => {
 	it('moves a component above a read that runs while the module loads', async () => {

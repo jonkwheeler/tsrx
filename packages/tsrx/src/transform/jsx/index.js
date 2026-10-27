@@ -4391,6 +4391,14 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 		(body_key_expression ? create_loop_key(body_key_expression, transform_context) : null);
 	if (loop_key) {
 		body_statements = apply_key_to_render_statements(body_statements, loop_key, transform_context);
+	} else {
+		// Rows without a key are matched by position, and a `@try` site key would
+		// repeat in every row.
+		body_statements = apply_key_to_render_statements(
+			body_statements,
+			{ expression: null, mapped: true, branches: !transform_context.platform.hooks?.renderForOf },
+			transform_context,
+		);
 	}
 
 	// Restore bindings
@@ -4471,7 +4479,10 @@ function for_of_statement_to_jsx_child(node, transform_context) {
  * only expects a key on the body's top-level output, including when it falls
  * back to the default lowering.
  *
- * @typedef {{ expression: AST.Expression, mapped: boolean, branches: boolean }} LoopKey
+ * `expression` is null for a loop without a key, whose rows only lose their
+ * `@try` site keys (see `apply_key_to_jsx_element`).
+ *
+ * @typedef {{ expression: AST.Expression | null, mapped: boolean, branches: boolean }} LoopKey
  */
 
 /**
@@ -4492,7 +4503,10 @@ function create_loop_key(expression, transform_context) {
  * @returns {ESTreeJSX.JSXAttribute}
  */
 function create_loop_key_attribute(loop_key) {
-	const expression = clone_ast_node(loop_key.expression, !loop_key.mapped);
+	const expression = clone_ast_node(
+		/** @type {AST.Expression} */ (loop_key.expression),
+		!loop_key.mapped,
+	);
 	loop_key.mapped = true;
 	return b.jsx_attribute(b.jsx_id('key'), to_jsx_expression_container(expression));
 }
@@ -4652,6 +4666,7 @@ function apply_key_to_rendered_value(expression, loop_key, transform_context) {
 		case 'JSXElement':
 			return apply_key_to_jsx_element(expression, loop_key);
 		case 'JSXFragment':
+			if (!loop_key.expression) return expression;
 			transform_context.needs_fragment = true;
 			return keyed_fragment_to_jsx_element(expression, loop_key);
 		case 'ConditionalExpression': {
@@ -4782,13 +4797,15 @@ function apply_key_to_jsx_element(element, loop_key) {
 			...element,
 			openingElement: {
 				...element.openingElement,
-				attributes: attributes.map((attr) =>
-					attr === site_key ? create_try_site_loop_key_attribute(site_key, loop_key) : attr,
-				),
+				attributes: loop_key.expression
+					? attributes.map((attr) =>
+							attr === site_key ? create_try_site_loop_key_attribute(site_key, loop_key) : attr,
+						)
+					: attributes.filter((attr) => attr !== site_key),
 			},
 		};
 	}
-	if (attributes.some(is_key_attribute)) return element;
+	if (!loop_key.expression || attributes.some(is_key_attribute)) return element;
 
 	return {
 		...element,

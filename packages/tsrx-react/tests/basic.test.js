@@ -1414,6 +1414,25 @@ describe('@tsrx/react basic', () => {
 		expect(code).toContain("key={'try3:' + item.id}");
 	});
 
+	it('leaves @try site keys off the rows of a loop without a key', () => {
+		const { code } = compile(
+			`export function App({ items }) @{
+				@for (const item of items) {
+					@try {
+						<Row item={item} />
+					} @catch (e) {
+						<p>{'x'}</p>
+					}
+				}
+			}`,
+			'App.tsrx',
+		);
+
+		// Every row would repeat the same site key.
+		expect(code).toContain('<TsrxErrorBoundary');
+		expect(code).not.toContain('key=');
+	});
+
 	it('applies scoped CSS hashes inside try blocks', () => {
 		const { code, css, cssHash } = compile(
 			`export function App() @{

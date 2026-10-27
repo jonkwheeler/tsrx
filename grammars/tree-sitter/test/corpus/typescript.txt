@@ -324,6 +324,82 @@ async function load() {
               (identifier))))))))
 
 ==================================
+Call Expressions With Type Arguments After A Parenthesized Or New Callee
+==================================
+
+const a = (f)<T>(x);
+const b = (obj.m)<A, B>(x);
+const c = new Foo()<T>(x);
+const d = new Foo<T>(x);
+const e = (f) < a > b;
+
+---
+
+(program
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (call_expression
+          function: (parenthesized_expression
+            (identifier))
+          type_arguments: (type_arguments
+            (type
+              (identifier)))
+          arguments: (arguments
+            (identifier))))))
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (call_expression
+          function: (parenthesized_expression
+            (member_expression
+              object: (identifier)
+              property: (identifier)))
+          type_arguments: (type_arguments
+            (type
+              (identifier))
+            (type
+              (identifier)))
+          arguments: (arguments
+            (identifier))))))
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (call_expression
+          function: (new_expression
+            constructor: (identifier)
+            arguments: (arguments))
+          type_arguments: (type_arguments
+            (type
+              (identifier)))
+          arguments: (arguments
+            (identifier))))))
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (new_expression
+          constructor: (identifier)
+          type_arguments: (type_arguments
+            (type
+              (identifier)))
+          arguments: (arguments
+            (identifier))))))
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (binary_expression
+          left: (binary_expression
+            left: (parenthesized_expression
+              (identifier))
+            right: (identifier))
+          right: (identifier))))))
+
+==================================
 As And Satisfies With Array Types
 ==================================
 

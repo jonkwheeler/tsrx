@@ -1237,9 +1237,12 @@ module.exports = grammar({
 			),
 
 		// A call with type arguments has a member, call or other primary
-		// expression as its callee, so a prefix operator applies to the whole call:
-		// `!f<T>(x)` negates the call and `await f<T>(x)` awaits it.
-		_type_arguments_callee: ($) => $.primary_expression,
+		// expression, a parenthesized expression or a `new` expression as its
+		// callee, so a prefix operator applies to the whole call: `!f<T>(x)`
+		// negates the call and `await f<T>(x)` awaits it. `(f)<T>(x)` and
+		// `new Foo()<T>(x)` call the result.
+		_type_arguments_callee: ($) =>
+			choice($.primary_expression, $.parenthesized_expression, $.new_expression),
 
 		new_expression: ($) =>
 			prec.right(

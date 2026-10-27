@@ -6795,8 +6795,21 @@
       ]
     },
     "_type_arguments_callee": {
-      "type": "SYMBOL",
-      "name": "primary_expression"
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "primary_expression"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "parenthesized_expression"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "new_expression"
+        }
+      ]
     },
     "new_expression": {
       "type": "PREC_RIGHT",

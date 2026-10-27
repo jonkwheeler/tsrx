@@ -1362,6 +1362,9 @@ export function TSRXPlugin(config) {
 			#bodilessPrivateMethods = new WeakMap();
 			// How many classes the parser is in (see `parseClass`).
 			#classDepth = 0;
+			// Set while `tsFillSignature` reads a signature's type parameters (see
+			// `tsTryParseTypeParameters`).
+			#readingSignatureTypeParameters = false;
 			// Where the import alias being read starts (see `raise`).
 			#importEqualsStart = -1;
 			// Where the last variable declarator ended, and where the expression of
@@ -5378,16 +5381,32 @@ export function TSRXPlugin(config) {
 
 			/**
 			 * acorn-typescript reads the type parameters of a function type, a
-			 * constructor type, a call, construct or method signature (`tsFillSignature`)
-			 * and a method (`parseClassFunctionParams`) without the `const` modifier,
-			 * which TypeScript takes on each, so `type F = <const T>(x: T) => T;`
-			 * failed with `Unexpected keyword 'const'` (#731). Read it where no other
-			 * modifiers are given.
+			 * constructor type, or a call, construct or method signature
+			 * (`tsFillSignature`) without the `const` modifier, which TypeScript takes
+			 * on each, so `type F = <const T>(x: T) => T;` failed with `Unexpected
+			 * keyword 'const'` (#731). Read it there.
 			 * @type {Parse.Parser['tsTryParseTypeParameters']}
 			 */
 			tsTryParseTypeParameters(parseModifiers) {
+				const signature = this.#readingSignatureTypeParameters;
+				this.#readingSignatureTypeParameters = false;
 				this.#readTagStartAsTypeParameterStart();
-				return super.tsTryParseTypeParameters(parseModifiers ?? this.tsParseConstModifier);
+				return super.tsTryParseTypeParameters(
+					parseModifiers ?? (signature ? this.tsParseConstModifier : undefined),
+				);
+			}
+
+			/**
+			 * See `tsTryParseTypeParameters`, which this reads first.
+			 * @type {Parse.Parser['tsFillSignature']}
+			 */
+			tsFillSignature(returnToken, signature) {
+				this.#readingSignatureTypeParameters = true;
+				try {
+					return super.tsFillSignature(returnToken, signature);
+				} finally {
+					this.#readingSignatureTypeParameters = false;
+				}
 			}
 
 			/**

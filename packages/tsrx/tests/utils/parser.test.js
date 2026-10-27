@@ -13811,6 +13811,23 @@ describe('a `const` type parameter in a function type or a signature (#731)', ()
 			).toMatchObject({ const: true, name: { name: 'T' } });
 		}
 	});
+
+	it("still rejects one inside a method's parentheses", async () => {
+		// acorn-typescript reads type parameters after a method's `(`, which
+		// TypeScript doesn't (TS1003); `const` there stays unexpected.
+		const sources = [
+			'class A { m(<const T>x) {} }',
+			'let o = { m(<const T>x) {} };',
+			'class B { constructor(<const T>x) {} }',
+		];
+		const modes = [undefined, { collect: true, comments: [] }, { loose: true }];
+		const outcomes = await parse_in_worker(
+			sources.flatMap((source) => modes.map((options) => ({ source, options }))),
+		);
+		expect(outcomes).toEqual(
+			sources.flatMap((source) => modes.map(() => thrown('TS1359', source.indexOf('<const') + 1))),
+		);
+	});
 });
 
 describe('a generic arrow function with one type parameter (#880)', () => {

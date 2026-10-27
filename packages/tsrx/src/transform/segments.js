@@ -714,6 +714,49 @@ export function convert_source_map_to_mappings(
 	}
 
 	/**
+	 * Map a literal for errors TypeScript reports on all of it (TS2344 on the
+	 * `{}` of `g<{}>()`, TS2322 on the `[]` of `[ {}, [] ]`), which the printer
+	 * respaces. A mapping over the whole literal would also map every position
+	 * inside it by offset, which is wrong wherever the printed text differs,
+	 * for example after a comment the printer leaves out. Instead:
+	 *
+	 * - Its start and its end are the two points of one diagnostics-only
+	 *   mapping. Volar maps a range only when both of its ends fall in one
+	 *   mapping, and points contain nothing between them.
+	 * - Its brackets are mapped with no Volar feature at all. The TypeScript 7
+	 *   content mapper drops points, which have no length, but turns any
+	 *   mapping into a span that places diagnostics. Volar ignores a mapping
+	 *   without features; with diagnostics on, a bracket's end would also catch
+	 *   a range that starts right after it.
+	 * @param {AST.Node} node
+	 * @param {string} open
+	 * @param {string} close
+	 * @returns {void}
+	 */
+	function push_literal_mappings(node, open, close) {
+		if (!has_location(node)) return;
+		const mapping = declaration_mapping(node, open);
+		if (mapping) {
+			const generated_start = mapping.generatedOffsets[0];
+			mapping.sourceOffsets = [node.start, node.end];
+			mapping.generatedOffsets = [generated_start, generated_start + mapping.generatedLengths[0]];
+			mapping.lengths = [0, 0];
+			mapping.generatedLengths = [0, 0];
+			mappings.push(mapping);
+		}
+		const opening = find_source_token(source_tokens, open, node.start, 'after');
+		const closing = find_source_token(source_tokens, close, node.end, 'before');
+		if (opening?.start !== node.start || closing?.end !== node.end) return;
+		for (const [token, text] of /** @type {const} */ ([
+			[opening, open],
+			[closing, close],
+		])) {
+			if (!token.loc || generated_offset_for_text(token.loc.start, text) === undefined) continue;
+			tokens.push({ source: text, generated: text, loc: token.loc, metadata: {}, mappingData: {} });
+		}
+	}
+
+	/**
 	 * Map the first `text` token at or after `from` that lies inside `node`.
 	 * @param {string} text
 	 * @param {number} from
@@ -1722,11 +1765,7 @@ export function convert_source_map_to_mappings(
 
 				return;
 			} else if (node.type === 'ObjectExpression' || node.type === 'ObjectPattern') {
-				if (node.type === 'ObjectExpression' && has_location(node)) {
-					mappings.push(
-						get_mapping_from_node(node, src_to_gen_map, gen_line_offsets, mapping_data_verify_only),
-					);
-				}
+				if (node.type === 'ObjectExpression') push_literal_mappings(node, '{', '}');
 
 				// Visit properties in order
 				if (node.properties) {
@@ -1759,7 +1798,7 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'ArrayExpression' || node.type === 'ArrayPattern') {
-				if (node.type === 'ArrayExpression') push_verify_only_span_mapping(node);
+				if (node.type === 'ArrayExpression') push_literal_mappings(node, '[', ']');
 				// Visit elements in order
 				if (node.elements) {
 					for (const element of node.elements) {
@@ -1912,10 +1951,13 @@ export function convert_source_map_to_mappings(
 					// TypeScript reports base-class errors (TS2507 on a value that is
 					// not a constructor, TS2509, TS2510) on the whole superclass
 					// expression, and Volar drops a diagnostic whose end it cannot map.
-					// Identifiers, member expressions, calls, parenthesized expressions
-					// and array literals map their whole span, but a non-null assertion
-					// (`maybe!`) doesn't.
-					if (node.superClass.type === 'TSNonNullExpression') {
+					// Identifiers, member expressions, calls and parenthesized
+					// expressions map their whole span, but an array literal and a
+					// non-null assertion (`maybe!`) don't.
+					if (
+						node.superClass.type === 'ArrayExpression' ||
+						node.superClass.type === 'TSNonNullExpression'
+					) {
 						push_verify_only_span_mapping(node.superClass);
 					}
 				}
@@ -2299,7 +2341,7 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'TSTypeLiteral') {
-				push_verify_only_span_mapping(node);
+				push_literal_mappings(node, '{', '}');
 				// Object type literal { foo: string }
 				if (node.members) {
 					for (const member of node.members) {

@@ -710,6 +710,33 @@ it('reports errors on an array inside an array and on an empty type literal in .
 	}
 });
 
+it('reports errors after a comment inside an array or object literal where they are written in .tsrx files', () => {
+	// The printer leaves the comments out, so the literal is shorter in the
+	// generated code than in the source.
+	const lines = [
+		'declare const o: { a: number };',
+		'export const x = [ /*comment*/ 1 as string ];',
+		"export const y: number[] = [ /* c */ o.a + 'x' ];",
+		'export const z = [ /* c */ {} + 1 ];',
+		"export const v: number[] = [ /* long comment here */ true ? 'a' : 'b' ];",
+		'export const w = { /* comment */ a: 1 as string };',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	const at = (/** @type {number} */ index, /** @type {string} */ text) =>
+		`layout.tsrx(${index + 4},${lines[index].indexOf(text) + 1})`;
+	for (const [index, text, code] of /** @type {const} */ ([
+		[1, '1 as', 'TS2352'],
+		[2, 'o.a', 'TS2322'],
+		[3, '{} +', 'TS2365'],
+		[4, 'true', 'TS2322'],
+		[5, '1 as', 'TS2352'],
+	])) {
+		expect(result.output).toContain(`${at(index, text)}: error ${code}:`);
+	}
+});
+
 it('reports errors on a bare this in .tsrx files', () => {
 	const line =
 		'export function readValue() { return this; } class Base {} export class Derived extends Base { constructor() { this; super(); } }';

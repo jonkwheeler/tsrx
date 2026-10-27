@@ -191,6 +191,8 @@ describe('native tsc --runExternalCode', () => {
 			'f([',
 			'\t1,',
 			']);',
+			'export const x = [ /*comment*/ 1 as string ];',
+			'export const w = { /* comment */ a: 1 as string };',
 			'',
 		].join('\n');
 		const files = consumer_fixture_files();
@@ -215,6 +217,8 @@ describe('native tsc --runExternalCode', () => {
 			[3, 24, 'TS2322'],
 			[4, 30, 'TS2322'],
 			[6, 3, 'TS2345'],
+			[9, 32, 'TS2352'],
+			[10, 37, 'TS2352'],
 		]);
 		expect(at('Types.tsrx')).toEqual(at('plain.ts'));
 		expect(result.status).toBe(2);

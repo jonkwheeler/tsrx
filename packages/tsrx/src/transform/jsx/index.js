@@ -4798,7 +4798,7 @@ function is_key_attribute(attr) {
  * @returns {AST.TSRXJSXElement}
  */
 function keyed_fragment_to_jsx_element(fragment, loop_key) {
-	const name = b.jsx_id('Fragment');
+	const name = b.jsx_id(FRAGMENT_INTERNAL_NAME);
 
 	return b.jsx_element_fresh(
 		b.jsx_opening_element(name, [create_loop_key_attribute(loop_key)]),
@@ -4911,7 +4911,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 				transform_context,
 			);
 			result = create_jsx_element(
-				'Suspense',
+				SUSPENSE_INTERNAL_NAME,
 				[b.jsx_attribute(fallback_name, fallback_content)],
 				[result],
 			);
@@ -4992,7 +4992,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 		} else if (boundary_content && transform_context.inside_element_child) {
 			result = to_jsx_expression_container(
 				b.call(
-					'TsrxErrorBoundary',
+					ERROR_BOUNDARY_INTERNAL_NAME,
 					b.object([b.init('fallback', fallback_fn), b.init('content', boundary_content)]),
 				),
 			);
@@ -5006,7 +5006,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 				transform_context,
 			);
 			result = create_jsx_element(
-				'TsrxErrorBoundary',
+				ERROR_BOUNDARY_INTERNAL_NAME,
 				[
 					b.jsx_attribute(fallback_name, to_jsx_expression_container(fallback_fn)),
 					...(boundary_content
@@ -5067,19 +5067,12 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 	/** @type {AST.ImportDeclaration[]} */
 	const imports = [];
 
-	if (
-		transform_context.needs_fragment &&
-		platform.imports.fragment &&
-		!has_named_value_import(program, platform.imports.fragment, 'Fragment')
-	) {
-		imports.push(b.imports([['Fragment', 'Fragment']], platform.imports.fragment));
+	if (transform_context.needs_fragment && platform.imports.fragment) {
+		imports.push(b.imports([['Fragment', FRAGMENT_INTERNAL_NAME]], platform.imports.fragment));
 	}
 
-	if (
-		transform_context.needs_suspense &&
-		!has_named_value_import(program, suspense_source, 'Suspense')
-	) {
-		imports.push(b.imports([['Suspense', 'Suspense']], suspense_source));
+	if (transform_context.needs_suspense) {
+		imports.push(b.imports([['Suspense', SUSPENSE_INTERNAL_NAME]], suspense_source));
 	}
 
 	if (
@@ -5098,7 +5091,10 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 
 	if (transform_context.needs_error_boundary) {
 		imports.push(
-			b.imports([['TsrxErrorBoundary', 'TsrxErrorBoundary']], platform.imports.errorBoundary),
+			b.imports(
+				[['TsrxErrorBoundary', ERROR_BOUNDARY_INTERNAL_NAME]],
+				platform.imports.errorBoundary,
+			),
 		);
 	}
 
@@ -5152,33 +5148,6 @@ function inject_try_imports(program, transform_context, platform, suspense_sourc
 	if (imports.length > 0) {
 		program.body.unshift(...imports);
 	}
-}
-
-/**
- * Whether the module already imports the value `name` from `source` under the
- * same local name, which the generated JSX can use as is. Injecting it again
- * would declare the binding twice.
- *
- * @param {AST.Program} program
- * @param {string} source
- * @param {string} name
- * @returns {boolean}
- */
-function has_named_value_import(program, source, name) {
-	return program.body.some(
-		(statement) =>
-			statement.type === 'ImportDeclaration' &&
-			statement.source.value === source &&
-			statement.importKind !== 'type' &&
-			statement.specifiers.some(
-				(specifier) =>
-					specifier.type === 'ImportSpecifier' &&
-					specifier.importKind !== 'type' &&
-					specifier.imported.type === 'Identifier' &&
-					specifier.imported.name === name &&
-					specifier.local.name === name,
-			),
-	);
 }
 
 /**
@@ -5717,6 +5686,15 @@ export const MERGE_REFS_INTERNAL_NAME = '__mergeRefs';
 export const NORMALIZE_SPREAD_PROPS_INTERNAL_NAME = '__normalize_spread_props';
 export const NORMALIZE_SPREAD_PROPS_FOR_REF_ATTR_INTERNAL_NAME =
 	'__normalize_spread_props_for_ref_attr';
+/**
+ * Local aliases for the components the transform imports itself: `Suspense`
+ * for `@pending`, `TsrxErrorBoundary` for `@catch`, and `Fragment` for keyed
+ * fragment rows. An authored binding of the public name, imported or local,
+ * then neither collides with the import nor replaces the generated element.
+ */
+export const SUSPENSE_INTERNAL_NAME = '__Suspense';
+export const ERROR_BOUNDARY_INTERNAL_NAME = '__TsrxErrorBoundary';
+export const FRAGMENT_INTERNAL_NAME = '__Fragment';
 /**
  * Point a generated node at the DIRECTIVE KEYWORD that produced it.
  *

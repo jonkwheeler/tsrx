@@ -783,7 +783,33 @@ describe('@tsrx/vue basic', () => {
 
 		expect(code).not.toContain('StatementBodyHook');
 		expect(code.match(/<span>\{'Failed'\}<\/span>/g)).toHaveLength(1);
-		expect(code).toContain('<TsrxErrorBoundary fallback={(error, _reset) =>');
+		expect(code).toContain('<__TsrxErrorBoundary fallback={(error, _reset) =>');
+	});
+
+	it.each([
+		[`import type { TsrxErrorBoundary } from '@tsrx/vue/error-boundary';`, ''],
+		[`import { TsrxErrorBoundary } from './authored';`, ''],
+		['', `const TsrxErrorBoundary = 'authored';`],
+	])('imports the generated error boundary privately beside `%s%s`', (module_scope, setup) => {
+		const { code } = compile(
+			`${module_scope}
+
+			export function App() @{
+				${setup}
+				@try {
+					<span>{'Loaded'}</span>
+				} @catch (error) {
+					<span>{'Failed'}</span>
+				}
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain(
+			"import { TsrxErrorBoundary as __TsrxErrorBoundary } from '@tsrx/vue/error-boundary';",
+		);
+		expect(code).toContain('<__TsrxErrorBoundary fallback=');
+		expect(code).not.toContain('<TsrxErrorBoundary');
 	});
 
 	it('compiles try/pending into a Vue Suspense slot boundary', () => {

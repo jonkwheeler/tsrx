@@ -14,6 +14,7 @@ import {
 	create_generated_identifier,
 	createJsxTransform,
 	DIAGNOSTIC_CODES,
+	ERROR_BOUNDARY_INTERNAL_NAME,
 	error,
 	has_location,
 	is_component_like_element,
@@ -314,7 +315,7 @@ function jsx_child_to_expression(child) {
 function create_vapor_error_boundary(content, fallback_fn) {
 	return b.jsx_element_fresh(
 		b.jsx_opening_element(
-			b.jsx_id('TsrxErrorBoundary'),
+			b.jsx_id(ERROR_BOUNDARY_INTERNAL_NAME),
 			[
 				b.jsx_attribute(b.jsx_id('fallback'), to_jsx_expression_container(fallback_fn)),
 				b.jsx_attribute(
@@ -1215,6 +1216,7 @@ function inject_vue_imports(program, transform_context) {
 			program,
 			transform_context.platform.imports.errorBoundary,
 			'TsrxErrorBoundary',
+			ERROR_BOUNDARY_INTERNAL_NAME,
 		);
 	}
 
@@ -1250,7 +1252,11 @@ function inject_vue_imports(program, transform_context) {
  */
 function ensure_named_import(program, source, name, local = name) {
 	for (const statement of program.body) {
-		if (statement.type !== 'ImportDeclaration' || statement.source?.value !== source) {
+		if (
+			statement.type !== 'ImportDeclaration' ||
+			statement.importKind === 'type' ||
+			statement.source?.value !== source
+		) {
 			continue;
 		}
 

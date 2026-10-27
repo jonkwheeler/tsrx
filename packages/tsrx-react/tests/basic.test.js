@@ -1234,7 +1234,7 @@ describe('@tsrx/react basic', () => {
 			body: `<Fragment><b>native</b></Fragment>
 					<ul>@for (const item of [1, 2]; key item) { <><li>{item}</li><li>end</li></> }</ul>`,
 		},
-	])('reuses an authored $name import from react', ({ name, body }) => {
+	])('keeps an authored $name import from react beside the generated one', ({ name, body }) => {
 		const { code } = compile(
 			`import { ${name} } from 'react';
 
@@ -1247,9 +1247,11 @@ describe('@tsrx/react basic', () => {
 		);
 
 		expect(code.match(new RegExp(`import \\{[^}]*\\b${name}\\b[^}]*\\} from`, 'g'))).toEqual([
+			`import { ${name} as __${name} } from`,
 			`import { ${name} } from`,
 		]);
-		expect(code).toContain(`<${name}`);
+		expect(code).toMatch(new RegExp(`<${name}[\\s>]`));
+		expect(code).toContain(`<__${name} `);
 	});
 
 	it('transforms try/pending/catch into ErrorBoundary wrapping Suspense', () => {
@@ -1269,8 +1271,8 @@ describe('@tsrx/react basic', () => {
 		expect(code).toContain('TsrxErrorBoundary');
 		expect(code).toContain('Suspense');
 		// ErrorBoundary should wrap Suspense (outer first)
-		const errorBoundaryIndex = code.indexOf('<TsrxErrorBoundary');
-		const suspenseIndex = code.indexOf('<Suspense');
+		const errorBoundaryIndex = code.indexOf('<__TsrxErrorBoundary');
+		const suspenseIndex = code.indexOf('<__Suspense');
 		expect(errorBoundaryIndex).toBeLessThan(suspenseIndex);
 	});
 

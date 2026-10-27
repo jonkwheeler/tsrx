@@ -175,6 +175,7 @@ export {
 	create_script_body as createScriptBody,
 	build_return_expression as buildReturnExpression,
 	createJsxTransform,
+	ERROR_BOUNDARY_INTERNAL_NAME,
 	extract_jsx_setup_declarations as extractJsxSetupDeclarations,
 	is_component_like_element,
 	is_svg_tag_name as isSvgTagName,

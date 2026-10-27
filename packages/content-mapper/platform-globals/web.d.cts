@@ -1,5 +1,5 @@
 // Editor-only `import.meta.env.platform` types for the `web` platform.
-// The content mapper imports this file in place of the copy that
+// The content mapper references this file in place of the copy that
 // `withPlatformTypes` in `@tsrx/core` appends to each module that keeps a
 // flag (see `src/platform-globals.js`).
 export {};

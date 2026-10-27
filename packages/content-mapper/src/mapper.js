@@ -184,9 +184,10 @@ export function create_tsrx_content_mapper(context = {}) {
 			state.lastGood.set(file_name, result.sourceAst);
 		}
 
-		const text = share_platform_globals(result.text);
+		const shared = share_platform_globals(result.text, result.mappings);
+		const text = shared.text;
 		const language_features = state.options.languageFeatures !== false;
-		const mappings = to_span_mappings(result.mappings, text, content, {
+		const mappings = to_span_mappings(shared.mappings, text, content, {
 			languageFeatures: language_features,
 		});
 		// Every error goes to TypeScript, even one with a TypeScript code: the
@@ -199,7 +200,7 @@ export function create_tsrx_content_mapper(context = {}) {
 		const diagnosticDirectives = ignore_directives(
 			result.errors,
 			result.sourceAst,
-			result.mappings,
+			shared.mappings,
 			content.length,
 			text.length,
 		);

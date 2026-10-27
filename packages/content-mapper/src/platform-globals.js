@@ -1,3 +1,5 @@
+/** @import {CodeMapping} from '@tsrx/core/types' */
+
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -18,44 +20,57 @@ const PLATFORM_FILES = new Map([
 ]);
 
 /** @type {Map<string, string | null>} */
-const specifiers = new Map();
+const files = new Map();
 
 /**
  * Replace a module's copy of the platform globals in its generated TSX with a
- * type-only import of the shared file that declares the same globals. Native
+ * reference to the shared file that declares the same globals. Native
  * TypeScript merges every module's copy into one `ImportMeta` and reports the
  * repeated index signature (TS2374), and declaration output keeps every
- * `declare global` block. The shared file is in the program once, and a
- * module's declaration output drops an import that none of its exports use.
- * The copy is blanked in place, so every generated offset stays put, and the
- * import goes at the end of the text. Text without the exact copy (another
- * TSRX version, a third-party compiler) comes back unchanged.
+ * `declare global` block. The shared file is in the program once, and
+ * declaration output drops a `/// <reference path>` directive.
+ *
+ * The copy is blanked in place, and the directive goes at the start of the
+ * text, where TypeScript reads it, so every generated offset moves by its
+ * length. A directive is not an import: organize imports and auto-import still
+ * see only the module's own imports, and TypeScript 7 maps their edits only
+ * when the last of them is the module's last import. Text without the exact
+ * copy (another TSRX version, a third-party compiler), or that starts with a
+ * hashbang, comes back unchanged.
  * @param {string} text
- * @returns {string}
+ * @param {readonly CodeMapping[]} mappings
+ * @returns {{ text: string, mappings: readonly CodeMapping[] }}
  */
-export function share_platform_globals(text) {
+export function share_platform_globals(text, mappings) {
 	const match = PLATFORM_GLOBALS.exec(text);
 	const name = match && PLATFORM_FILES.get(match.slice(1).join(','));
-	const specifier = name && platform_globals_specifier(name);
-	if (!match || !specifier) return text;
+	const file = name && !text.startsWith('#!') ? platform_globals_file(name) : null;
+	if (!match || !file) return { text, mappings };
+	const directive = `/// <reference path="${file}" />\n`;
 	const end = match.index + match[0].length;
-	return `${text.slice(0, match.index)}${match[0].replace(/[^\n]/g, ' ')}${text.slice(end)}\nimport type {} from ${JSON.stringify(specifier)};\n`;
+	return {
+		text: `${directive}${text.slice(0, match.index)}${match[0].replace(/[^\n]/g, ' ')}${text.slice(end)}`,
+		mappings: mappings.map((mapping) => ({
+			...mapping,
+			generatedOffsets: mapping.generatedOffsets.map((offset) => offset + directive.length),
+		})),
+	};
 }
 
 /**
- * The module specifier of a `platform-globals/` file: its absolute path with
- * forward slashes, and the `.cjs` extension that resolves to its `.d.cts`. The
- * directory sits next to `src/` and `dist/`, so one relative URL serves both. A
- * file missing from the installed package leaves the copy in place.
+ * The path of a `platform-globals/` file, with forward slashes. The directory
+ * sits next to `src/` and `dist/`, so one relative URL serves both. A file
+ * missing from the installed package, or a path a directive cannot quote,
+ * leaves the copy in place.
  * @param {string} name
  * @returns {string | null}
  */
-function platform_globals_specifier(name) {
-	let specifier = specifiers.get(name);
-	if (specifier === undefined) {
-		const file = fileURLToPath(new URL(`../platform-globals/${name}.d.cts`, import.meta.url));
-		specifier = fs.existsSync(file) ? file.replace(/\\/g, '/').replace(/\.d\.cts$/, '.cjs') : null;
-		specifiers.set(name, specifier);
+function platform_globals_file(name) {
+	let file = files.get(name);
+	if (file === undefined) {
+		const path = fileURLToPath(new URL(`../platform-globals/${name}.d.cts`, import.meta.url));
+		file = fs.existsSync(path) && !/["\r\n]/.test(path) ? path.replace(/\\/g, '/') : null;
+		files.set(name, file);
 	}
-	return specifier;
+	return file;
 }

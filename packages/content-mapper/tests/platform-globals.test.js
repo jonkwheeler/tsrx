@@ -4,6 +4,16 @@ import { describe, expect, it } from 'vitest';
 import { share_platform_globals } from '../src/platform-globals.js';
 
 const code = 'export const web = import.meta.env.platform.web;\n';
+/** @type {import('@tsrx/core/types').CodeMapping[]} */
+const mappings = [
+	{
+		sourceOffsets: [7],
+		generatedOffsets: [13],
+		lengths: [3],
+		generatedLengths: [3],
+		data: { verification: true, customData: {} },
+	},
+];
 
 /** @param {unknown} platform */
 function generated(platform) {
@@ -21,7 +31,7 @@ function generated(platform) {
 }
 
 describe('share_platform_globals', () => {
-	it('blanks the copy in place and imports the shared file for each platform', () => {
+	it('blanks the copy and references the shared file for each platform', () => {
 		for (const [platform, name] of [
 			['web', 'web'],
 			['ios', 'ios'],
@@ -29,31 +39,35 @@ describe('share_platform_globals', () => {
 			[undefined, 'unconfigured'],
 		]) {
 			const text = generated(platform);
-			const shared = share_platform_globals(text);
-			const [blanked, line] = [shared.slice(0, text.length), shared.slice(text.length)];
-			// Every generated offset stays put: only the block turns into spaces.
+			const shared = share_platform_globals(text, mappings);
+			const match = /^\/\/\/ <reference path="(.+)" \/>\n/.exec(shared.text);
+			expect(match?.[1]).toMatch(new RegExp(`/platform-globals/${name}\\.d\\.cts$`));
+			const shift = /** @type {RegExpExecArray} */ (match)[0].length;
+			// Only the block turns into spaces; every generated offset moves by the
+			// directive's length.
+			const blanked = shared.text.slice(shift);
+			expect(blanked.length).toBe(text.length);
 			expect(blanked.split('\n').length).toBe(text.split('\n').length);
 			expect(blanked.replace(/ +\n/g, '\n').replace(/\n+/g, '\n')).toBe(`${code}export {};\n`);
-			const match = /^\nimport type \{\} from "(.+)";\n$/.exec(line);
-			expect(match?.[1]).toMatch(new RegExp(`/platform-globals/${name}\\.cjs$`));
-			const declaration = fs.readFileSync(
-				/** @type {string} */ (match?.[1]).replace(/\.cjs$/, '.d.cts'),
-				'utf8',
-			);
+			expect(shared.mappings).toEqual([{ ...mappings[0], generatedOffsets: [13 + shift] }]);
 			// The shared file declares the copy it replaces.
+			const declaration = fs.readFileSync(/** @type {string} */ (match?.[1]), 'utf8');
 			const copy = text.slice(text.indexOf('declare global'));
 			expect(declaration.replace(/\s+/g, '')).toContain(copy.replace(/\s+/g, ''));
 		}
 	});
 
-	it('leaves text without the exact copy unchanged', () => {
+	it('leaves text without the exact copy, or with a hashbang, unchanged', () => {
 		const text = generated('web');
 		for (const other of [
 			code,
 			text.replace('readonly ios: false', 'readonly ios: true'),
 			text.replace('readonly [key:', 'readonly url: string;\n\t\treadonly [key:'),
+			`#!/usr/bin/env node\n${text}`,
 		]) {
-			expect(share_platform_globals(other)).toBe(other);
+			const shared = share_platform_globals(other, mappings);
+			expect(shared.text).toBe(other);
+			expect(shared.mappings).toBe(mappings);
 		}
 	});
 });

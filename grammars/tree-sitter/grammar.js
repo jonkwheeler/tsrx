@@ -22,13 +22,14 @@ const PREC = {
 	MEMBER: 15,
 };
 
+// Every type operator binds tighter than `as` and `satisfies` (PREC.REL), so
+// the type after them is read whole, as TypeScript reads it: `x as A | B[]` is
+// `x as (A | B[])`, not `(x as A) | B` and then an index.
 const TYPE_PREC = {
-	UNION: 1,
-	INTERSECTION: 2,
-	OPERATOR: 3,
-	// Above `as` and `satisfies` (PREC.REL), so `x as T[]` keeps the `[]` in its
-	// type instead of indexing `x as T`.
-	POSTFIX: PREC.REL + 1,
+	UNION: PREC.REL + 1,
+	INTERSECTION: PREC.REL + 2,
+	OPERATOR: PREC.REL + 3,
+	POSTFIX: PREC.REL + 4,
 };
 
 module.exports = grammar({

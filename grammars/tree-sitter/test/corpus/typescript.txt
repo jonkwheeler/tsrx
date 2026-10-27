@@ -458,6 +458,87 @@ const first = (value as T[])[0];
           index: (number))))))
 
 ==================================
+As And Satisfies With Union And Intersection Types
+==================================
+
+const a = x as A | B;
+const b = x satisfies A | B[];
+const c = x as A & B[];
+const d = x as A | B & C;
+const e = (x as A) | b;
+
+---
+
+(program
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (as_expression
+          (identifier)
+          (type
+            (union_type
+              (type
+                (identifier))
+              (type
+                (identifier))))))))
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (satisfies_expression
+          (identifier)
+          (type
+            (union_type
+              (type
+                (identifier))
+              (type
+                (array_type
+                  (type
+                    (identifier))))))))))
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (as_expression
+          (identifier)
+          (type
+            (intersection_type
+              (type
+                (identifier))
+              (type
+                (array_type
+                  (type
+                    (identifier))))))))))
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (as_expression
+          (identifier)
+          (type
+            (union_type
+              (type
+                (identifier))
+              (type
+                (intersection_type
+                  (type
+                    (identifier))
+                  (type
+                    (identifier))))))))))
+  (variable_declaration
+    (variable_declarator
+      name: (identifier)
+      (initializer
+        (binary_expression
+          left: (parenthesized_expression
+            (as_expression
+              (identifier)
+              (type
+                (identifier))))
+          right: (identifier))))))
+
+==================================
 Generic Arrow Functions
 ==================================
 

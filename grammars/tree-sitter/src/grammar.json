@@ -9455,7 +9455,7 @@
     },
     "array_type": {
       "type": "PREC",
-      "value": 6,
+      "value": 9,
       "content": {
         "type": "SEQ",
         "members": [
@@ -9476,7 +9476,7 @@
     },
     "lookup_type": {
       "type": "PREC",
-      "value": 6,
+      "value": 9,
       "content": {
         "type": "SEQ",
         "members": [
@@ -9527,7 +9527,7 @@
     },
     "index_type_query": {
       "type": "PREC_RIGHT",
-      "value": 3,
+      "value": 8,
       "content": {
         "type": "SEQ",
         "members": [
@@ -9544,7 +9544,7 @@
     },
     "readonly_type": {
       "type": "PREC_RIGHT",
-      "value": 3,
+      "value": 8,
       "content": {
         "type": "SEQ",
         "members": [
@@ -9611,7 +9611,7 @@
     },
     "union_type": {
       "type": "PREC_LEFT",
-      "value": 1,
+      "value": 6,
       "content": {
         "type": "SEQ",
         "members": [
@@ -9632,7 +9632,7 @@
     },
     "intersection_type": {
       "type": "PREC_LEFT",
-      "value": 2,
+      "value": 7,
       "content": {
         "type": "SEQ",
         "members": [

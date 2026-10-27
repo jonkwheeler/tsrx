@@ -543,6 +543,12 @@ describe('@tsrx/solid basic', () => {
 							const c = 3;
 							<i>{c}</i>
 						}
+						@try {
+							<b />
+						} @pending {
+							const d = 4;
+							<i>{d}</i>
+						}
 					</div>
 				}`,
 				'App.tsrx',
@@ -552,6 +558,7 @@ describe('@tsrx/solid basic', () => {
 				['a', 1],
 				['b', 2],
 				['c', 3],
+				['d', 4],
 			]) {
 				expect(code).toMatch(
 					new RegExp(

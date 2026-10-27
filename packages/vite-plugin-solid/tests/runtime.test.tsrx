@@ -1849,6 +1849,25 @@ function FallbackSetupApp() @{
 	</div>
 }
 
+const pending_runs: string[] = [];
+
+function PendingSetupApp() @{
+	const [n, setN] = createSignal(0);
+	const NeverChild = lazy(() => new Promise<{ default: typeof ResolvedChild }>(() => {}));
+	<div>
+		@try {
+			<NeverChild value="never" />
+		} @pending {
+			pending_runs.push('pending');
+			const label = `pending ${n()}`;
+			<p class="pending-fallback">{label}</p>
+		}
+		<button class="bump-pending" onClick={() => setN(n() + 1)}>
+			{'bump'}
+		</button>
+	</div>
+}
+
 describe('tsrx-solid control-flow bodies', () => {
 	it('renders a whole-body @{ } block and runs its setup once', async () => {
 		block_runs.if = block_runs.elseIf = block_runs.case = 0;
@@ -1881,6 +1900,21 @@ describe('tsrx-solid control-flow bodies', () => {
 		expect([...fallback_runs].sort()).toEqual(['default', 'else', 'else-chain', 'empty']);
 		expect(labels()).toEqual(['else 0', 'else-chain 0', 'default 0', 'empty 0']);
 		expect(Array.from(container.querySelectorAll('p, li'))).toEqual(nodes);
+	});
+
+	it('runs the setup of a @pending body once', async () => {
+		pending_runs.length = 0;
+		await render(PendingSetupApp);
+		await flush();
+		expect(text('.pending-fallback')).toBe('pending 0');
+		expect(pending_runs).toEqual(['pending']);
+		const node = container.querySelector('.pending-fallback');
+
+		await click('.bump-pending');
+		await click('.bump-pending');
+		expect(pending_runs).toEqual(['pending']);
+		expect(text('.pending-fallback')).toBe('pending 0');
+		expect(container.querySelector('.pending-fallback')).toBe(node);
 	});
 
 	it('compares a promise discriminant as a value, as a JavaScript switch does', async () => {

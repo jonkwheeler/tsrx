@@ -376,8 +376,8 @@ function tsrx_node_to_jsx_expression(node, transform_context, in_jsx_child = fal
  *     body is merged with the branch arrow's body via
  *     {@link merge_branch_body_into_arrow}.
  *   - Fallback props (`<Show fallback>`, `<Switch fallback>`,
- *     `<For fallback>`): run untracked via {@link untrack_if_arrow}.
- *   - `<Loading fallback>`: IIFE-wrapped via {@link iife_if_arrow}.
+ *     `<For fallback>`, `<Loading fallback>`): run untracked via
+ *     {@link untrack_if_arrow}.
  *
  * @param {AST.Node[]} body_nodes
  * @param {TransformContext} transform_context
@@ -967,10 +967,11 @@ function iife_if_arrow(node) {
 }
 
 /**
- * Run a branch arrow untracked as the `fallback` of `<Show>`, `<Switch>`, or
- * `<For>`. Solid reads `fallback` inside the component's memo, so a body called
- * there would make each signal its setup reads a dependency of that memo, and
- * run again whenever one changes; setup in the other branch bodies runs once.
+ * Run a branch arrow untracked as the `fallback` of `<Show>`, `<Switch>`,
+ * `<For>`, or `<Loading>`. Solid reads `fallback` inside the component's memo,
+ * so a body called there would make each signal its setup reads a dependency
+ * of that memo, and run again whenever one changes; setup in the other branch
+ * bodies runs once.
  * Returns non-arrow inputs unchanged.
  *
  * @template {AST.Expression} T
@@ -1428,7 +1429,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 			[
 				b.jsx_attribute(
 					b.jsx_id('fallback'),
-					to_jsx_expression_container(iife_if_arrow(fallback_content)),
+					to_jsx_expression_container(untrack_if_arrow(fallback_content, transform_context)),
 				),
 			],
 			[result],

@@ -1759,6 +1759,7 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'ArrayExpression' || node.type === 'ArrayPattern') {
+				if (node.type === 'ArrayExpression') push_verify_only_span_mapping(node);
 				// Visit elements in order
 				if (node.elements) {
 					for (const element of node.elements) {
@@ -1911,13 +1912,10 @@ export function convert_source_map_to_mappings(
 					// TypeScript reports base-class errors (TS2507 on a value that is
 					// not a constructor, TS2509, TS2510) on the whole superclass
 					// expression, and Volar drops a diagnostic whose end it cannot map.
-					// Identifiers, member expressions, calls and parenthesized
-					// expressions map their whole span, but an array literal and a
-					// non-null assertion (`maybe!`) don't.
-					if (
-						node.superClass.type === 'ArrayExpression' ||
-						node.superClass.type === 'TSNonNullExpression'
-					) {
+					// Identifiers, member expressions, calls, parenthesized expressions
+					// and array literals map their whole span, but a non-null assertion
+					// (`maybe!`) doesn't.
+					if (node.superClass.type === 'TSNonNullExpression') {
 						push_verify_only_span_mapping(node.superClass);
 					}
 				}
@@ -2301,6 +2299,7 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'TSTypeLiteral') {
+				push_verify_only_span_mapping(node);
 				// Object type literal { foo: string }
 				if (node.members) {
 					for (const member of node.members) {

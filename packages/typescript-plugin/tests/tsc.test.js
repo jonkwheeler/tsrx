@@ -684,6 +684,32 @@ it('reports errors on a whole call or parenthesized expression in .tsrx files', 
 	}
 });
 
+it('reports errors on an array inside an array and on an empty type literal in .tsrx files', () => {
+	const lines = [
+		'declare function g<T extends string>(): void; g<{}>();',
+		'export const t = [ {}, [] ] satisfies number[]; export const u = [[]] satisfies number[];',
+		'export const v: number[] = [ [ 1 ] ];',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	const at = (/** @type {number} */ index, /** @type {number} */ offset) =>
+		`layout.tsrx(${index + 4},${offset + 1})`;
+	expect(result.output).toContain(
+		`${at(0, lines[0].indexOf('{}'))}: error TS2344: Type '{}' does not satisfy the constraint 'string'.`,
+	);
+	for (const [index, offset, type] of /** @type {const} */ ([
+		[1, lines[1].indexOf('{}'), '{}'],
+		[1, lines[1].indexOf('[]'), '[]'],
+		[1, lines[1].indexOf('[]]'), '[]'],
+		[2, lines[2].indexOf('[ 1 ]'), '[number]'],
+	])) {
+		expect(result.output).toContain(
+			`${at(index, offset)}: error TS2322: Type '${type}' is not assignable to type 'number'.`,
+		);
+	}
+});
+
 it('reports errors on a bare this in .tsrx files', () => {
 	const line =
 		'export function readValue() { return this; } class Base {} export class Derived extends Base { constructor() { this; super(); } }';

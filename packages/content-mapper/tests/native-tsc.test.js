@@ -176,4 +176,47 @@ describe('native tsc --runExternalCode', () => {
 		expect(at('Types.tsrx')).toEqual(at('plain.ts'));
 		expect(result.status).toBe(2);
 	});
+
+	it('reports errors on an empty type literal and on an array inside an array where the source has them', () => {
+		// The type-only transform prints `{}` as `{  }` and drops the spaces inside
+		// `[ … ]`. Neither literal had a span of its own: the error on the `{}`
+		// landed on the `<`, and the one on the inner array at its generated
+		// position.
+		const source = [
+			'declare function g<T extends string>(): void;',
+			'g<{}>();',
+			'export const t = [ {}, [] ] satisfies number[];',
+			'export const u: number[] = [ [ 1 ] ];',
+			'declare function f(a: string): void;',
+			'f([',
+			'\t1,',
+			']);',
+			'',
+		].join('\n');
+		const files = consumer_fixture_files();
+		files['Types.tsrx'] = source;
+		files['plain.ts'] = source;
+		files['main.ts'] = "import './Types.tsrx';\nimport './plain.ts';\n";
+		const dir = workspace(files);
+		const result = run_native_tsc(dir, [
+			'--noEmit',
+			'-p',
+			'tsconfig.native.json',
+			'--pretty',
+			'false',
+		]);
+		const at = (/** @type {string} */ file) =>
+			parse_tsc_output(result.output)
+				.filter((d) => d.file === file)
+				.map((d) => [d.line, d.column, d.code]);
+		expect(at('plain.ts')).toEqual([
+			[2, 3, 'TS2344'],
+			[3, 20, 'TS2322'],
+			[3, 24, 'TS2322'],
+			[4, 30, 'TS2322'],
+			[6, 3, 'TS2345'],
+		]);
+		expect(at('Types.tsrx')).toEqual(at('plain.ts'));
+		expect(result.status).toBe(2);
+	});
 });

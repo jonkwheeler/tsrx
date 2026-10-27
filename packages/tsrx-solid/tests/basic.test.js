@@ -427,8 +427,41 @@ describe('@tsrx/solid basic', () => {
 				}`,
 				'App.tsrx',
 			);
+			// The block's setup becomes the branch's function child, which `<Show>`
+			// runs untracked, like a body without the `@{ }`.
 			expect(code).toMatch(
-				/<Show when=\{props\.on\}>\{\(\(\) => \{\s*const v = 1;\s*return <b>\{v\}<\/b>;\s*\}\)\(\)\}<\/Show>/,
+				/<Show when=\{props\.on\}>\{\(_\) => \{\s*const v = 1;\s*return <b>\{v\}<\/b>;\s*\}\}<\/Show>/,
+			);
+			expect(code).not.toContain('return null');
+		});
+
+		it('lowers a @{ } block that is a whole @case or @default body to its output', () => {
+			const { code } = compile(
+				`function App(kind: string) @{
+					<div>
+						@switch (kind) {
+							@case 'a': {
+								@{
+									const v = 1;
+									<b>{v}</b>
+								}
+							}
+							@default: {
+								@{
+									const w = 2;
+									<i>{w}</i>
+								}
+							}
+						}
+					</div>
+				}`,
+				'App.tsrx',
+			);
+			expect(code).toMatch(
+				/<Match when=\{kind === 'a'\}>\{\(_\) => \{\s*const v = 1;\s*return <b>\{v\}<\/b>;\s*\}\}<\/Match>/,
+			);
+			expect(code).toMatch(
+				/fallback=\{\(\(\) => \{\s*const w = 2;\s*return <i>\{w\}<\/i>;\s*\}\)\(\)\}/,
 			);
 			expect(code).not.toContain('return null');
 		});

@@ -374,6 +374,7 @@ function tsrx_node_to_jsx_expression(node, transform_context, in_jsx_child = fal
  * @returns {AST.Expression}
  */
 function body_to_jsx_child(body_nodes, transform_context) {
+	body_nodes = expand_code_block_body(body_nodes);
 	// When non-JSX statements are interleaved with JSX children, preserve
 	// source order by capturing each JSX child into a const at its textual
 	// position. Otherwise all statements would run before any JSX is
@@ -429,6 +430,33 @@ function body_to_jsx_child(body_nodes, transform_context) {
 	const arrow = b.arrow([], lowered_block(block_body));
 	arrow.metadata.is_branch_arrow = true;
 	return arrow;
+}
+
+/**
+ * A body whose only node is a `@{ }` block is that block's scope: its setup
+ * statements and output are spliced into the body, so they lower like any
+ * other branch body, as a function child that Solid runs untracked. As an
+ * expression child, the block's IIFE would run inside the `<Show>` or
+ * `<Switch>` memo and re-run whenever a signal its setup reads changes. A
+ * block beside other nodes keeps its own scope as an expression child.
+ *
+ * @param {AST.Node[]} body_nodes
+ * @returns {AST.Node[]}
+ */
+function expand_code_block_body(body_nodes) {
+	// A `@case` body holds its block as an expression statement.
+	const nodes = body_nodes.map((node) =>
+		node?.type === 'ExpressionStatement' &&
+		/** @type {AST.Node} */ (node.expression).type === 'JSXCodeBlock'
+			? /** @type {AST.JSXCodeBlock} */ (/** @type {unknown} */ (node.expression))
+			: node,
+	);
+	const meaningful = nodes.filter((node) => node && node.type !== 'EmptyStatement');
+	if (meaningful.length !== 1 || meaningful[0].type !== 'JSXCodeBlock') {
+		return nodes;
+	}
+	const block = /** @type {AST.JSXCodeBlock} */ (meaningful[0]);
+	return expand_code_block_body([...(block.body || []), ...(block.render ? [block.render] : [])]);
 }
 
 /**
@@ -653,6 +681,7 @@ function validate_if_body_control_flow(node, transform_context) {
  * @returns {AST.Node[]}
  */
 function loop_body_to_callback_statements(body_nodes, transform_context) {
+	body_nodes = expand_code_block_body(body_nodes);
 	/** @type {AST.Node[]} */
 	const statements = [];
 	/** @type {ESTreeJSX.JSXRenderChild[]} */

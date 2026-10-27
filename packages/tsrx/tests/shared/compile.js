@@ -4453,6 +4453,11 @@ export function App() @{
 				true,
 			],
 			[
+				'an export of another declaration of its namespace',
+				"const Foo = 'outer';\nnamespace Outer {\n\texport function Foo() {\n\t\treturn null;\n\t}\n}\nnamespace Outer {\n\texport function App() {\n\t\treturn <Foo>ok</Foo>;\n\t}\n}\nexport const result = () => Outer.App().type === Outer.Foo;",
+				true,
+			],
+			[
 				'a middle name of its dotted namespace',
 				"const Foo = 'outer';\nnamespace Outer {\n\texport function Foo() {\n\t\treturn null;\n\t}\n}\nnamespace Outer.Foo.Bar {\n\texport function App() {\n\t\treturn <Foo>ok</Foo>;\n\t}\n}\nexport const result = () => Outer.Foo.Bar.App().type === Outer.Foo;",
 				true,
@@ -4471,6 +4476,17 @@ export function App() @{
 			// top-level statement holds outside any other function reach
 			const { code } = compile(
 				'function outer() {\n\tfunction App() {\n\t\treturn <div>hi</div>;\n\t}\n\treturn App();\n}\nexport const result = () => outer().type;',
+				'App.tsrx',
+			);
+			expect(code).not.toContain('__static');
+			expect(run_result(code)).toBe('div');
+		});
+
+		it('leaves the static JSX of a component in a namespace in place', () => {
+			// Inside a namespace body, a name can read an export of any declaration
+			// of the namespace, which module level can't see
+			const { code } = compile(
+				'namespace N {\n\texport function App() {\n\t\treturn <div>hi</div>;\n\t}\n}\nexport const result = () => N.App().type;',
 				'App.tsrx',
 			);
 			expect(code).not.toContain('__static');

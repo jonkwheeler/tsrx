@@ -790,6 +790,7 @@ export function createJsxTransform(platform) {
 			FunctionDeclaration: transform_function,
 			FunctionExpression: transform_function,
 			ArrowFunctionExpression: transform_function,
+			TSModuleBlock: visit_local_helper_scope,
 
 			JSXOpeningElement(node, { next }) {
 				const visited = /** @type {ESTreeJSX.TSRXJSXOpeningElement} */ (next() || node);
@@ -1520,10 +1521,24 @@ function transform_function(node, context) {
 		});
 	}
 
-	const saved_inside_plain_function = context.state.inside_plain_function;
-	context.state.inside_plain_function = true;
+	return visit_local_helper_scope(node, context);
+}
+
+/**
+ * Visits a plain function or a namespace body, where a component keeps its
+ * statics and helper components in place (see
+ * `transform_native_tsrx_function`). In a namespace body a name can read an
+ * export of any declaration of the namespace, which module level can't see.
+ *
+ * @param {AST.Node} node
+ * @param {JsxVisitorContext} context
+ * @returns {AST.Node}
+ */
+function visit_local_helper_scope(node, context) {
+	const saved = context.state.in_local_helper_scope;
+	context.state.in_local_helper_scope = true;
 	const result = context.next();
-	context.state.inside_plain_function = saved_inside_plain_function;
+	context.state.in_local_helper_scope = saved;
 	return result ?? node;
 }
 
@@ -1576,10 +1591,11 @@ function transform_native_tsrx_function(node, { next, state }, { nativeBody = fa
 	// Statics and helper components reach module level through the top-level
 	// statement that holds the component, and `expand_component_helpers` finds
 	// them only through nodes that are not functions. A component inside
-	// another function gets a local helper state, which keeps them in place.
+	// another function or a namespace gets a local helper state, which keeps
+	// them in place.
 	const helper_state =
 		state.helper_state ||
-		create_helper_state(get_function_helper_base_name(node), !!state.inside_plain_function);
+		create_helper_state(get_function_helper_base_name(node), !!state.in_local_helper_scope);
 	const saved_helper_state = state.helper_state;
 	const saved_bindings = state.available_bindings;
 
@@ -2654,8 +2670,8 @@ function statement_bindings(statement) {
  * The names `node` binds for the code inside it, or `null` when it binds none:
  * a function's parameters, name, and `var`s, a class's name, a catch clause's
  * parameters, a `@for` index, the declarations of a loop head, the
- * declarations in any statement list it holds, those of every case of a
- * `switch`, which share one scope, and the next name of a dotted namespace.
+ * declarations in any statement list it holds, and those of every case of a
+ * `switch`, which share one scope.
  *
  * @param {AST.Node} node
  * @returns {Set<string> | null}
@@ -2688,11 +2704,6 @@ function scope_names(node) {
 				names.push(...statement_bindings(statement).map(([name]) => name));
 			}
 		}
-	}
-	// `namespace Outer.Foo { … }` holds `Foo` as its body, whose own body can
-	// read `Foo` as `Outer.Foo`
-	if (loose.type === 'TSModuleDeclaration' && loose.body?.type === 'TSModuleDeclaration') {
-		names.push(loose.body.id.name);
 	}
 	for (const key of Object.keys(node)) {
 		if (key === 'loc' || key === 'start' || key === 'end' || key === 'metadata') continue;

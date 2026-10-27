@@ -379,6 +379,35 @@ export function Inner({ label = PREFIX }: { label?: string }) @{
 		expect(code).toContain("{!(_$_Maybe_slots.default ?? props.children) && 'empty'}");
 	});
 
+	it('tests whether the slot exists in comparisons with null or undefined and in Boolean()', () => {
+		const { code } = compile(
+			`function Maybe(props: { children?: JSX.Element }) @{
+				<div>
+					{props.children != null ? <p>{props.children}</p> : null}
+					{Boolean(props.children) && 'some'}
+					{undefined === props.children ? 'none' : 'some'}
+				</div>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain('(_$_Maybe_slots.default ?? props.children) != null');
+		expect(code).toContain('<p>{_$_Maybe_slots.default?.() ?? props.children}</p>');
+		expect(code).toContain('Boolean(_$_Maybe_slots.default ?? props.children)');
+		expect(code).toContain('undefined === (_$_Maybe_slots.default ?? props.children)');
+	});
+
+	it('moves any children default into its reads, so TSRX2029 does not apply to it', () => {
+		const { code } = compile(
+			`function Card({ children = <i /> }: { children?: JSX.Element }) @{
+				<div>{children}</div>
+			}`,
+			'App.tsrx',
+		);
+
+		expect(code).toContain('<div>{_$_Card_slots.default?.() ?? children ?? <i />}</div>');
+	});
+
 	it('falls back from the slot to the prop to a destructured children default', () => {
 		const { code } = compile(
 			`function Card({ children = 'none' }: { children?: string }) @{

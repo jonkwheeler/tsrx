@@ -1681,6 +1681,19 @@ function MaybeChildren(props: { children?: JSX.Element }) @{
 	</div>
 }
 
+function ComparedChildren(props: { children?: JSX.Element }) @{
+	<div class="compared">
+		{props.children != null ? <div class="has-children">{props.children}</div> : null}
+		{Boolean(props.children) ? <span class="boolean-children" /> : null}
+	</div>
+}
+
+function ComparedChildrenApp() @{
+	<ComparedChildren>
+		<CountedChild />
+	</ComparedChildren>
+}
+
 function CountedChildrenApp() @{
 	<MaybeChildren>
 		<CountedChild />
@@ -1829,6 +1842,14 @@ describe('tsrx-vue component children', () => {
 		children_setups.count = 0;
 		await render(CountedChildrenApp);
 		expect(container.querySelectorAll('.has-children .counted')).toHaveLength(1);
+		expect(children_setups.count).toBe(1);
+	});
+
+	it('tests the slot without rendering it in a null comparison or Boolean()', async () => {
+		children_setups.count = 0;
+		await render(ComparedChildrenApp);
+		expect(container.querySelectorAll('.has-children .counted')).toHaveLength(1);
+		expect(container.querySelector('.boolean-children')).not.toBeNull();
 		expect(children_setups.count).toBe(1);
 	});
 

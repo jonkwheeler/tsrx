@@ -979,6 +979,9 @@ function validate_prop_defaults(fn, ctx) {
 			property.type !== 'Property' ||
 			property.computed ||
 			property.key.type !== 'Identifier' ||
+			// A `children` default moves out of the props pattern into its reads
+			// (see `read_children_from_default_slot`), so the macro never sees it.
+			property.key.name === 'children' ||
 			property.value.type !== 'AssignmentPattern' ||
 			is_kept_prop_default(property.value.right)
 		) {
@@ -1402,9 +1405,10 @@ function read_children_or_default_slot(read, parent, state) {
 }
 
 /**
- * Whether only the truthiness of `node` is used: the condition of `?:`, `if`
- * or a loop, the operand of `!`, or the left side of `&&` (whose value is
- * used only when it is falsy, and a slot never is).
+ * Whether only the truthiness or presence of `node` is used: the condition of
+ * `?:`, `if` or a loop, the operand of `!`, the left side of `&&` (whose value
+ * is used only when it is falsy, and a slot never is), the argument of
+ * `Boolean(…)`, or a side of an equality with `null` or `undefined`.
  *
  * @param {AST.Node} node
  * @param {AST.Node | undefined} parent
@@ -1412,6 +1416,20 @@ function read_children_or_default_slot(read, parent, state) {
  */
 function is_test_position(node, parent) {
 	switch (parent?.type) {
+		case 'BinaryExpression': {
+			if (!['==', '!=', '===', '!=='].includes(parent.operator)) return false;
+			const other = parent.left === node ? parent.right : parent.left;
+			return (
+				(other.type === 'Literal' && other.value === null && !('regex' in other)) ||
+				(other.type === 'Identifier' && other.name === 'undefined')
+			);
+		}
+		case 'CallExpression':
+			return (
+				parent.callee.type === 'Identifier' &&
+				parent.callee.name === 'Boolean' &&
+				parent.arguments[0] === node
+			);
 		case 'ConditionalExpression':
 		case 'IfStatement':
 		case 'WhileStatement':

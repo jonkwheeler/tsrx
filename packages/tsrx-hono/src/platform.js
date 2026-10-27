@@ -220,24 +220,77 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	const alias_roots = new Map();
 	/** @type {Set<import('@tsrx/core/types').Binding>} */
 	const written = new Set();
+	// `r ||= UI` aliases `UI` only if it assigns, which is decided once every
+	// write to `r` is known.
+	/** @type {Array<{ alias: import('@tsrx/core/types').Binding, operator: AST.AssignmentOperator, roots: Set<import('@tsrx/core/types').Binding> }>} */
+	const logical_aliases = [];
+	/** @type {Map<import('@tsrx/core/types').Binding, number>} */
+	const write_counts = new Map();
+	/** @type {Map<import('@tsrx/core/types').Binding, AST.Expression | null>} */
+	const plain_initializers = new Map();
 
 	/**
 	 * @param {AST.Pattern} target
 	 * @param {AST.Expression} value
 	 * @param {import('@tsrx/core/types').ScopeInterface | null} scope
+	 * @param {AST.AssignmentOperator} [operator]
 	 */
-	function add_hono_aliases(target, value, scope) {
+	function add_hono_aliases(target, value, scope, operator = '=') {
+		const logical = operator === '||=' || operator === '&&=' || operator === '??=';
+		if (operator !== '=' && !logical) return;
 		/** @type {Set<import('@tsrx/core/types').Binding>} */
 		const roots = new Set();
 		collect_hono_alias_roots(value, scope, roots);
 		if (!roots.size) return;
-		for (const identifier of extractIdentifiers(target)) {
-			const binding = scope?.get(identifier.name);
-			if (!binding) continue;
-			const existing = alias_roots.get(binding) ?? new Set();
-			for (const root of roots) existing.add(root);
-			alias_roots.set(binding, existing);
+		for (const identifier of get_hono_alias_targets(target)) {
+			const alias = scope?.get(identifier.name);
+			if (!alias) continue;
+			if (logical) logical_aliases.push({ alias, operator, roots });
+			else link_hono_alias(alias, roots);
 		}
+	}
+
+	/**
+	 * @param {import('@tsrx/core/types').Binding} alias
+	 * @param {Set<import('@tsrx/core/types').Binding>} roots
+	 */
+	function link_hono_alias(alias, roots) {
+		const existing = alias_roots.get(alias) ?? new Set();
+		for (const root of roots) existing.add(root);
+		alias_roots.set(alias, existing);
+	}
+
+	/**
+	 * @param {AST.Node} target
+	 * @param {import('@tsrx/core/types').ScopeInterface | null} scope
+	 */
+	function count_hono_writes(target, scope) {
+		const pattern = unwrap_hono_transparent_expression(target);
+		if (!pattern) return;
+		for (const identifier of extractIdentifiers(/** @type {AST.Pattern} */ (pattern))) {
+			const binding = scope?.get(identifier.name);
+			if (binding) write_counts.set(binding, (write_counts.get(binding) ?? 0) + 1);
+		}
+	}
+
+	/**
+	 * Whether `binding ||= …`, `&&= …` or `??= …` can assign. It is known only
+	 * for a `let` written nowhere else that starts as a literal-like value or
+	 * as `undefined`.
+	 *
+	 * @param {import('@tsrx/core/types').Binding} binding
+	 * @param {AST.AssignmentOperator} operator
+	 * @returns {boolean}
+	 */
+	function can_hono_logical_assign(binding, operator) {
+		if (binding.declaration_kind !== 'let' || write_counts.get(binding) !== 1) return true;
+		const initializer = plain_initializers.get(binding);
+		if (initializer === undefined) return true;
+		const value = get_hono_static_truthiness(initializer);
+		if (!value) return true;
+		if (operator === '||=') return !value.truthy;
+		if (operator === '&&=') return value.truthy;
+		return value.nullish;
 	}
 
 	/** @param {AST.Node | null | undefined} node @param {import('@tsrx/core/types').ScopeInterface | null} scope */
@@ -256,12 +309,26 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 				jsx_references.push({ node: reference, scope });
 			}
 		}
+		if (node.type === 'VariableDeclarator') {
+			const binding = node.id.type === 'Identifier' ? scope?.get(node.id.name) : null;
+			if (binding) plain_initializers.set(binding, node.init ?? null);
+		}
 		if (node.type === 'VariableDeclarator' && node.init) {
 			collect_hono_destructured_paths(node.id, scope, destructured_paths);
 			add_hono_aliases(node.id, node.init, scope);
 		}
 		if (node.type === 'AssignmentExpression') {
-			add_hono_aliases(node.left, node.right, scope);
+			count_hono_writes(node.left, scope);
+			add_hono_aliases(node.left, node.right, scope, node.operator);
+		}
+		if (node.type === 'UpdateExpression') {
+			count_hono_writes(node.argument, scope);
+		}
+		if (
+			(node.type === 'ForOfStatement' || node.type === 'ForInStatement') &&
+			node.left.type !== 'VariableDeclaration'
+		) {
+			count_hono_writes(node.left, scope);
 		}
 		if (node.type === 'CallExpression' && is_hono_property_writer(node.callee)) {
 			const target = node.arguments[0];
@@ -335,6 +402,9 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	}
 
 	walk(ast, analysis.scope);
+	for (const { alias, operator, roots } of logical_aliases) {
+		if (can_hono_logical_assign(alias, operator)) link_hono_alias(alias, roots);
+	}
 	const pending = [...written];
 	for (const [alias] of alias_roots) {
 		if (alias.mutated) pending.push(alias);
@@ -428,6 +498,54 @@ function collect_hono_alias_roots(node, scope, roots) {
 		collect_hono_alias_roots(expression.left, scope, roots);
 		collect_hono_alias_roots(expression.right, scope, roots);
 	}
+}
+
+/**
+ * The names a pattern binds to its value or to a part of it. A rest element
+ * binds a new object or array, so it is left out.
+ *
+ * @param {AST.Node | null} node
+ * @returns {AST.Identifier[]}
+ */
+function get_hono_alias_targets(node) {
+	const pattern = unwrap_hono_transparent_expression(node);
+	if (pattern?.type === 'Identifier') return [pattern];
+	if (pattern?.type === 'AssignmentPattern') return get_hono_alias_targets(pattern.left);
+	if (pattern?.type === 'ObjectPattern') {
+		return pattern.properties.flatMap((property) =>
+			property.type === 'RestElement' ? [] : get_hono_alias_targets(property.value),
+		);
+	}
+	if (pattern?.type === 'ArrayPattern') {
+		return pattern.elements.flatMap((element) =>
+			!element || element.type === 'RestElement' ? [] : get_hono_alias_targets(element),
+		);
+	}
+	return [];
+}
+
+/**
+ * The truthiness of a value written as a literal, or of a missing
+ * initializer, which leaves `undefined`.
+ *
+ * @param {AST.Expression | null} node
+ * @returns {{ truthy: boolean, nullish: boolean } | null}
+ */
+function get_hono_static_truthiness(node) {
+	const expression = node && unwrap_hono_transparent_expression(node);
+	if (!expression) return { truthy: false, nullish: true };
+	if (expression.type === 'Literal' && !('regex' in expression)) {
+		return { truthy: !!expression.value, nullish: expression.value === null };
+	}
+	return expression.type === 'ObjectExpression' ||
+		expression.type === 'ArrayExpression' ||
+		expression.type === 'NewExpression' ||
+		expression.type === 'ClassExpression' ||
+		expression.type === 'JSXElement' ||
+		expression.type === 'JSXFragment' ||
+		isFunctionNode(expression)
+		? { truthy: true, nullish: false }
+		: null;
 }
 
 /**

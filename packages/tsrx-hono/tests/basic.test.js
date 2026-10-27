@@ -244,6 +244,9 @@ describe('@tsrx/hono DOM compiler', () => {
 		'const registry = UI; Object.assign(registry, { App: () => <span /> }); <UI.App />;',
 		'Object.defineProperty(UI, "App", { value: () => <span /> }); <UI.App />;',
 		'Reflect.set(UI, "App", () => <span />); <UI.App />;',
+		'let registry; registry ??= UI; registry.App = () => <span />; <UI.App />;',
+		'let registry = load(); registry ||= UI; registry.App = () => <span />; <UI.App />;',
+		'let registry = {}; registry = load(); registry ||= UI; registry.App = () => <span />; <UI.App />;',
 	])('does not diagnose a member overwritten through an alias or writer call: %s', (update) => {
 		const source = `const UI = { App: async () => <div />, nested: { App: async () => <div /> } };
 			${update}`;
@@ -258,15 +261,20 @@ describe('@tsrx/hono DOM compiler', () => {
 		'Object.assign({}, UI, { App: () => <span /> }); <UI.App />;',
 		'const Other = { App: () => <span /> }; Object.assign(Other, UI); <UI.App />;',
 		'let registry = UI; registry = { App: () => <span /> }; <UI.App />;',
+		'const { ...copy } = UI; copy.App = () => <span />; <UI.App />;',
+		'let copy; ({ ...copy } = UI); copy.App = () => <span />; <UI.App />;',
+		'let registry = { App: () => <span /> }; registry ||= UI; registry.App = () => <span />; <UI.App />;',
+		'let registry = { App: () => <span /> }; registry ??= UI; registry.App = () => <span />; <UI.App />;',
+		'let registry; registry &&= UI; Object.assign(registry, { App: () => <span /> }); <UI.App />;',
 	])('still diagnoses an async member that no write can replace: %s', (update) => {
 		const source = `const UI = { App: async () => <div /> };
 			${update}`;
+		const async_error = expect.objectContaining({
+			message: expect.stringContaining('does not support async components'),
+		});
 		expect(() => compileDom(source, 'App.tsrx')).toThrow(/does not support async components/);
-		expect(compileDomToVolarMappings(source, 'App.tsrx').errors).toEqual([
-			expect.objectContaining({
-				message: expect.stringContaining('does not support async components'),
-			}),
-		]);
+		expect(compileDom(source, 'App.tsrx', { collect: true }).errors).toEqual([async_error]);
+		expect(compileDomToVolarMappings(source, 'App.tsrx').errors).toEqual([async_error]);
 	});
 
 	it('rejects an async component referenced by a dynamic tag', () => {

@@ -1,4 +1,4 @@
-/** @import { MergeableRef, RefProp, RefValue, SpreadFalsy, SpreadProps } from '../types/ref' */
+/** @import { ClassValueKind, MergeableRef, RefProp, RefValue, SpreadFalsy, SpreadProps } from '../types/ref' */
 
 import {
 	define_property,
@@ -628,25 +628,38 @@ export function merge_spread_class(props, scope_class, key, alias, list) {
 		define_property(next, key, {
 			enumerable: true,
 			configurable: true,
-			get: () => join_class(read_class(source, class_keys), scope_class, list),
+			// A spread's `true` class joins as text, as it did before the
+			// attribute path learned each target's rendering.
+			get: () =>
+				join_class(read_class(source, class_keys), scope_class, list ? 'list' : 'text-true'),
 		});
 	}
 	return next;
 }
 
 /**
- * Join an element's authored class with the scope classes TSRX adds to it, for
- * a runtime whose class is text: the class is left out when it is `null`,
- * `undefined`, `false` or empty, as the runtime would leave it out, and any
- * other value joins as text, as the runtime would render it. A thenable class
- * (Hono's server `css`) applies unchanged.
+ * Join an element's authored class with the scope classes TSRX adds to it, the
+ * way the runtime renders that class. A class the runtime would leave out
+ * gives just the scope classes. `kind` names how the runtime renders it:
+ *
+ * - `'text'` (React, Hono DOM): `null`, `undefined`, `false`, `true` and an
+ *   empty class are left out; any other value renders as text.
+ * - `'text-true'` (Preact): as `'text'`, except that `true` renders as text.
+ * - `'text-both'` (Hono's server): as `'text'`, except that `true` and
+ *   `false` render as text.
+ * - `'list'` (Solid, Vue): the class also takes an object or a list, which
+ *   joins as `[class, scope_class]`; any other value that is not a string is
+ *   left out.
+ *
+ * A thenable class (Hono's server `css`) applies unchanged.
  *
  * @param {unknown} value the authored class
  * @param {unknown} scope_class the element's scope hashes and applied classes
+ * @param {ClassValueKind} [kind='text']
  * @returns {unknown}
  */
-export function join_scope_class(value, scope_class) {
-	return join_class(value, scope_class, false);
+export function join_scope_class(value, scope_class, kind = 'text') {
+	return join_class(value, scope_class, kind);
 }
 
 /**
@@ -670,15 +683,20 @@ function read_class(source, class_keys) {
 /**
  * @param {unknown} value
  * @param {unknown} scope_class
- * @param {boolean | undefined} list
+ * @param {ClassValueKind} kind
  * @returns {unknown}
  */
-function join_class(value, scope_class, list) {
-	if (value == null || value === false || value === '') {
+function join_class(value, scope_class, kind) {
+	if (value == null || value === '') {
 		return scope_class;
 	}
-	if (list && typeof value !== 'string') {
-		return [value, scope_class];
+	if (typeof value === 'boolean') {
+		return kind === 'text-both' || (value && kind === 'text-true')
+			? `${value} ${scope_class}`
+			: scope_class;
+	}
+	if (kind === 'list' && typeof value !== 'string') {
+		return typeof value === 'object' ? [value, scope_class] : scope_class;
 	}
 	// A thenable class, such as the promise Hono's server `css` returns, applies
 	// as the runtime resolves it. Any other value joins as text, as it would in

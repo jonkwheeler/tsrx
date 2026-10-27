@@ -1175,6 +1175,7 @@ function try_statement_to_jsx_child(node, transform_context) {
 	const pending = node.pending;
 	const handler = node.handler;
 	const finalizer = node.finalizer;
+	const reported = transform_context.errors?.length ?? 0;
 
 	if (finalizer) {
 		error(
@@ -1187,9 +1188,9 @@ function try_statement_to_jsx_child(node, transform_context) {
 	}
 
 	if (!pending && !handler) {
-		// A JavaScript `try` without `catch` has a `finally`, reported above;
-		// one error is enough for the statement.
-		if (!finalizer) {
+		// A JavaScript `try` without `catch` has a `finally`. One error is enough
+		// for the statement, unless `@tsrx-ignore` suppressed the one above.
+		if ((transform_context.errors?.length ?? 0) === reported) {
 			error(
 				TSRX_ERRORS.TEMPLATE_TRY_HANDLER,
 				transform_context.filename,

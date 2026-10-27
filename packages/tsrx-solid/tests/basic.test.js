@@ -732,6 +732,30 @@ describe('@tsrx/solid basic', () => {
 			expect(compile_to_volar_mappings(source, 'App.tsrx').errors).toEqual([TRY_FINALLY]);
 		});
 
+		// The statement still lowers to nothing, so suppressing the `finally` error
+		// must leave the missing-handler one, as before (#1228 review).
+		it('still reports a throwing try/finally whose finally error is ignored', () => {
+			const source = `export function App(props: { bad: boolean }) @{
+				try {
+					if (props.bad) throw new Error('bad');
+				}
+				// @tsrx-ignore
+				finally {
+					console.log('done');
+				}
+				<p>ok</p>
+			}`;
+			expect(() => compile(source, 'App.tsrx')).toThrow(
+				expect.objectContaining(TSRX_ERRORS.TEMPLATE_TRY_FINALLY('Solid')),
+			);
+			const TRY_HANDLER = expect.objectContaining({
+				...TSRX_ERRORS.TEMPLATE_TRY_HANDLER,
+				pos: source.indexOf('try'),
+			});
+			expect(compile(source, 'App.tsrx', { collect: true }).errors).toEqual([TRY_HANDLER]);
+			expect(compile_to_volar_mappings(source, 'App.tsrx').errors).toEqual([TRY_HANDLER]);
+		});
+
 		it('rejects return statements inside template @if branches', () => {
 			expect(() =>
 				compile(

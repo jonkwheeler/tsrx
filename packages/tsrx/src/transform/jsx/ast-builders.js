@@ -351,18 +351,19 @@ export const FOR_OF_ITEM_PARAM_NAME = IDENTIFIER_OBFUSCATION_PREFIX + 'item';
  *
  * @param {AST.ForOfStatement['left']} left
  * @param {AST.Identifier | null} [index]
+ * @param {AST.Expression | null} [key]
  * @returns {AST.Pattern[]}
  */
-export function get_for_of_iteration_params(left, index) {
+export function get_for_of_iteration_params(left, index, key) {
 	/** @type {AST.Pattern[]} */
 	const params = [];
 	if (left?.type === 'VariableDeclaration' && left.declarations[0]) {
 		params.push(left.declarations[0].id);
-	} else if (index) {
+	} else if (index || key) {
 		// A declaration list with no name, which `collect` and `loose` mode parse
 		// (`@for (const of items)`), and an assignment target, which is reported
 		// (`@for (state.item of items)`), give the loop no item, but the index
-		// still comes second.
+		// still comes second and a key callback still takes one.
 		params.push(b.id(FOR_OF_ITEM_PARAM_NAME));
 	}
 	if (index) {

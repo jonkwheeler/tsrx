@@ -420,6 +420,58 @@ export function App() @{
 			}
 		});
 
+		it('reports an invalid `@for` head wherever the loop is nested', () => {
+			/** @type {Record<string, (loop: string) => string>} */
+			const positions = {
+				'@if': (loop) => `@if (c) { ${loop} }`,
+				'@for': (loop) => `@for (const g of groups) { ${loop} }`,
+				'@switch': (loop) => `@switch (c) { @case 1: { ${loop} } }`,
+				'@try': (loop) => `@try { ${loop} } @catch (e) { <p /> }`,
+				'a JSX value': (loop) => `{<b>${loop}</b>}`,
+			};
+			for (const [head, code] of [
+				['state.item of items', TSRX_ERRORS.FOR_HEAD_ASSIGNMENT.code],
+				['using item of items', TSRX_ERRORS.FOR_HEAD_USING.code],
+			]) {
+				for (const [label, wrap] of Object.entries(positions)) {
+					const source = `export async function App({ items, groups, c }: any) @{
+						const state = { item: 0 };
+						<ul>
+							${wrap(`@for (${head}) { <li /> }`)}
+						</ul>
+					}`;
+					const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+					const start = source.indexOf(`(${head}`) + 1;
+
+					expect(
+						result.errors.map((error) => [error.code, error.pos]),
+						`${head} in ${label}`,
+					).toEqual([[code, start]]);
+					expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+				}
+			}
+		});
+
+		it('keeps type-only output valid for a keyed `@for` head that assigns', () => {
+			for (const clauses of ['key item', 'index i; key item']) {
+				const source = `export function App({ items }: { items: string[] }) @{
+					let item = '';
+					<ul>
+						@for (item of items; ${clauses}) {
+							<li>{item}</li>
+						}
+					</ul>
+				}`;
+				const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+				expect(
+					result.errors.map((error) => error.code),
+					clauses,
+				).toEqual([TSRX_ERRORS.FOR_HEAD_ASSIGNMENT.code]);
+				expect(virtual_parse_diagnostics(result.code), result.code).toEqual([]);
+			}
+		});
+
 		it('preserves deferred imports in type-only output', () => {
 			const result = compile_to_volar_mappings(
 				`import defer * as feature from './feature.js';

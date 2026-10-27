@@ -3834,7 +3834,6 @@ function to_jsx_child(node, transform_context) {
 				);
 				return to_jsx_expression_container(create_null_literal(), node);
 			}
-			validate_for_of_head(node.left, transform_context);
 			return (
 				transform_context.platform.hooks?.controlFlow?.forOf ?? for_of_statement_to_jsx_child
 			)(jsx_control_expression_to_statement(node), transform_context);
@@ -3842,7 +3841,6 @@ function to_jsx_child(node, transform_context) {
 			if (!is_template_for_of_node(node)) {
 				return node;
 			}
-			validate_for_of_head(node.left, transform_context);
 			return (
 				transform_context.platform.hooks?.controlFlow?.forOf ?? for_of_statement_to_jsx_child
 			)(node, transform_context);
@@ -4315,12 +4313,13 @@ function validate_if_body_control_flow(node, transform_context) {
  * Every target hands an `@for` item to a callback, so the head has to declare
  * its loop variable the way a parameter can: assigning to an existing variable
  * or property would only shadow it, and a `using` item would never be disposed.
+ * A target that lowers `@for` itself calls this from its own lowering.
  *
  * @param {AST.ForOfStatement['left']} left
  * @param {TransformContext} transform_context
  * @returns {void}
  */
-function validate_for_of_head(left, transform_context) {
+export function validate_for_of_head(left, transform_context) {
 	if (left.type !== 'VariableDeclaration') {
 		error(
 			TSRX_ERRORS.FOR_HEAD_ASSIGNMENT,
@@ -4363,6 +4362,7 @@ function is_loop_statement(node) {
  * @returns {ESTreeJSX.JSXExpressionContainer}
  */
 function for_of_statement_to_jsx_child(node, transform_context) {
+	validate_for_of_head(node.left, transform_context);
 	if (node.await) {
 		error(
 			TSRX_ERRORS.TARGET_FOR_AWAIT_UNSUPPORTED(transform_context.platform.name),
@@ -4373,7 +4373,7 @@ function for_of_statement_to_jsx_child(node, transform_context) {
 		);
 	}
 
-	const loop_params = get_for_of_iteration_params(node.left, node.index);
+	const loop_params = get_for_of_iteration_params(node.left, node.index, node.key);
 	/** @type {AST.Node[]} */
 	let loop_body = node.body.type === 'BlockStatement' ? node.body.body : [node.body];
 	validate_for_body_control_flow(loop_body, transform_context);

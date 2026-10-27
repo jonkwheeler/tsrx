@@ -155,6 +155,10 @@ export { second };`,
 				"declare module 'm' { export { f }; }\ndeclare module 'n' { function f(): void; export { f }; }",
 				"'m' { export { ",
 			],
+			[
+				'declare namespace Q { export { c }; }\ndeclare namespace R { const c: number; export { c }; }',
+				'Q { export { ',
+			],
 			['declare namespace Q { export { nope }; function f(): void; }', 'Q { export { '],
 			[
 				'declare namespace A { export { f }; namespace B { function f(): void; } }',

@@ -325,10 +325,18 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 			count_hono_writes(node.argument, scope);
 		}
 		if (
-			(node.type === 'ForOfStatement' || node.type === 'ForInStatement') &&
-			node.left.type !== 'VariableDeclaration'
+			(node.type === 'ForOfStatement' ||
+				node.type === 'ForInStatement' ||
+				node.type === 'JSXForExpression') &&
+			'left' in node
 		) {
-			count_hono_writes(node.left, scope);
+			// The loop writes each value it takes to its head, declared there or not.
+			const left = node.left;
+			const targets =
+				left.type === 'VariableDeclaration'
+					? left.declarations.map((declarator) => declarator.id)
+					: [left];
+			for (const target of targets) count_hono_writes(target, scope);
 		}
 		if (node.type === 'CallExpression' && is_hono_property_writer(node.callee)) {
 			const target = node.arguments[0];

@@ -14,6 +14,50 @@ import {
 
 /** @import { CodeMapping, SourceMappingHarness } from '../../types/index' */
 
+/** @type {Map<string, ts.SourceFile | undefined>} */
+const lib_source_files = new Map();
+
+/**
+ * TypeScript's errors on a compiled module, with the ES library and without
+ * resolving its imports (TS2307), which the targets' packages provide.
+ *
+ * @param {string} code
+ * @returns {string[]}
+ */
+function output_type_errors(code) {
+	const file_name = '/output.tsx';
+	/** @type {ts.CompilerOptions} */
+	const options = {
+		target: ts.ScriptTarget.ESNext,
+		module: ts.ModuleKind.ESNext,
+		moduleResolution: ts.ModuleResolutionKind.Bundler,
+		lib: ['lib.esnext.d.ts'],
+		jsx: ts.JsxEmit.Preserve,
+		types: [],
+		noEmit: true,
+	};
+	const host = ts.createCompilerHost(options);
+	const get_source_file = host.getSourceFile.bind(host);
+	const file_exists = host.fileExists.bind(host);
+	host.fileExists = (name) => name === file_name || file_exists(name);
+	host.getSourceFile = (name, version, on_error, create) => {
+		if (name === file_name) {
+			return ts.createSourceFile(name, code, version, true, ts.ScriptKind.TSX);
+		}
+		if (!lib_source_files.has(name)) {
+			lib_source_files.set(name, get_source_file(name, version, on_error, create));
+		}
+		return lib_source_files.get(name);
+	};
+	return ts
+		.getPreEmitDiagnostics(ts.createProgram([file_name], options, host))
+		.filter((diagnostic) => diagnostic.file?.fileName === file_name && diagnostic.code !== 2307)
+		.map(
+			(diagnostic) =>
+				`TS${diagnostic.code} ${ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ')}`,
+		);
+}
+
 /**
  * Tests for `compile_to_volar_mappings`
  * @param {SourceMappingHarness} harness
@@ -348,9 +392,75 @@ export async function App() @{
 }`,
 		};
 
+		/**
+		 * An `await using` in a part of the template that renders through a
+		 * generated callback, which a target with async components awaits.
+		 * @type {Record<string, string>}
+		 */
+		const CALLBACK_SOURCES = {
+			'@for body': `export async function App(props: { items: (AsyncDisposable & { name: string })[] }) @{
+	<ul>
+		@for (const item of props.items) {
+			await using res = item;
+			<li>{res.name}</li>
+		}
+	</ul>
+}`,
+			'@if body with setup statements': `export async function App(props: { ok: boolean; res: AsyncDisposable & { name: string } }) @{
+	<div>
+		@if (props.ok) {
+			await using res = props.res;
+			<p>{res.name}</p>
+		}
+	</div>
+}`,
+			'@switch case': `export async function App(props: { kind: number; res: AsyncDisposable & { name: string } }) @{
+	<div>
+		@switch (props.kind) {
+			@case 1: {
+				await using res = props.res;
+				<p>{res.name}</p>
+			}
+		}
+	</div>
+}`,
+			'@for body, as a for (await using …) head': `export async function App(props: { rows: (AsyncDisposable & { name: string })[][] }) @{
+	<ul>
+		@for (const row of props.rows) {
+			let name = '';
+			for (await using res of row) {
+				name = res.name;
+			}
+			<li>{name}</li>
+		}
+	</ul>
+}`,
+		};
+
+		// A callback the target calls itself can't be awaited.
+		const CATCH_SOURCE = `export async function App(props: { res: AsyncDisposable & { name: string } }) @{
+	@try {
+		<p>ok</p>
+	} @catch (error) {
+		await using res = props.res;
+		<p>{res.name}</p>
+	}
+}`;
+
 		if (rejectsComponentAwait) {
-			it.each(Object.keys(SOURCES))('reports each await in the %s once', (label) => {
-				const source = SOURCES[label];
+			/** @type {Record<string, string>} */
+			const REJECTED_SOURCES = {
+				...SOURCES,
+				...Object.fromEntries(
+					Object.entries(CALLBACK_SOURCES).map(([label, source]) => [
+						`await using in the ${label}`,
+						source,
+					]),
+				),
+				'await using in the @catch body': CATCH_SOURCE,
+			};
+			it.each(Object.keys(REJECTED_SOURCES))('reports each await in the %s once', (label) => {
+				const source = REJECTED_SOURCES[label];
 				const awaits = [...source.matchAll(/\bawait\b/g)].map((match) => match.index);
 				expect(() => compile(source, 'App.tsrx')).toThrow(
 					expect.objectContaining({
@@ -401,6 +511,32 @@ export async function App() @{
 			expect(result.errors).toEqual([]);
 			expect(result.code).toContain('async function App');
 			expect(compile_to_volar_mappings(source, 'App.tsrx').errors).toEqual([]);
+		});
+
+		// The callback holding it wasn't made async, so its output failed with
+		// TS2852: 'await using' statements are only allowed within async functions.
+		it.each(Object.keys(CALLBACK_SOURCES))(
+			'makes the callback holding an await using in the %s async',
+			(label) => {
+				const source = CALLBACK_SOURCES[label];
+				for (const result of [
+					compile(source, 'App.tsrx', { collect: true }),
+					compile_to_volar_mappings(source, 'App.tsrx'),
+				]) {
+					expect(result.errors).toEqual([]);
+					expect(output_type_errors(result.code), result.code).toEqual([]);
+				}
+			},
+		);
+
+		it('reports an await using in a @catch body like an await', () => {
+			const error = expect.objectContaining({
+				code: DIAGNOSTIC_CODES.TARGET_AWAIT_UNSUPPORTED,
+				pos: CATCH_SOURCE.indexOf('await'),
+			});
+			expect(() => compile(CATCH_SOURCE, 'App.tsrx')).toThrow(error);
+			expect(compile(CATCH_SOURCE, 'App.tsrx', { collect: true }).errors).toEqual([error]);
+			expect(compile_to_volar_mappings(CATCH_SOURCE, 'App.tsrx').errors).toEqual([error]);
 		});
 	});
 

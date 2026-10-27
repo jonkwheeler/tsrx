@@ -2600,7 +2600,9 @@ function suspend_generated_closures(program, transform_context) {
 
 		/** @type {AST.Node | null} */
 		let first_await =
-			node.type === 'AwaitExpression' || (node.type === 'ForOfStatement' && node.await)
+			node.type === 'AwaitExpression' ||
+			(node.type === 'ForOfStatement' && node.await) ||
+			(node.type === 'VariableDeclaration' && node.kind === 'await using')
 				? node
 				: null;
 		/** @type {AST.Node | null} */

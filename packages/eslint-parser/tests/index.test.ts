@@ -267,4 +267,20 @@ export function A({ items }) @{
 			"6: no-undef: 'item' is not defined.",
 		]);
 	});
+
+	it('scopes a @for with a var or bare head to the loop', () => {
+		const code = `export function A({ items }) @{
+	let target;
+	<ul>
+		@for (var item of items; index i) { <li>{item}{i}</li> } @empty { <p>{item}{i}</p> }
+		@for (var other of items; index i) { <li>{other}{i}</li> }
+		@for (target of items; index j) { <li>{j}</li> } @empty { <p>{target}{j}</p> }
+	</ul>
+}`;
+		expect(lint(code, { rules: { 'no-undef': 'error', 'no-redeclare': 'error' } })).toEqual([
+			"4: no-undef: 'item' is not defined.",
+			"4: no-undef: 'i' is not defined.",
+			"6: no-undef: 'j' is not defined.",
+		]);
+	});
 });

@@ -47,11 +47,32 @@ const visitorKeys: Record<string, string[]> = {
  */
 class TSRXReferencer extends Referencer {
 	#tsrx_for_by_loop = new Map<any, any>();
+	#var_heads = new Set<any>();
 
 	JSXForExpression(node: any): void {
 		this.#tsrx_for_by_loop.set(node.loop, node);
+		// TSRX runs each iteration in a callback, so the loop has a scope of its
+		// own whatever its head declares. eslint-scope opens one only for a
+		// `let` or `const` head.
+		const head = node.loop.type === 'ForStatement' ? node.loop.init : node.loop.left;
+		if (head?.type !== 'VariableDeclaration' || head.kind === 'var') {
+			(this as any).scopeManager.__nestForScope(node.loop);
+		}
+		if (head?.kind === 'var') this.#var_heads.add(head);
 		this.visit(node.loop);
 		if (node.empty) this.visit(node.empty);
+	}
+
+	VariableDeclaration(node: any): void {
+		if (!this.#var_heads.has(node)) {
+			super.VariableDeclaration(node);
+			return;
+		}
+		// A `var` head declares the variable in the loop's scope, as `let` does.
+		node.declarations.forEach((declaration: any, index: number) => {
+			this.visitVariableDeclaration(this.currentScope(), 'Variable', node, index);
+			if (declaration.init) this.visit(declaration.init);
+		});
 	}
 
 	close(node: any): void {

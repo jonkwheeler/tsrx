@@ -662,11 +662,7 @@ export function App() @{
 			const result = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
 			const at = (/** @type {string} */ text) => source.indexOf(text);
 
-			expect(
-				result.errors
-					.map((error) => [error.code, error.pos])
-					.sort((a, b) => Number(a[1]) - Number(b[1])),
-			).toEqual([
+			expect(result.errors.map((error) => [error.code, error.pos])).toEqual([
 				[TSRX_ERRORS.FOR_HEAD_VAR.code, at('var item')],
 				[TSRX_ERRORS.DIRECTIVE_BODY_VAR.code, at('var outer')],
 				[TSRX_ERRORS.DIRECTIVE_BODY_VAR.code, at('var inner')],
@@ -1925,6 +1921,36 @@ export function runSharedComponentLoopControlFlowTests({ compile, name }) {
 
 			expect(() => compile(source, 'App.tsrx')).toThrow(count);
 			expect(compile(source, 'App.tsrx', { collect: true }).errors).toEqual([count, last]);
+		});
+
+		it('reports a `var` head and body `var`s in source order, strictly and when collecting (#1208)', () => {
+			for (const [loops, order] of /** @type {Array<[string, string[]]>} */ ([
+				[
+					'@for (var item of items) { var label = item; <li>{label}</li> }',
+					['var item', 'var label'],
+				],
+				[
+					'@for (const item of items) { var label = item; <li>{label}</li> } @for (var other of items) { <li /> }',
+					['var label', 'var other'],
+				],
+			])) {
+				const source = `export function App({ items }: { items: string[] }) @{
+					<ul>
+						${loops}
+					</ul>
+				}`;
+				const expected = order.map((text) => {
+					const start = source.indexOf(text);
+					return expect.objectContaining({
+						code: (text === 'var label' ? TSRX_ERRORS.DIRECTIVE_BODY_VAR : TSRX_ERRORS.FOR_HEAD_VAR)
+							.code,
+						pos: start,
+					});
+				});
+
+				expect(() => compile(source, 'App.tsrx'), loops).toThrow(expected[0]);
+				expect(compile(source, 'App.tsrx', { collect: true }).errors, loops).toEqual(expected);
+			}
 		});
 
 		it('allows ordinary guard returns inside statement containers', () => {

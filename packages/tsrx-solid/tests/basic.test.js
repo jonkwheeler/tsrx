@@ -10,6 +10,7 @@ import {
 } from '@tsrx/core/test-harness/compile';
 import { runSharedSourceMappingTests } from '@tsrx/core/test-harness/source-mappings';
 import { compile, compile_to_volar_mappings } from '../src/index.js';
+import { for_items, for_keyed_rows } from '../src/iterable.js';
 
 runSharedSourceMappingTests({
 	compile,
@@ -1181,5 +1182,43 @@ describe('@tsrx/solid basic', () => {
 
 			expect(code).toContain('ref={[refA, refB, refC]}');
 		});
+	});
+});
+
+describe('@for runtime helpers', () => {
+	it('hands <For> an array for any iterable and keeps a missing source', () => {
+		const items = ['a'];
+		expect(for_items(items)).toBe(items);
+		expect(for_items(new Set(['a', 'b']))).toEqual(['a', 'b']);
+		expect(for_items(undefined)).toBe(undefined);
+		expect(for_items(false)).toBe(false);
+	});
+
+	it('pairs each item with its key, holes included', () => {
+		// prettier-ignore
+		const rows = for_keyed_rows(['a', , 'c'], (item, index) => `${index}:${item}`);
+		expect(rows).toEqual([
+			{ item: 'a', key: '0:a' },
+			{ item: undefined, key: '1:undefined' },
+			{ item: 'c', key: '2:c' },
+		]);
+	});
+
+	it('reuses the row of an object item found again under the same key', () => {
+		const a = { id: 'a' };
+		const b = { id: 'b' };
+		const first = /** @type {Array<{ item: unknown, key: unknown }>} */ (
+			for_keyed_rows([a, b], (_item, index) => index)
+		);
+		const same = /** @type {Array<{ item: unknown, key: unknown }>} */ (
+			for_keyed_rows([a, b], (_item, index) => index)
+		);
+		const swapped = /** @type {Array<{ item: unknown, key: unknown }>} */ (
+			for_keyed_rows([b, a], (_item, index) => index)
+		);
+		expect(same[0]).toBe(first[0]);
+		expect(same[1]).toBe(first[1]);
+		expect(swapped[0]).not.toBe(first[1]);
+		expect(swapped[0]).toEqual({ item: b, key: 0 });
 	});
 });

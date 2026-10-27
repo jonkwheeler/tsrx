@@ -14,9 +14,18 @@ export function for_items(source) {
 }
 
 /**
+ * The last row made for each object item, so an evaluation that finds the
+ * item under the same key hands `<For>` the same row and its accessor doesn't
+ * change. A row holds only its item and key, so loops can share it.
+ * @type {WeakMap<object, { item: unknown, key: unknown }>}
+ */
+var rows_by_item = new WeakMap();
+
+/**
  * The `each` of the `<For>` an `@for` becomes when its key reads the loop
  * index, which Solid's `keyed` callback doesn't receive: each item paired with
- * its key, computed from the item and its index.
+ * its key, computed from the item and its index. A hole in a sparse array is
+ * an `undefined` item, as `for...of` reads it.
  *
  * @template T
  * @template K
@@ -28,5 +37,16 @@ export function for_keyed_rows(source, key) {
 	if (source == null || source === false) {
 		return source;
 	}
-	return iterable_to_array(source).map((item, index) => ({ item, key: key(item, index) }));
+	return Array.from(iterable_to_array(source), (item, index) => {
+		var row_key = key(item, index);
+		if ((typeof item !== 'object' && typeof item !== 'function') || item === null) {
+			return { item, key: row_key };
+		}
+		var row = /** @type {{ item: T, key: K } | undefined} */ (rows_by_item.get(item));
+		if (row === undefined || !Object.is(row.key, row_key)) {
+			row = { item, key: row_key };
+			rows_by_item.set(item, row);
+		}
+		return row;
+	});
 }

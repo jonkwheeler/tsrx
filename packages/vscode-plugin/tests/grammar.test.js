@@ -456,12 +456,12 @@ describe('TSRX TextMate grammar: whitespace in <style> and <script> closing tags
 	});
 
 	it.each([
-		['style', 'a non-breaking space before its >', ' >'],
+		['style', 'a non-breaking space before its >', '\u00a0>'],
 		['style', 'a vertical tab before its >', '\v>'],
-		['style', 'a non-breaking space at the end of the line', ' '],
-		['script', 'a non-breaking space before its >', ' >'],
+		['style', 'a non-breaking space at the end of the line', '\u00a0'],
+		['script', 'a non-breaking space before its >', '\u00a0>'],
 		['script', 'a vertical tab before its >', '\v>'],
-		['script', 'a non-breaking space at the end of the line', ' '],
+		['script', 'a non-breaking space at the end of the line', '\u00a0'],
 	])(
 		'keeps a <%s> body open past a closing tag with %s, as the compiler does',
 		(tag, _name, closer) => {

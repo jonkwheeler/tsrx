@@ -14,7 +14,7 @@ import { tsrxVue } from '../src/index.js';
 const original_bun = Reflect.get(globalThis, 'Bun');
 
 afterEach(() => {
-	Reflect.deleteProperty(globalThis, Symbol.for('@tsrx/bun-plugin.runtime'));
+	Reflect.deleteProperty(globalThis, Symbol.for('@tsrx/bun-plugin.runtime.v1'));
 	if (original_bun === undefined) {
 		Reflect.deleteProperty(globalThis, 'Bun');
 	} else {

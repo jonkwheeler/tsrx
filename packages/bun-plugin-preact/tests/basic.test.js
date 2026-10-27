@@ -6,7 +6,7 @@ import { tsrxPreact } from '../src/index.js';
 
 // Bun.plugin() registrations share state across instances; start each test clean.
 afterEach(() => {
-	Reflect.deleteProperty(globalThis, Symbol.for('@tsrx/bun-plugin.runtime'));
+	Reflect.deleteProperty(globalThis, Symbol.for('@tsrx/bun-plugin.runtime.v1'));
 });
 
 /**

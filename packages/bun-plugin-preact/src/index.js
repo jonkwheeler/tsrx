@@ -65,7 +65,7 @@ function to_css_id(file_path) {
 	return file_path + CSS_QUERY;
 }
 
-const RUNTIME_STATE = Symbol.for('@tsrx/bun-plugin.runtime');
+const RUNTIME_STATE = Symbol.for('@tsrx/bun-plugin.runtime.v1');
 
 /**
  * @typedef {{
@@ -78,7 +78,10 @@ const RUNTIME_STATE = Symbol.for('@tsrx/bun-plugin.runtime');
  * State that every TSRX Bun plugin instance registered with Bun.plugin()
  * shares. There Bun calls only the first onLoad hook whose filter matches and
  * needs an object back, so the instance it calls serves the stylesheets any
- * instance compiled and hands on the `.tsrx` files it leaves out.
+ * instance compiled and hands on the `.tsrx` files it leaves out. The key has
+ * a version, so a later change to this shape can take a new key without
+ * breaking older plugins installed alongside. `Bun.plugin.clearAll()` doesn't
+ * tell plugins, so instances registered before it stay in the list.
  *
  * @returns {RuntimeState}
  */

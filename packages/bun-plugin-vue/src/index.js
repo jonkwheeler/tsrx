@@ -91,7 +91,11 @@ const RUNTIME_STATE = Symbol.for('@tsrx/bun-plugin.runtime.v1');
 
 /**
  * @typedef {{
- * 	loaders: Array<{ compiles: (file_path: string) => boolean, load: (file_path: string) => Promise<OnLoadResult> }>,
+ * 	loaders: Array<{
+ * 		compiles: (file_path: string) => boolean,
+ * 		load: (file_path: string) => Promise<OnLoadResult>,
+ * 		load_vapor_helper?: (id: string) => Promise<string | undefined>,
+ * 	}>,
  * 	css: Map<string, string>,
  * }} RuntimeState
  */
@@ -100,7 +104,8 @@ const RUNTIME_STATE = Symbol.for('@tsrx/bun-plugin.runtime.v1');
  * State that every TSRX Bun plugin instance registered with Bun.plugin()
  * shares. There Bun calls only the first onLoad hook whose filter matches and
  * needs an object back, so the instance it calls serves the stylesheets any
- * instance compiled and hands on the `.tsrx` files it leaves out. The key has
+ * instance compiled, hands on the `.tsrx` files it leaves out, and serves the
+ * vue-jsx-vapor helper modules any Vue instance's output imports. The key has
  * a version, so a later change to this shape can take a new key without
  * breaking older plugins installed alongside. `Bun.plugin.clearAll()` doesn't
  * tell plugins, so instances registered before it stay in the list.
@@ -378,12 +383,16 @@ export function tsrxVue(options = {}) {
 				const is_css = /\.css$/.test(id);
 				// Bun.plugin() has no CSS loader, and a stylesheet does nothing there.
 				if (runtime && is_css) return { exports: { default: {} }, loader: 'object' };
-				const code = await vue_jsx_vapor.load_helper(id);
-				if (code === undefined) {
-					if (!runtime) return undefined;
-					throw new Error(`@tsrx/bun-plugin-vue: unknown vue-jsx-vapor helper module ${id}`);
+				if (!runtime) {
+					const code = await vue_jsx_vapor.load_helper(id);
+					return code === undefined ? undefined : { contents: code, loader: is_css ? 'css' : 'js' };
 				}
-				return { contents: code, loader: is_css ? 'css' : 'js' };
+				// Bun calls this hook for every instance's helper modules.
+				for (const loader of runtime.loaders) {
+					const code = await loader.load_vapor_helper?.(id);
+					if (code !== undefined) return { contents: code, loader: 'js' };
+				}
+				throw new Error(`@tsrx/bun-plugin-vue: unknown vue-jsx-vapor helper module ${id}`);
 			});
 
 			/**
@@ -435,6 +444,7 @@ export function tsrxVue(options = {}) {
 			runtime?.loaders.push({
 				compiles: (file_path) => should_compile(options, file_path),
 				load: load_tsrx,
+				load_vapor_helper: vue_jsx_vapor.load_helper,
 			});
 
 			build.onLoad({ filter: options.include ?? DEFAULT_INCLUDE, namespace: 'file' }, (args) => {

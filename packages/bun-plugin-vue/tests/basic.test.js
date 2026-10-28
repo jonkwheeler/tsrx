@@ -383,6 +383,38 @@ describe('@tsrx/bun-plugin-vue', () => {
 		}
 	});
 
+	// Bun.plugin() registration calls only the first matching onLoad hook.
+	it("serves another instance's helper modules under Bun.plugin() registration", async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-helpers-'));
+		try {
+			const file_path = path.join(dir, 'Rich.tsrx');
+			await writeFile(
+				file_path,
+				`export function Rich() @{
+					const count = defineModel<number>('count');
+					<p>{count.value}</p>
+				}`,
+			);
+
+			const hooks = setup_plugin({ vapor: { macros: false }, exclude: /Rich\.tsrx$/ }, null);
+			setup_plugin({ include: /Rich\.tsrx$/ }, null, hooks);
+			const transformed = await runtime_dispatch(hooks.onLoad, {
+				path: file_path,
+				namespace: 'file',
+			});
+			const helper_path = `${file_path}?vue-jsx-vapor=%2Fvue-jsx-vapor%2Fmacros%2Fuse-model`;
+			expect(transformed.contents).toContain(JSON.stringify(helper_path));
+			expect(
+				await runtime_dispatch(hooks.onLoad, { path: helper_path, namespace: 'file' }),
+			).toEqual({
+				contents: expect.stringContaining('export function useModel('),
+				loader: 'js',
+			});
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it('falls back to TypeScript output when Bun.Transpiler is unavailable', async () => {
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-'));
 		try {

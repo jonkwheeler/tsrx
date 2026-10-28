@@ -234,3 +234,39 @@ test('renders the props', () => {
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+// Bun.plugin() registration calls only the first instance's helper hook, so it
+// has to serve the helpers another instance's macros import.
+test("serves another instance's helper modules in a bun:test preload", async () => {
+	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
+	try {
+		await write_vue_project(dir, {
+			'Rich.tsrx': `export function Rich() @{
+	const count = defineModel<number>('count');
+	<p class="rich">{count.value}</p>
+}
+`,
+			'preload.mjs': `import { tsrxVue } from ${JSON.stringify(join(import.meta.dir, '../src/index.js'))};
+Bun.plugin(tsrxVue({ vapor: { macros: false }, exclude: /Rich\\.tsrx$/ }));
+Bun.plugin(tsrxVue({ include: /Rich\\.tsrx$/ }));
+`,
+			'render.js': RENDER_GREETINGS,
+			'rich.test.js': `import { expect, test } from 'bun:test';
+import { render } from './render.js';
+import { createVaporApp } from 'vue';
+import { Rich } from './Rich.tsrx';
+test('renders the model', () => {
+	expect(render(createVaporApp, Rich, { count: 3 })).toBe('<p class="rich">3</p>');
+});
+`,
+		});
+		const child = Bun.spawnSync({
+			cmd: [process.execPath, 'test', '--preload', './preload.mjs', './rich.test.js'],
+			cwd: dir,
+		});
+		expect(child.stderr.toString()).toContain(' 1 pass');
+		expect(child.exitCode).toBe(0);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});

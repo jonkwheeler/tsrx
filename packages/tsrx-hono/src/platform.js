@@ -19,6 +19,12 @@ import {
 	isFunctionNode,
 } from '@tsrx/core';
 
+/**
+ * Work the DOM async-component check has done, for tests that check it grows
+ * with the source rather than with every order of its aliases. Not public.
+ */
+export const hono_dom_validation_work = { resolution_steps: 0, exposure_updates: 0 };
+
 const HONO_SERVER_SOURCE = 'hono/jsx';
 const HONO_DOM_SOURCE = 'hono/jsx/dom';
 const AST_METADATA_KEYS = new Set(['loc', 'start', 'end', 'metadata']);
@@ -289,6 +295,9 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	// with exposure ignored.
 	/** @type {[Map<AST.Node, Map<string, AST.Function | null>>, Map<AST.Node, Map<string, AST.Function | null>>]} */
 	const resolved_functions = [new Map(), new Map()];
+	// How often the `seen` guard has stopped a resolution, so a result it cut
+	// short isn't cached.
+	let cycle_cuts = 0;
 
 	/**
 	 * @param {AST.Pattern} target
@@ -336,6 +345,7 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	 * @returns {string[] | null} the path the binding's exposure grew by
 	 */
 	function add_hono_exposure(binding, path, propagated = false) {
+		hono_dom_validation_work.exposure_updates++;
 		const added = propagated ? path.slice(0, HONO_MAX_EXPOSED_DEPTH) : path;
 		const known = exposed.get(binding) ?? [];
 		if (known.some((other) => covers_hono_path(other.path, added))) return null;
@@ -468,7 +478,12 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	 * @returns {AST.Function | null}
 	 */
 	function resolve_hono_function(node, property_path, seen, ignore_exposure) {
-		if (!node || seen.has(node)) return null;
+		hono_dom_validation_work.resolution_steps++;
+		if (!node) return null;
+		if (seen.has(node)) {
+			cycle_cuts++;
+			return null;
+		}
 		seen.add(node);
 		const value = resolve_hono_function_step(node, property_path, seen, ignore_exposure);
 		seen.delete(node);
@@ -534,15 +549,17 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 			...property_path,
 		];
 		// Each step leads to one next step, so a value resolves the same from
-		// wherever it is reached, and a cycle fails from any point on it.
+		// wherever it is reached, unless the `seen` guard cut it short: a node
+		// already on the stack can still resolve with another member path.
 		const cache = resolved_functions[ignore_exposure ? 1 : 0];
 		const key = path.join('\0');
 		const values = cache.get(initial) ?? new Map();
 		cache.set(initial, values);
-		if (!values.has(key)) {
-			values.set(key, resolve_hono_function(initial, path, seen, ignore_exposure));
-		}
-		return values.get(key) ?? null;
+		if (values.has(key)) return values.get(key) ?? null;
+		const cuts = cycle_cuts;
+		const value = resolve_hono_function(initial, path, seen, ignore_exposure);
+		if (value || cycle_cuts === cuts) values.set(key, value);
+		return value;
 	}
 
 	/**
@@ -903,7 +920,12 @@ function get_hono_exposed_path(identifier, ancestors, scopes, is_arrow_method) {
 				}
 				if (parent.type === 'TaggedTemplateExpression') return null;
 				const scope = scopes.get(parent) ?? null;
-				if (is_hono_known_call(callee, scope, HONO_READ_ONLY_CALLS)) return null;
+				if (
+					is_hono_known_call(callee, scope, HONO_READ_ONLY_CALLS) &&
+					!has_hono_function_replacer(parent)
+				) {
+					return null;
+				}
 				// It hands its argument's members on, so any member can have its
 				// own members replaced.
 				if (is_hono_known_call(callee, scope, HONO_MEMBER_CALLS)) {
@@ -1040,6 +1062,31 @@ function get_hono_property_writer(callee) {
 	return name !== null && HONO_PROPERTY_WRITERS.get(expression.object.name)?.has(name)
 		? name
 		: null;
+}
+
+/**
+ * Whether a `JSON.stringify` call may have a function replacer, which gets
+ * every value it serializes and can write it.
+ *
+ * @param {AST.CallExpression} call
+ * @returns {boolean}
+ */
+function has_hono_function_replacer(call) {
+	const callee = unwrap_hono_transparent_expression(call.callee);
+	if (
+		callee?.type !== 'MemberExpression' ||
+		callee.object.type !== 'Identifier' ||
+		callee.object.name !== 'JSON'
+	) {
+		return false;
+	}
+	const replacer = call.arguments[1];
+	return !(
+		!replacer ||
+		replacer.type === 'Literal' ||
+		replacer.type === 'ArrayExpression' ||
+		(replacer.type === 'Identifier' && replacer.name === 'undefined')
+	);
 }
 
 /**

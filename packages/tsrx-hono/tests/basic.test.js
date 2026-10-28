@@ -13,6 +13,7 @@ import { compile as compileServer } from '../src/index.js';
 import { compile_to_volar_mappings as compileServerToVolarMappings } from '../src/index.js';
 import { compile as compileDom } from '../src/dom.js';
 import { compile_to_volar_mappings as compileDomToVolarMappings } from '../src/dom.js';
+import { hono_dom_validation_work } from '../src/platform.js';
 import * as honoServerRuntime from '../src/index.js';
 import * as honoDomRuntime from '../src/dom.js';
 
@@ -321,6 +322,8 @@ describe('@tsrx/hono DOM compiler', () => {
 		'Object.entries(UI).forEach(([, value]) => { value.App = () => <span />; }); <UI.nested.App />;',
 		'Object.getOwnPropertyDescriptor(UI, "nested").value.App = () => <span />; <UI.nested.App />;',
 		'const frozen = Object.freeze(UI); frozen.nested.App = () => <span />; <UI.nested.App />;',
+		'JSON.stringify(UI, (key, value) => { if (value?.App) value.App = () => <span />; return value; }); <UI.App />;',
+		'JSON.stringify(UI, replacer); <UI.App />;',
 	])('does not diagnose a registry that escapes to code the check cannot follow: %s', (update) => {
 		const source = `const UI = { App: async () => <div />, nested: { App: async () => <div /> } };
 			${update}`;
@@ -332,6 +335,7 @@ describe('@tsrx/hono DOM compiler', () => {
 	it.each([
 		'console.log(UI, UI.App); <UI.App />;',
 		'JSON.stringify(UI); Object.keys(UI); Array.isArray(UI); String(UI); <UI.App />;',
+		'JSON.stringify(UI, null, 2); JSON.stringify(UI, ["App"]); JSON.stringify(UI, undefined); <UI.App />;',
 		'Object.keys({ ui: UI }); <UI.App />;',
 		'if (UI.App && typeof UI === "object" && "App" in UI) {} <UI.App />;',
 		'const label = `${UI}`; <UI.App />;',
@@ -377,37 +381,49 @@ describe('@tsrx/hono DOM compiler', () => {
 		expect(() => compileDom(source, 'App.tsrx')).toThrow(/does not support async components/);
 	});
 
-	it('finishes quickly when aliases are reassigned from each other', () => {
+	/**
+	 * The check's work for one DOM compile, counted rather than timed.
+	 * @param {string} source
+	 */
+	function count_validation_work(source) {
+		hono_dom_validation_work.resolution_steps = 0;
+		hono_dom_validation_work.exposure_updates = 0;
+		expect(compileDom(source, 'App.tsrx', { collect: true }).errors).toHaveLength(1);
+		return { ...hono_dom_validation_work };
+	}
+
+	it('bounds the work when aliases are reassigned from each other', () => {
 		// Each reassignment adds a member path per element to the other alias, so
-		// unbounded paths multiply with every round.
+		// unbounded paths multiply with every round: without the bound, two
+		// elements of the second form don't finish.
+		expect(
+			count_validation_work(`const UI: any = { App: async () => <div /> };
+let a: any = UI;
+let b: any = UI;
+a = [b.a.a, b.b.b];
+b = [a.a.a, a.b.b];
+sink(a.x.x);
+<UI.App />;`).exposure_updates,
+		).toBeLessThan(100);
 		/** @param {number} count */
 		const source = (count) => {
 			const members = ['a.a', 'b.b', 'c.c', 'd.d'].slice(0, count);
 			return `const UI: any = { App: async () => <div /> };
 let a: any = UI;
 let b: any = UI;
-a = [${members.map((member) => `b.${member}`).join(', ')}];
-b = [${members.map((member) => `a.${member}`).join(', ')}];
+a = { ${members.map((member, index) => `[k${index}]: b.${member}`).join(', ')} };
+b = { ${members.map((member, index) => `[k${index}]: a.${member}`).join(', ')} };
 sink(a.x.x);
 <UI.App />;`;
 		};
-		/** @param {number} count */
-		const time = (count) => {
-			let best = Infinity;
-			for (let run = 0; run < 3; run++) {
-				const start = performance.now();
-				expect(compileDom(source(count), 'App.tsrx', { collect: true }).errors).toHaveLength(1);
-				best = Math.min(best, performance.now() - start);
-			}
-			return best;
-		};
-		time(1);
-		expect(time(4)).toBeLessThan(10 * Math.max(time(1), 1));
+		expect(count_validation_work(source(4)).exposure_updates).toBeLessThan(
+			10 * count_validation_work(source(1)).exposure_updates,
+		);
 	});
 
-	it('resolves method calls through a long alias chain in about linear time', () => {
+	it('resolves method calls through a long alias chain in linear work', () => {
 		// Each call checks whether its callee is an arrow function; resolving
-		// every one from scratch through the chain took quadratic time.
+		// every one from scratch through the chain took quadratic work.
 		/** @param {number} count */
 		const source = (count) => {
 			const aliases = Array.from({ length: count }, (_, index) =>
@@ -419,18 +435,22 @@ ${aliases.join('\n')}
 ${calls.join('\n')}
 <UI.App />;`;
 		};
-		/** @param {number} count */
-		const time = (count) => {
-			let best = Infinity;
-			for (let run = 0; run < 3; run++) {
-				const start = performance.now();
-				expect(compileDom(source(count), 'App.tsrx', { collect: true }).errors).toHaveLength(1);
-				best = Math.min(best, performance.now() - start);
-			}
-			return best;
-		};
-		time(100);
-		expect(time(1000)).toBeLessThan(50 * Math.max(time(100), 1));
+		expect(count_validation_work(source(1000)).resolution_steps).toBeLessThan(
+			15 * count_validation_work(source(100)).resolution_steps,
+		);
+	});
+
+	it('does not cache a resolution the cycle guard cut short', () => {
+		// Resolving `<A.x />` reaches `A.y` while `A` is still being resolved.
+		expect(() =>
+			compileDom(
+				`const A = { x: B, y: async () => <div /> };
+var B = A.y;
+false && <A.x />;
+<A.y />;`,
+				'App.tsrx',
+			),
+		).toThrow(/does not support async components/);
 	});
 
 	it('rejects an async component referenced by a dynamic tag', () => {

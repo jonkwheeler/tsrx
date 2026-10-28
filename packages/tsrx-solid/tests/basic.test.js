@@ -922,10 +922,19 @@ describe('@tsrx/solid basic', () => {
 		expect(code).toContain('<div class={["a", props.c]} />');
 		// A component's prop stays as written.
 		expect(code).toContain('<Child className="kept" />');
-		// So does the type-only print.
-		expect(compile_to_volar_mappings(source, 'App.tsrx').code).toContain(
-			'<div className={props.c} />',
-		);
+
+		// The type-only print renames it too, so it type-checks against `class`,
+		// and maps the generated `class` back to the authored `className`.
+		const { code: type_only, mappings } = compile_to_volar_mappings(source, 'App.tsrx');
+		expect(type_only).toContain('<div class={props.c} />');
+		expect(type_only).toContain('<div class={["a", props.c]} />');
+		expect(type_only).toContain('<Child className="kept" />');
+		const at = source.indexOf('className={props.c}');
+		const mapping = mappings.find((entry) => entry.sourceOffsets[0] === at);
+		expect(mapping).toMatchObject({ lengths: [9], generatedLengths: [5] });
+		const generated = /** @type {NonNullable<typeof mapping>} */ (mapping).generatedOffsets[0];
+		expect(type_only.slice(generated, generated + 5)).toBe('class');
+		expect(mapping?.data).toMatchObject({ verification: true, semantic: true, navigation: true });
 	});
 
 	it('joins a dynamic class with the scope classes as a list', () => {

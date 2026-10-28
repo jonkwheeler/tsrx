@@ -264,13 +264,19 @@ function merge_class_name_attribute(attributes) {
 	if (!has_class_name) return attributes;
 
 	const first = /** @type {ESTreeJSX.JSXAttribute} */ (attributes[indexes[0]]);
+	const first_name = /** @type {ESTreeJSX.JSXIdentifier} */ (first.name);
+	// The editor maps the generated `class` back to an authored `className`.
+	const name =
+		first_name.name === 'className'
+			? {
+					...first_name,
+					name: 'class',
+					metadata: { ...first_name.metadata, source_name: 'className', source_length: 9 },
+				}
+			: first_name;
 	/** @param {ESTreeJSX.JSXAttribute['value']} value */
 	const class_attribute = (value) =>
-		/** @type {ESTreeJSX.JSXAttribute} */ ({
-			...first,
-			name: { .../** @type {ESTreeJSX.JSXIdentifier} */ (first.name), name: 'class' },
-			value,
-		});
+		/** @type {ESTreeJSX.JSXAttribute} */ ({ ...first, name, value });
 	if (indexes.length === 1) {
 		return attributes.map((attr, i) => (i === indexes[0] ? class_attribute(first.value) : attr));
 	}

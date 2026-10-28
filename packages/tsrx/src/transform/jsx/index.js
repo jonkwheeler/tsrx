@@ -613,9 +613,10 @@ export function createJsxTransform(platform) {
 		}
 
 		// Before style scopes stamp it, an authored `className` becomes `class`
-		// on a runtime that reads only `class`. The type-only print keeps the
-		// attribute as written, so its mappings and types stay the author's.
-		if (!transform_context.typeOnly && platform.jsx.rewriteClassNameAttr) {
+		// on a runtime that reads only `class`. The type-only print renames it
+		// too, so it type-checks against the target's `class`, and maps the
+		// generated `class` back to the authored `className`.
+		if (platform.jsx.rewriteClassNameAttr) {
 			ast = rewrite_class_name_attributes(ast);
 		}
 

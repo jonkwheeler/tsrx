@@ -12332,12 +12332,20 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 	it('throws first, and records first, the error TypeScript reports first (#1214)', async () => {
 		// Each duplicate parameter at every binding, the first first; a parameter
 		// property outside a constructor before its modifiers' own errors and the
-		// errors in the body; decorators written before `export` and after it at
-		// the first; and a static block's decorators or modifiers before the
-		// errors in the block.
+		// errors in the body, and after a duplicate name before it; decorators
+		// written before `export` and after it at the first; and a static block's
+		// decorators or modifiers before the checker errors in the block, but not
+		// before a syntax error there.
 		/** @type {Array<[source: string, error: ErrorKind, at: string]>} */
 		const cases = [
 			['function f(a, b, b, a) {}', TS_ERRORS.ARGUMENT_NAME_CLASH, 'a, b, b'],
+			['class A { m(x, public x) {} }', TS_ERRORS.ARGUMENT_NAME_CLASH, 'x, public'],
+			['function f(x, public x) {}', TS_ERRORS.ARGUMENT_NAME_CLASH, 'x, public'],
+			[
+				'class A { m(public x, x) {} }',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'public x',
+			],
 			['const f = (a, b, b, a) => 1;', TS_ERRORS.ARGUMENT_NAME_CLASH, 'a, b, b'],
 			['class A { m([a, b], { b, a }) {} }', TS_ERRORS.ARGUMENT_NAME_CLASH, 'a, b]'],
 			[
@@ -12397,6 +12405,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				TS_ERRORS.DECORATORS_NOT_VALID_HERE,
 				'@dec',
 			],
+			['class A { public static { <div> } }', TSRX_ERRORS.UNCLOSED_TAG, '} }'],
 		];
 		const outcomes = await parse_in_worker_with_ast(
 			cases.flatMap(([source]) => [{ source }, { source, options: { collect: true } }]),
@@ -12414,10 +12423,12 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 
 	it('reports an arrow function’s TS7060 before the errors in it in a .mts file (#1214)', () => {
 		// Those of the arrow functions in its parameters and body, and the
-		// checker errors in its body, in the order TypeScript reports them.
+		// checker errors in its parameters and body, in the order TypeScript
+		// reports them.
 		const reserved = code_of(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER);
 		const reserved_word = code_of(TS_ERRORS.STRICT_MODE_RESERVED_WORD);
 		const let_name = code_of(TS_ERRORS.LET_DECLARATION_NAME);
+		const uninitialized = code_of(TS_ERRORS.DECLARATION_NOT_INITIALIZED);
 		/** @type {Array<[source: string, errors: Array<[code: string | undefined, at: string]>]>} */
 		const cases = [
 			[
@@ -12455,6 +12466,22 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 					[reserved, 'T>'],
 					[reserved_word, 'let ='],
 					[let_name, 'let ='],
+				],
+			],
+			[
+				'const f = <T>(x = <U>(u: U) => u, y = () => { const z; }) => x;',
+				[
+					[reserved, 'T>'],
+					[reserved, 'U>'],
+					[uninitialized, 'z;'],
+				],
+			],
+			[
+				'const f = async <T>(x = () => { const z; }, y = <U>(u: U) => u) => x;',
+				[
+					[reserved, 'T>'],
+					[uninitialized, 'z;'],
+					[reserved, 'U>'],
 				],
 			],
 		];

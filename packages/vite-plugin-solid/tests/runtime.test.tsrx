@@ -1058,6 +1058,37 @@ function StaticInForApp() @{
 	</div>
 }
 
+function StaticForBodyApp() @{
+	<ul class="static-for-body">
+		@for (const item of ['a', 'b', 'c']) {
+			<li class="static-for-body-row">
+				<b>{'row'}</b>
+			</li>
+		}
+	</ul>
+}
+
+function StaticIfBranch(props: { show: boolean }) @{
+	<div class="static-if-branch">
+		@if (props.show) {
+			<p class="static-if-branch-yes">
+				<b>{'yes'}</b>
+			</p>
+		} @else {
+			<p class="static-if-branch-no">{'no'}</p>
+		}
+	</div>
+}
+
+function StaticIfBranchesApp() @{
+	<>
+		<StaticIfBranch show={true} />
+		<StaticIfBranch show={true} />
+		<StaticIfBranch show={false} />
+		<StaticIfBranch show={false} />
+	</>
+}
+
 // ── Mid-template locals + interleaved statements inside element children ──
 // `.tsrx` lets you declare locals and run plain statements between JSX
 // children. The Solid transform wraps the block in an IIFE so the statements
@@ -1767,6 +1798,19 @@ describe('tsrx-solid runtime', () => {
 
 		await click('.static-for-add');
 		expect_rows(4);
+	});
+
+	it('renders a static @for body in every row', async () => {
+		await render(StaticForBodyApp);
+		const rows = container.querySelectorAll('.static-for-body > .static-for-body-row');
+		expect([...rows].map((row) => row.textContent)).toEqual(['row', 'row', 'row']);
+	});
+
+	it('renders the static @if branch of each instance', async () => {
+		await render(StaticIfBranchesApp);
+		const branches = container.querySelectorAll('.static-if-branch');
+		expect(branches.length).toBe(4);
+		expect([...branches].map((branch) => branch.textContent)).toEqual(['yes', 'yes', 'no', 'no']);
 	});
 
 	// ── Mid-template locals + interleaved statements ──

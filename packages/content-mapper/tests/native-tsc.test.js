@@ -326,4 +326,40 @@ describe('native tsc --runExternalCode', () => {
 		expect(at('Types.tsrx')).toEqual(at('plain.ts'));
 		expect(result.status).toBe(2);
 	});
+
+	it('reports a static and an instance index signature as plain tsc does', () => {
+		// The printer used to drop `static`, which made the two signatures duplicates.
+		const source = [
+			'export class A { static [k: string]: number; [k: string]: string }',
+			'export class B { [k: string]: string; static [k: string]: number }',
+			'export class C { static [k: string]: number; [k: string]: boolean; [k: string]: number }',
+			"export const x: number = new A()['y'];",
+			"export const y: string = A['z'];",
+			'',
+		].join('\n');
+		const files = consumer_fixture_files();
+		files['Types.tsrx'] = source;
+		files['plain.ts'] = source;
+		files['main.ts'] = "import './Types.tsrx';\nimport './plain.ts';\n";
+		const dir = workspace(files);
+		const result = run_native_tsc(dir, [
+			'--noEmit',
+			'-p',
+			'tsconfig.native.json',
+			'--pretty',
+			'false',
+		]);
+		const at = (/** @type {string} */ file) =>
+			parse_tsc_output(result.output)
+				.filter((d) => d.file === file)
+				.map((d) => [d.line, d.column, d.code]);
+		expect(at('plain.ts')).toEqual([
+			[3, 46, 'TS2374'],
+			[3, 68, 'TS2374'],
+			[4, 14, 'TS2322'],
+			[5, 14, 'TS2322'],
+		]);
+		expect(at('Types.tsrx')).toEqual(at('plain.ts'));
+		expect(result.status).toBe(2);
+	});
 });

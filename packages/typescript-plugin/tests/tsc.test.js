@@ -836,6 +836,23 @@ it('keeps a static index signature static in .tsrx files and their declarations'
 	);
 });
 
+it('reports no duplicate for a static and an instance index signature in .tsrx files', () => {
+	// Two signatures of the same key type are duplicates only on the same side.
+	const lines = [
+		'export class A { static [k: string]: number; [k: string]: string }',
+		'export class B { [k: string]: string; static [k: string]: number }',
+		'export class C { static [k: string]: number; [k: string]: boolean; [k: string]: number }',
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	const ts2374 = result.output.split('\n').filter((line) => line.includes('error TS2374'));
+	expect(ts2374.map((line) => line.slice(0, line.indexOf(':')))).toEqual([
+		`layout.tsrx(6,${lines[2].indexOf('[k: string]: boolean') + 1})`,
+		`layout.tsrx(6,${lines[2].lastIndexOf('[k: string]') + 1})`,
+	]);
+});
+
 it('reports errors on a bare this in .tsrx files', () => {
 	const line =
 		'export function readValue() { return this; } class Base {} export class Derived extends Base { constructor() { this; super(); } }';

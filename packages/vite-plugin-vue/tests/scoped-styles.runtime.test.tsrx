@@ -87,6 +87,36 @@ function ClassNameApp(props: { value?: unknown }) @{
 	</>
 }
 
+function NativeClassPairs(props: { bag: Record<string, unknown> }) @{
+	<>
+		<p data-probe="native-around-spread" class="a" {...props.bag} class="b" />
+		<p data-probe="native-class-name-around-spread" class="a" {...props.bag} className="b" />
+		<p data-probe="native-class-name-first" className="a" {...props.bag} class="b" />
+		<p data-probe="native-two-class-names" className="a" className="b" />
+	</>
+}
+
+function ScopedClassPairs(props: { bag: Record<string, unknown> }) @{
+	<>
+		<style>
+			p {
+				color: rgb(0, 128, 0);
+			}
+		</style>
+		<p data-probe="around-spread" class="a" {...props.bag} class="b" />
+		<p data-probe="class-name-around-spread" class="a" {...props.bag} className="b" />
+		<p data-probe="class-name-first" className="a" {...props.bag} class="b" />
+		<p data-probe="two-class-names" className="a" className="b" />
+	</>
+}
+
+function ClassPairsApp(props: { bag: Record<string, unknown> }) @{
+	<>
+		<NativeClassPairs bag={props.bag} />
+		<ScopedClassPairs bag={props.bag} />
+	</>
+}
+
 function class_list(probe: string): string[] {
 	return Array.from((container.querySelector(`[data-probe="${probe}"]`) as HTMLElement).classList);
 }
@@ -177,6 +207,24 @@ describe('sibling-scoped apply runtime (vue)', function () {
 			expect(container.querySelector('[classname]')).toBeNull();
 		});
 	}
+
+	// Vue's `mergeProps` joins every class attribute and the spread's class.
+	it('keeps the scope hash beside several class attributes', async function () {
+		await render(ClassPairsApp, { bag: { class: 'fromBag' } });
+
+		for (const probe of [
+			'around-spread',
+			'class-name-around-spread',
+			'class-name-first',
+			'two-class-names',
+		]) {
+			expect(class_list(probe).filter((name) => !/^tsrx-/.test(name))).toEqual(
+				class_list(`native-${probe}`),
+			);
+			expect(class_list(probe).filter((name) => /^tsrx-/.test(name))).toHaveLength(1);
+		}
+		expect(class_list('around-spread')).toEqual(['a', SCOPE_HASH, 'fromBag', 'b']);
+	});
 
 	// A dynamic or member tag may be a component, which reads `className`.
 	it('passes an authored className to a dynamic or member tag as written', async function () {

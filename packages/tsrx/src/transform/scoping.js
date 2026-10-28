@@ -484,7 +484,13 @@ export function add_scope_classes(
 ) {
 	if (hashes.length === 0 && applied.length === 0) return element;
 	const attrs = element.openingElement.attributes ?? [];
-	const index = attrs.findIndex(is_class_attribute);
+	// Of several class attributes, a runtime that reads a spread's class
+	// itself (`spread_class`) applies the last one written, so that one gets
+	// the scope classes. Vue's `mergeProps` joins them all, so the first does.
+	let index = -1;
+	for (let i = 0; i < attrs.length; i++) {
+		if (is_class_attribute(attrs[i]) && (index === -1 || spread_class)) index = i;
+	}
 	const existing = index === -1 ? undefined : /** @type {ESTreeJSX.JSXAttribute} */ (attrs[index]);
 	const metadata = element.metadata || (element.metadata = { path: [] });
 	const parts =

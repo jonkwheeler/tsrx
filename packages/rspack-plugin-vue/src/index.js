@@ -8,6 +8,7 @@ import { createPlatformDefinitions, mergePlatformDefinitions, validatePlatform }
 import { resolveBuildPlatform } from '@tsrx/core/config';
 import {
 	create_vue_jsx_vapor,
+	parse_vapor_helper_request,
 	VAPOR_HELPER_ID_PATTERN,
 	VAPOR_STYLESHEET_ID_PATTERN,
 } from './vue-jsx-vapor.js';
@@ -79,15 +80,16 @@ function serve_vapor_helpers(compiler, vue_jsx_vapor) {
 		normalModuleFactory.hooks.resolve.tapPromise(PLUGIN_NAME, async (data) => {
 			if (!VAPOR_HELPER_ID_PATTERN.test(data.request)) return;
 			if (!TSRX_EXTENSION_PATTERN.test(data.contextInfo.issuer)) return;
-			const [, css_module, lang] = VAPOR_STYLESHEET_ID_PATTERN.exec(data.request) ?? [];
-			const code = await vue_jsx_vapor.load_helper(data.request);
+			const { id, source } = parse_vapor_helper_request(data.request);
+			const [, css_module, lang] = VAPOR_STYLESHEET_ID_PATTERN.exec(id) ?? [];
+			const code = await vue_jsx_vapor.load_helper(id, source);
 			if (code === undefined) return;
 			const extension = !lang ? '.js' : css_module ? '.vapor-module-css' : '.vapor-css';
 			const file = path.join(
 				compiler.context,
 				'node_modules',
 				VAPOR_HELPER_DIR,
-				encodeURIComponent(data.request) + extension,
+				encodeURIComponent(id) + extension,
 			);
 			if (!written.has(file)) {
 				written.add(file);

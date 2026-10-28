@@ -12,6 +12,9 @@ export const VAPOR_HELPER_ID_PATTERN = /^\/vue-jsx-vapor\//;
 // A `defineStyle` stylesheet: `lang.css`, or `lang.module.css` for a CSS module.
 export const VAPOR_STYLESHEET_ID_PATTERN =
 	/^\/vue-jsx-vapor\/macros\/define-style\/.*&lang\.(module\.)?(\w+)$/;
+const VAPOR_STYLESHEET_IMPORT_PATTERN = /"(\/vue-jsx-vapor\/macros\/define-style\/[^"]+)"/g;
+// A stylesheet's import carries its source, so loading it needs no state.
+const VAPOR_SOURCE_PARAM = '&vapor-source=';
 
 const DEFAULT_VAPOR_OPTIONS = {
 	macros: true,
@@ -59,6 +62,20 @@ async function call_vapor_hook(hook, ...args) {
 }
 
 /**
+ * Splits a helper module request into its id and, for a stylesheet, the
+ * source its import carries.
+ *
+ * @param {string} request
+ * @returns {{ id: string, source: string | undefined }}
+ */
+export function parse_vapor_helper_request(request) {
+	const index = request.indexOf(VAPOR_SOURCE_PARAM);
+	if (index === -1) return { id: request, source: undefined };
+	const source = request.slice(index + VAPOR_SOURCE_PARAM.length);
+	return { id: request.slice(0, index), source: Buffer.from(source, 'base64url').toString() };
+}
+
+/**
  * vue-jsx-vapor set up as its Vite plugin sets it up: the macros, unless
  * `macros` is false, expand before the Vapor transform, and the helper modules
  * they import load through the same plugin hooks.
@@ -71,10 +88,25 @@ export function create_vue_jsx_vapor(options) {
 	const plugins = [create_vue_jsx_vapor_plugins(vapor_options)].flat();
 	const macros = plugins.find((plugin) => plugin.name === '@vue-jsx-vapor/macros')?.transform;
 
+	/**
+	 * The first load hook's result for a helper module id.
+	 *
+	 * @param {string} id
+	 * @returns {Promise<string | undefined>}
+	 */
+	async function load(id) {
+		for (const plugin of plugins) {
+			const code = plugin.load && (await call_vapor_hook(plugin.load, id))?.code;
+			if (code !== undefined) return code;
+		}
+		return undefined;
+	}
+
 	return {
 		/**
 		 * Expands the macros, unless their `include` and `exclude` options leave
-		 * the module out, then runs the Vapor transform.
+		 * the module out, then runs the Vapor transform. Each `defineStyle`
+		 * import gets its stylesheet's source, so a cached module still loads it.
 		 *
 		 * @param {string} code
 		 * @param {string} file_path the `.tsrx` module's path
@@ -95,26 +127,34 @@ export function create_vue_jsx_vapor(options) {
 				false,
 				false,
 			);
+			/** @type {Map<string, string>} */
+			const sources = new Map();
+			for (const [, id] of String(result.code).matchAll(VAPOR_STYLESHEET_IMPORT_PATTERN)) {
+				const source = await load(id);
+				if (source !== undefined) sources.set(id, source);
+			}
 			return {
-				code: result.code,
+				code: String(result.code).replace(VAPOR_STYLESHEET_IMPORT_PATTERN, (specifier, id) => {
+					const source = sources.get(id);
+					if (source === undefined) return specifier;
+					const encoded = Buffer.from(source).toString('base64url');
+					return JSON.stringify(id + VAPOR_SOURCE_PARAM + encoded);
+				}),
 				maps: [expanded?.map, result.map ? JSON.parse(result.map) : undefined],
 			};
 		},
 
 		/**
-		 * Loads a helper module by its `/vue-jsx-vapor/…` id, then runs the
-		 * transforms for helper modules, such as the one that compiles a
-		 * `defineStyle` stylesheet.
+		 * Loads a helper module by its `/vue-jsx-vapor/…` id, or takes the source
+		 * its import carries, then runs the transforms for helper modules, such
+		 * as the one that compiles a `defineStyle` stylesheet.
 		 *
 		 * @param {string} id
+		 * @param {string} [source]
 		 * @returns {Promise<string | undefined>}
 		 */
-		async load_helper(id) {
-			let code;
-			for (const { load } of plugins) {
-				code = load && (await call_vapor_hook(load, id))?.code;
-				if (code !== undefined) break;
-			}
+		async load_helper(id, source) {
+			let code = source ?? (await load(id));
 			if (code === undefined) return undefined;
 			for (const { transform } of plugins) {
 				code = (transform && (await call_vapor_hook(transform, code, id))?.code) ?? code;

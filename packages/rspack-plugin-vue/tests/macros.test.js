@@ -187,4 +187,47 @@ describe("@tsrx/rspack-plugin-vue vue-jsx-vapor's macros", () => {
 		expect(css.replaceAll('\\', '')).toContain(`.${title}[data-v-${scope}]`);
 		expect(css).toContain('font-weight: 700;');
 	});
+
+	it('keeps the helper modules on warm builds from a persistent cache', async () => {
+		const cache_path = mkdtempSync(path.join(tmpdir(), 'tsrx-rspack-vue-cache-'));
+		const modules = {
+			'tests/virtual-define-style-cache/entry.js': `
+				export { Box } from './Box.tsrx';
+				export { Named } from './Named.tsrx';
+				export { createVaporApp } from 'vue';
+			`,
+			'tests/virtual-define-style-cache/Named.tsrx': `
+				export function Named(props: { name: string }) @{
+					<p class="named">{'Hi, '}{props.name}</p>
+				}
+			`,
+			'tests/virtual-define-style-cache/Box.tsrx': `
+				export function Box({ label }: { label: string }) @{
+					defineStyle(\`.box { --tsrx-define-style-mark: cached; }\`);
+					<div class="box">{label}</div>
+				}
+			`,
+		};
+		const cache = { type: 'persistent', storage: { type: 'filesystem', directory: cache_path } };
+		try {
+			for (let run = 0; run < 3; run++) {
+				const { html, css } = await build_and_render(
+					modules,
+					[
+						['Box', { label: 'Cached' }],
+						['Named', { name: 'Lin' }],
+					],
+					{ cache },
+				);
+				const [, scope] = /data-v-(\w+)/.exec(html[0]) ?? [];
+				expect(html).toEqual([
+					`<div data-v-${scope}="" class="box">Cached</div>`,
+					'<p class="named">Hi, Lin</p>',
+				]);
+				expect(css).toContain(`.box[data-v-${scope}]`);
+			}
+		} finally {
+			rmSync(cache_path, { recursive: true, force: true });
+		}
+	});
 });

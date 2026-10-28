@@ -27,10 +27,29 @@ const HONO_PROPERTY_WRITERS = new Map([
 	['Object', new Set(['assign', 'defineProperty', 'defineProperties'])],
 	['Reflect', new Set(['set', 'defineProperty'])],
 ]);
-// Built-ins that don't write their arguments or keep them. Some return their
-// members, which, like a spread copy, are not the registry itself; `freeze`
-// returns it frozen. Every `console` method qualifies.
+// Built-ins that don't write their arguments, keep them or return any part of
+// them. Every `console` method qualifies.
 const HONO_READ_ONLY_CALLS = new Map([
+	[
+		'Object',
+		new Set([
+			'getOwnPropertyNames',
+			'getOwnPropertySymbols',
+			'hasOwn',
+			'is',
+			'isExtensible',
+			'isFrozen',
+			'isSealed',
+			'keys',
+		]),
+	],
+	['Reflect', new Set(['has', 'isExtensible', 'ownKeys'])],
+	['JSON', new Set(['stringify'])],
+	['Array', new Set(['isArray'])],
+]);
+// Built-ins that don't write their argument but return it (`freeze`), its
+// members or its prototype, which other code can then write members of.
+const HONO_MEMBER_CALLS = new Map([
 	[
 		'Object',
 		new Set([
@@ -38,24 +57,11 @@ const HONO_READ_ONLY_CALLS = new Map([
 			'freeze',
 			'getOwnPropertyDescriptor',
 			'getOwnPropertyDescriptors',
-			'getOwnPropertyNames',
-			'getOwnPropertySymbols',
 			'getPrototypeOf',
-			'hasOwn',
-			'is',
-			'isExtensible',
-			'isFrozen',
-			'isSealed',
-			'keys',
 			'values',
 		]),
 	],
-	[
-		'Reflect',
-		new Set(['getOwnPropertyDescriptor', 'getPrototypeOf', 'has', 'isExtensible', 'ownKeys']),
-	],
-	['JSON', new Set(['stringify'])],
-	['Array', new Set(['isArray'])],
+	['Reflect', new Set(['getOwnPropertyDescriptor', 'getPrototypeOf'])],
 ]);
 const HONO_READ_ONLY_FUNCTIONS = new Set(['String', 'Number', 'Boolean']);
 // Alias chains can repeat member paths. Deeper exposures are cut to this
@@ -277,8 +283,12 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	const plain_initializers = new Map();
 	// For each binding, the member paths below which a write, or code this
 	// pass does not follow, can replace members of its value.
-	/** @type {Map<import('@tsrx/core/types').Binding, string[][]>} */
+	/** @type {Map<import('@tsrx/core/types').Binding, Array<{ path: string[], propagated: boolean }>>} */
 	const exposed = new Map();
+	// Functions resolved from an initializer and a member path, without and
+	// with exposure ignored.
+	/** @type {[Map<AST.Node, Map<string, AST.Function | null>>, Map<AST.Node, Map<string, AST.Function | null>>]} */
+	const resolved_functions = [new Map(), new Map()];
 
 	/**
 	 * @param {AST.Pattern} target
@@ -314,22 +324,29 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	 * Record that members of a binding's value below `path` can be replaced.
 	 * A recorded path can already cover it, and it replaces the paths it
 	 * covers. Aliases reassigned from each other can make a path for every
-	 * order of their members, so long paths are cut, and past a few paths a
-	 * binding keeps one that covers them all. Both only widen what is exposed,
-	 * and each widening covers more, so alias cycles end quickly.
+	 * order of their members, so a path an alias passes on is cut when long,
+	 * and past a few such paths a binding keeps one that covers them all. Both
+	 * only widen what is exposed, and each widening covers more, so alias
+	 * cycles end quickly. A path the binding's own references expose is kept
+	 * as it is.
 	 *
 	 * @param {import('@tsrx/core/types').Binding} binding
 	 * @param {string[]} path
+	 * @param {boolean} [propagated] whether an alias passed the path on
 	 * @returns {string[] | null} the path the binding's exposure grew by
 	 */
-	function add_hono_exposure(binding, path) {
-		const added = path.slice(0, HONO_MAX_EXPOSED_DEPTH);
+	function add_hono_exposure(binding, path, propagated = false) {
+		const added = propagated ? path.slice(0, HONO_MAX_EXPOSED_DEPTH) : path;
 		const known = exposed.get(binding) ?? [];
-		if (known.some((other) => covers_hono_path(other, added))) return null;
-		const kept = known.filter((other) => !covers_hono_path(added, other));
-		const grown =
-			kept.length < HONO_MAX_EXPOSED_PATHS ? added : get_hono_covering_path([...kept, added]);
-		exposed.set(binding, grown === added ? [...kept, added] : [grown]);
+		if (known.some((other) => covers_hono_path(other.path, added))) return null;
+		let kept = known.filter((other) => !covers_hono_path(added, other.path));
+		let grown = added;
+		const others = kept.filter((other) => other.propagated);
+		if (propagated && others.length >= HONO_MAX_EXPOSED_PATHS) {
+			grown = get_hono_covering_path([...others.map((other) => other.path), added]);
+			kept = kept.filter((other) => !covers_hono_path(grown, other.path));
+		}
+		exposed.set(binding, [...kept, { path: grown, propagated }]);
 		return grown;
 	}
 
@@ -452,10 +469,25 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	 */
 	function resolve_hono_function(node, property_path, seen, ignore_exposure) {
 		if (!node || seen.has(node)) return null;
-		const next_seen = new Set(seen).add(node);
+		seen.add(node);
+		const value = resolve_hono_function_step(node, property_path, seen, ignore_exposure);
+		seen.delete(node);
+		return value;
+	}
+
+	/**
+	 * One step of {@link resolve_hono_function}, with `node` on the `seen` stack.
+	 *
+	 * @param {AST.Node} node
+	 * @param {string[]} property_path
+	 * @param {Set<AST.Node>} seen
+	 * @param {boolean} ignore_exposure
+	 * @returns {AST.Function | null}
+	 */
+	function resolve_hono_function_step(node, property_path, seen, ignore_exposure) {
 		const expression = unwrap_hono_transparent_expression(node);
 		if (expression !== node) {
-			return resolve_hono_function(expression, property_path, next_seen, ignore_exposure);
+			return resolve_hono_function(expression, property_path, seen, ignore_exposure);
 		}
 
 		if (isFunctionNode(node)) return property_path.length ? null : node;
@@ -477,12 +509,7 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 				// Accessors also replace data properties, but resolving their return
 				// values would require execution rather than static reference lookup.
 				return property.kind === 'init'
-					? resolve_hono_function(
-							property.value,
-							property_path.slice(1),
-							next_seen,
-							ignore_exposure,
-						)
+					? resolve_hono_function(property.value, property_path.slice(1), seen, ignore_exposure)
 					: null;
 			}
 			return null;
@@ -500,12 +527,22 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 		}
 
 		// Combine destructuring and member segments in root-to-leaf order.
-		return resolve_hono_function(
-			reference.binding.initial,
-			[...(destructured_paths.get(reference.binding) ?? []), ...reference.path, ...property_path],
-			next_seen,
-			ignore_exposure,
-		);
+		const initial = reference.binding.initial;
+		const path = [
+			...(destructured_paths.get(reference.binding) ?? []),
+			...reference.path,
+			...property_path,
+		];
+		// Each step leads to one next step, so a value resolves the same from
+		// wherever it is reached, and a cycle fails from any point on it.
+		const cache = resolved_functions[ignore_exposure ? 1 : 0];
+		const key = path.join('\0');
+		const values = cache.get(initial) ?? new Map();
+		cache.set(initial, values);
+		if (!values.has(key)) {
+			values.set(key, resolve_hono_function(initial, path, seen, ignore_exposure));
+		}
+		return values.get(key) ?? null;
 	}
 
 	/**
@@ -531,7 +568,9 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	function is_hono_exposed(binding, path) {
 		return !!exposed
 			.get(binding)
-			?.some((prefix) => prefix.length < path.length && covers_hono_path(prefix, path));
+			?.some(
+				(exposure) => exposure.path.length < path.length && covers_hono_path(exposure.path, path),
+			);
 	}
 
 	walk(ast, analysis.scope);
@@ -554,14 +593,14 @@ function find_hono_dom_async_component(ast, analysis, is_custom_diagnostic_candi
 	}
 	// An exposed alias exposes the part of each root it can reach.
 	/** @type {Array<[import('@tsrx/core/types').Binding, string[]]>} */
-	const pending = [...exposed].flatMap(([binding, paths]) =>
-		paths.map((path) => /** @type {[typeof binding, string[]]} */ ([binding, path])),
+	const pending = [...exposed].flatMap(([binding, exposures]) =>
+		exposures.map(({ path }) => /** @type {[typeof binding, string[]]} */ ([binding, path])),
 	);
 	for (let entry = pending.pop(); entry; entry = pending.pop()) {
 		const [alias, path] = entry;
 		for (const link of alias_roots.get(alias) ?? []) {
 			const root_path = get_hono_root_exposure(link, path);
-			const grown = root_path && add_hono_exposure(link.root, root_path);
+			const grown = root_path && add_hono_exposure(link.root, root_path, true);
 			if (grown) pending.push([link.root, grown]);
 		}
 	}
@@ -863,7 +902,13 @@ function get_hono_exposed_path(identifier, ancestors, scopes, is_arrow_method) {
 					return is_arrow_method(step.node) ? null : step.object_path;
 				}
 				if (parent.type === 'TaggedTemplateExpression') return null;
-				if (is_hono_read_only_call(callee, scopes.get(parent) ?? null)) return null;
+				const scope = scopes.get(parent) ?? null;
+				if (is_hono_known_call(callee, scope, HONO_READ_ONLY_CALLS)) return null;
+				// It hands its argument's members on, so any member can have its
+				// own members replaced.
+				if (is_hono_known_call(callee, scope, HONO_MEMBER_CALLS)) {
+					return held ? path : [...path, '*'];
+				}
 				// A built-in writer replaces members of its first argument.
 				// `Object.assign` copies the members of its sources, unless a holder
 				// passes the value itself.
@@ -998,16 +1043,22 @@ function get_hono_property_writer(callee) {
 }
 
 /**
- * A built-in that only reads its arguments, unless a local binding shadows it.
+ * Whether a call's callee is one of `calls`, the global functions when they
+ * are the read-only ones, and every `console` method, unless a local binding
+ * shadows its name.
  *
  * @param {AST.Node} callee
  * @param {import('@tsrx/core/types').ScopeInterface | null} scope
+ * @param {Map<string, Set<string>>} calls
  * @returns {boolean}
  */
-function is_hono_read_only_call(callee, scope) {
+function is_hono_known_call(callee, scope, calls) {
+	const read_only = calls === HONO_READ_ONLY_CALLS;
 	const expression = unwrap_hono_transparent_expression(callee);
 	if (expression?.type === 'Identifier') {
-		return HONO_READ_ONLY_FUNCTIONS.has(expression.name) && !scope?.get(expression.name);
+		return (
+			read_only && HONO_READ_ONLY_FUNCTIONS.has(expression.name) && !scope?.get(expression.name)
+		);
 	}
 	if (expression?.type !== 'MemberExpression' || expression.object.type !== 'Identifier') {
 		return false;
@@ -1015,7 +1066,7 @@ function is_hono_read_only_call(callee, scope) {
 	const global = expression.object.name;
 	if (scope?.get(global)) return false;
 	const name = get_hono_member_name(expression);
-	return global === 'console' || (name !== null && !!HONO_READ_ONLY_CALLS.get(global)?.has(name));
+	return (read_only && global === 'console') || (name !== null && !!calls.get(global)?.has(name));
 }
 
 /**

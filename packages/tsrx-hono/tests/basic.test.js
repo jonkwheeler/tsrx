@@ -317,6 +317,10 @@ describe('@tsrx/hono DOM compiler', () => {
 		'const [, registry] = [other, UI]; patch(registry); <UI.App />;',
 		'const [, registry] = [...others, UI]; patch(registry); <UI.App />;',
 		'const Reg = { App: async () => <div />, init() { this.App = () => <span />; } }; Reg.init(); <Reg.App />;',
+		'Object.values(UI)[1].App = () => <span />; <UI.nested.App />;',
+		'Object.entries(UI).forEach(([, value]) => { value.App = () => <span />; }); <UI.nested.App />;',
+		'Object.getOwnPropertyDescriptor(UI, "nested").value.App = () => <span />; <UI.nested.App />;',
+		'const frozen = Object.freeze(UI); frozen.nested.App = () => <span />; <UI.nested.App />;',
 	])('does not diagnose a registry that escapes to code the check cannot follow: %s', (update) => {
 		const source = `const UI = { App: async () => <div />, nested: { App: async () => <div /> } };
 			${update}`;
@@ -364,6 +368,15 @@ describe('@tsrx/hono DOM compiler', () => {
 		expect(compileDomToVolarMappings(source, 'App.tsrx').errors).toEqual([async_error]);
 	});
 
+	it('keeps every path the registry itself exposes, however many', () => {
+		// Only paths passed on through aliases are merged past a limit.
+		const calls = Array.from({ length: 20 }, (_, index) => `patch(UI.k${index});`).join(' ');
+		const source = `const UI: any = { nested: { App: async () => <div /> } };
+			${calls}
+			<UI.nested.App />;`;
+		expect(() => compileDom(source, 'App.tsrx')).toThrow(/does not support async components/);
+	});
+
 	it('finishes quickly when aliases are reassigned from each other', () => {
 		// Each reassignment adds a member path per element to the other alias, so
 		// unbounded paths multiply with every round.
@@ -390,6 +403,34 @@ sink(a.x.x);
 		};
 		time(1);
 		expect(time(4)).toBeLessThan(10 * Math.max(time(1), 1));
+	});
+
+	it('resolves method calls through a long alias chain in about linear time', () => {
+		// Each call checks whether its callee is an arrow function; resolving
+		// every one from scratch through the chain took quadratic time.
+		/** @param {number} count */
+		const source = (count) => {
+			const aliases = Array.from({ length: count }, (_, index) =>
+				index ? `const a${index} = a${index - 1};` : 'const a0 = UI;',
+			);
+			const calls = Array.from({ length: count }, (_, index) => `a${index}.App();`);
+			return `const UI = { App: async () => <div /> };
+${aliases.join('\n')}
+${calls.join('\n')}
+<UI.App />;`;
+		};
+		/** @param {number} count */
+		const time = (count) => {
+			let best = Infinity;
+			for (let run = 0; run < 3; run++) {
+				const start = performance.now();
+				expect(compileDom(source(count), 'App.tsrx', { collect: true }).errors).toHaveLength(1);
+				best = Math.min(best, performance.now() - start);
+			}
+			return best;
+		};
+		time(100);
+		expect(time(1000)).toBeLessThan(50 * Math.max(time(100), 1));
 	});
 
 	it('rejects an async component referenced by a dynamic tag', () => {

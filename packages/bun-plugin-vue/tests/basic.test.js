@@ -383,6 +383,37 @@ describe('@tsrx/bun-plugin-vue', () => {
 		}
 	});
 
+	it("reports defineStyle stylesheets in a language Bun can't load", async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-define-style-'));
+		try {
+			const file_path = path.join(dir, 'Box.tsrx');
+			await writeFile(
+				file_path,
+				`export function Box() @{
+					defineStyle.scss(\`.box { .inner { color: red; } }\`);
+					<div class="box">{'box'}</div>
+				}`,
+			);
+
+			const hooks = setup_plugin(undefined, { root: dir });
+			const transformed = await load_tsrx(hooks, file_path);
+			const [, id] = /import "(\/vue-jsx-vapor\/macros\/define-style\/[^"]+)"/.exec(
+				String(transformed?.contents),
+			) ?? [, ''];
+			expect(id).toMatch(/&lang\.scss$/);
+			const resolved = await dispatch(hooks.onResolve, {
+				path: id,
+				namespace: 'file',
+				importer: file_path,
+			});
+			await expect(
+				dispatch(hooks.onLoad, { path: resolved.path, namespace: 'file' }),
+			).rejects.toThrow("Bun can't load a defineStyle.scss stylesheet");
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("applies the macros' include and exclude options", async () => {
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-macros-filter-'));
 		try {

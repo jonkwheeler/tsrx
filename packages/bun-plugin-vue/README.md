@@ -53,7 +53,8 @@ Bun's runtime resolves, has no Vapor APIs such as `template`.
 - `vapor`: options forwarded to `vue-jsx-vapor`. As in the Vite plugin, its macros
   run by default (`macros: false` turns them off), their `include` and `exclude`
   options see a module as `<file>.tsrx.tsx`, and the plugin serves the helper
-  modules they import.
+  modules they import. `defineStyle()` stylesheets must be CSS, since Bun can't
+  compile Sass, Less or Stylus.
 - `runtimeImports`: helper import mode (`'compiler'` by default, or `'direct'` for
   standalone runtime imports).
 - `platform`: optional override/fallback for the compile-time platform. Normally

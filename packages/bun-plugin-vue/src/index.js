@@ -28,6 +28,8 @@ const VAPOR_HELPER_ID_PATTERN = /^\/vue-jsx-vapor\//;
 const VAPOR_HELPER_IMPORT_PATTERN = /\b(from\s*|import\s*)"(\/vue-jsx-vapor\/[^"]+)"/g;
 const VAPOR_HELPER_QUERY = '?vue-jsx-vapor=';
 const VAPOR_HELPER_PATH_PATTERN = /\?vue-jsx-vapor=([^?&]+)$/;
+// A `defineStyle` stylesheet's language: `lang.css`, `lang.module.scss`, ...
+const VAPOR_STYLESHEET_LANG_PATTERN = /&lang\.(?:module\.)?(\w+)$/;
 const DEFAULT_VAPOR_OPTIONS = {
 	macros: true,
 	compiler: {
@@ -372,12 +374,19 @@ export function tsrxVue(options = {}) {
 					VAPOR_HELPER_PATH_PATTERN.exec(args.path)
 				);
 				const id = decodeURIComponent(encoded_id);
-				const is_css = /\.css$/.test(id);
+				const stylesheet_lang = VAPOR_STYLESHEET_LANG_PATTERN.exec(id)?.[1];
 				// Bun.plugin() has no CSS loader, and a stylesheet does nothing there.
-				if (runtime && is_css) return { exports: { default: {} }, loader: 'object' };
+				if (runtime && stylesheet_lang) return { exports: { default: {} }, loader: 'object' };
+				if (stylesheet_lang && stylesheet_lang !== 'css') {
+					throw new Error(
+						`@tsrx/bun-plugin-vue: Bun can't load a defineStyle.${stylesheet_lang} stylesheet (${id}). Use defineStyle() or defineStyle.css().`,
+					);
+				}
 				if (!runtime) {
 					const code = await vue_jsx_vapor.load_helper(id);
-					return code === undefined ? undefined : { contents: code, loader: is_css ? 'css' : 'js' };
+					return code === undefined
+						? undefined
+						: { contents: code, loader: stylesheet_lang ? 'css' : 'js' };
 				}
 				// Bun calls this hook for every instance's helper modules.
 				for (const loader of runtime.loaders) {

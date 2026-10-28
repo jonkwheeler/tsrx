@@ -5372,8 +5372,9 @@ function transform_element_attributes_dispatch(attrs, transform_context, element
 export function is_component_like_element(element) {
 	const name = element?.openingElement?.name;
 	if (!name) return false;
-	if (name.type === 'Identifier') return /^[A-Z]/.test(name.name);
-	if (name.type === 'JSXIdentifier') return /^[A-Z]/.test(name.name);
+	// As in `is_component_jsx_name`, only a lowercase first letter makes a host tag.
+	if (name.type === 'Identifier') return !/^[a-z]/.test(name.name);
+	if (name.type === 'JSXIdentifier') return !/^[a-z]/.test(name.name);
 	if (name.type === 'MemberExpression') return true;
 	if (name.type === 'JSXMemberExpression') return true;
 	return false;
@@ -5385,7 +5386,7 @@ export function is_component_like_element(element) {
  */
 function is_component_like_jsx_name(name) {
 	if (!name) return false;
-	if (name.type === 'JSXIdentifier') return /^[A-Z]/.test(name.name);
+	if (name.type === 'JSXIdentifier') return !/^[a-z]/.test(name.name);
 	if (name.type === 'JSXMemberExpression') return true;
 	return false;
 }

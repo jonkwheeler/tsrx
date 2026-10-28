@@ -572,6 +572,72 @@ function SwitchReactiveApp() @{
 	</>
 }
 
+// ── Static control flow in a component rendered twice ──
+// Each subtree reads no binding, so only the generated control-flow component
+// keeps it from being hoisted to one module-level node that both instances
+// would share.
+
+function StaticIf() @{
+	<div class="static-if">
+		@if (true) {
+			<span>{'if'}</span>
+		}
+	</div>
+}
+
+function StaticFor() @{
+	<ul class="static-for">
+		@for (const item of ['for']) {
+			<li>{item}</li>
+		}
+	</ul>
+}
+
+function StaticSwitch() @{
+	<div class="static-switch">
+		@switch ('a') {
+			@case 'a': {
+				<span>{'switch'}</span>
+			}
+		}
+	</div>
+}
+
+function StaticPending() @{
+	<div class="static-pending">
+		@try {
+			<span>{'pending'}</span>
+		} @pending {
+			<span>{'loading'}</span>
+		}
+	</div>
+}
+
+function StaticCatch() @{
+	<div class="static-catch">
+		@try {
+			<span>{'catch'}</span>
+		} @catch (_error) {
+			<span>{'failed'}</span>
+		}
+	</div>
+}
+
+function StaticControlFlowTwiceApp() @{
+	<>
+		<StaticIf />
+		<StaticIf />
+		<StaticFor />
+		<StaticFor />
+		<StaticSwitch />
+		<StaticSwitch />
+		<StaticPending />
+		<StaticPending />
+		<StaticCatch />
+		<StaticCatch />
+	</>
+}
+
 // ── Bindings named like generated control-flow components ──
 
 function LoopVariableMatchNameApp() @{
@@ -1391,6 +1457,14 @@ describe('tsrx-solid runtime', () => {
 		await click('.toggle-local-show');
 		expect(text('.generated-show-child')).toBe('off');
 	});
+
+	it.each(['static-if', 'static-for', 'static-switch', 'static-pending', 'static-catch'])(
+		'renders each instance of a component whose %s subtree reads no binding',
+		async (class_name) => {
+			await render(StaticControlFlowTwiceApp);
+			expect(container.querySelectorAll(`.${class_name}`).length).toBe(2);
+		},
+	);
 
 	it('evaluates a plain guard return once at setup (non-reactive)', async () => {
 		await render(GuardTrailingReturnApp);

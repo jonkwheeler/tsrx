@@ -32,8 +32,11 @@ when unset. Editor typechecking should set `jsxImportSource: 'vue-jsx-vapor'`.
 
 - `vapor`: options forwarded to `vue-jsx-vapor`. By default the plugin enables
   macros and uses `runtimeModuleName: 'vue-jsx-vapor'`. The macros run as in the
-  Vite plugin, and the plugin serves the helper modules they import as virtual
-  modules under the compiler's `context`.
+  Vite plugin, and their `include` and `exclude` options see a module as
+  `<file>.tsrx.tsx`. The plugin serves the helper modules they import as virtual
+  modules under the compiler's `context`. `defineStyle()` stylesheets must be CSS:
+  the plugin can't preprocess Sass, Less or Stylus before vue-jsx-vapor scopes
+  them.
 - `runtimeImports`: helper import mode (`'compiler'` by default, or `'direct'` for
   standalone runtime imports).
 - `platform`: optional override/fallback for the compile-time platform. Normally

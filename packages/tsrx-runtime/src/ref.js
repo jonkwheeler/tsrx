@@ -290,9 +290,19 @@ export function merge_ref_props(...refs) {
  *
  * @template [T=Element]
  * @param {RefValue<T>[]} refs
+ * @param {boolean} [merge_lone_object] read nested lists as their refs, and
+ *   merge a lone ref object as well, so only a lone callback comes back as itself
  * @returns {RefValue<T>} the single surviving ref, or a callback applying all
  */
-function merge_ref_list(refs) {
+function merge_ref_list(refs, merge_lone_object = false) {
+	if (merge_lone_object) {
+		/** @type {RefValue<T>[]} */
+		const live = [];
+		collect_live_refs(refs, live);
+		return live.length === 1 && typeof live[0] === 'object'
+			? create_merged_ref(live)
+			: merge_ref_list(live);
+	}
 	if (refs.length <= 2) {
 		const first = refs[0];
 		const second = refs[1];
@@ -324,6 +334,18 @@ function merge_ref_list(refs) {
 		}
 	}
 
+	return create_merged_ref(refs);
+}
+
+/**
+ * A callback that applies each ref of a compacted list and returns a cleanup
+ * that clears them in the same order. It captures the list.
+ *
+ * @template [T=Element]
+ * @param {RefValue<T>[]} refs
+ * @returns {(node: T | null) => void | (() => void)}
+ */
+function create_merged_ref(refs) {
 	/**
 	 * @param {T | null} node
 	 * @returns {void | (() => void)}
@@ -399,13 +421,15 @@ export function merge_element_refs(...refs) {
  *
  * @template [T=Element]
  * @param {RefValue<T>[]} refs
+ * @param {boolean} [merge_lone_object] merge a lone ref object as well, so
+ *   only a lone callback comes back as itself
  * @returns {RefValue<T>}
  */
-function merge_shared_ref_list(refs) {
+function merge_shared_ref_list(refs, merge_lone_object = false) {
 	/** @type {RefValue<T>[]} */
 	const live = [];
 	collect_live_refs(refs, live);
-	if (live.length < 2) {
+	if (live.length < 2 && !(merge_lone_object && typeof live[0] === 'object')) {
 		return live[0];
 	}
 
@@ -419,7 +443,7 @@ function merge_shared_ref_list(refs) {
 		}
 		entry = child;
 	}
-	return (entry.ref ??= merge_ref_list(live));
+	return (entry.ref ??= create_merged_ref(live));
 }
 
 /**
@@ -534,8 +558,8 @@ export function copy_spread_props_sharing_refs(props, ...outer_refs) {
  * @param {object | SpreadFalsy} props
  * @param {Array<RefValue<Element>>} outer_refs a rest array owned by the caller
  * @param {boolean} copy return the normalized copy even with nothing to merge
- * @param {(refs: RefValue<Element>[]) => RefValue<Element>} merge merges an
- *   owned list of the bag's refs into one
+ * @param {(refs: RefValue<Element>[], merge_lone_object?: boolean) => RefValue<Element>} merge
+ *   merges an owned list of the bag's refs into one
  * @param {boolean} merge_ref_lists merge a `ref` that is a ref list even when
  *   it is the bag's only ref, for a JSX runtime that takes a single ref
  * @returns {SpreadProps | SpreadFalsy}
@@ -607,17 +631,13 @@ function normalize_spread(props, outer_refs, copy, merge, merge_ref_lists) {
 	if (refs === undefined) {
 		// `outer_refs` is a fresh rest array owned by the caller; unshifting
 		// `existing_ref` into place avoids a second concatenated array.
-		if (merges_ref_list) {
-			// `merge_ref_list` hands back a lone entry as itself, so it gets the
-			// list's refs rather than the list.
-			/** @type {RefValue<Element>[]} */
-			const list_refs = [];
-			collect_live_refs(/** @type {readonly RefValue<Element>[]} */ (existing_ref), list_refs);
-			outer_refs.unshift(...list_refs);
-		} else if (existing_ref != null) {
+		if (existing_ref != null) {
 			outer_refs.unshift(existing_ref);
 		}
-		merged_ref = merge(outer_refs);
+		// A list's lone ref object is merged too, since a JSX runtime reads a bare
+		// ref object as its own kind: React sets `current` on a `{ value }` ref,
+		// and Vue ignores a plain one.
+		merged_ref = merge(outer_refs, merges_ref_list);
 	} else if (existing_ref == null && outer_refs.length === 0) {
 		// A single collected ref survives unchanged without merge machinery.
 		// `refs` holds only `is_ref_prop`-verified non-null entries, so a lone

@@ -4,11 +4,13 @@ import {
 	ArraySpreadOwnRefApp,
 	ArraySpreadRefApp,
 	ArraySpreadRefPropsApp,
+	LoneObjectArraySpreadRefApp,
 	NestedArraySpreadRefApp,
 	ObjectArraySpreadRefApp,
 	SingleArraySpreadRefApp,
 	array_spread_ref_log,
 	array_spread_ref_object,
+	array_spread_ref_value,
 } from './array-spread-ref-components.tsrx';
 
 /**
@@ -26,6 +28,7 @@ export function runArraySpreadRefRuntimeTests({ refObjects = true, ownRef = true
 	async function mount(Component) {
 		array_spread_ref_log.length = 0;
 		array_spread_ref_object.current = null;
+		array_spread_ref_value.value = null;
 		await globalThis.render(Component, {});
 		await globalThis.flush?.();
 	}
@@ -86,6 +89,18 @@ export function runArraySpreadRefRuntimeTests({ refObjects = true, ownRef = true
 				expect(element).toBeInstanceOf(HTMLInputElement);
 				expect(array_spread_ref_log).toEqual(['first']);
 				expect(array_spread_ref_object.current).toBe(element);
+			});
+
+			it('calls every ref in the list: a lone ref object', async () => {
+				await mount(LoneObjectArraySpreadRefApp);
+
+				const container = globalThis.container;
+				expect(array_spread_ref_object.current).toBe(
+					container.querySelector('.lone-current-array-spread-ref'),
+				);
+				expect(array_spread_ref_value.value).toBe(
+					container.querySelector('.lone-value-array-spread-ref'),
+				);
 			});
 		}
 	});

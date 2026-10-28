@@ -1480,8 +1480,8 @@ describe('spread ref normalization', () => {
 			]);
 			expect(object.current).toBe(null);
 
-			// A list of one ref gives back that ref. An empty list still replaces
-			// an earlier spread's ref, as its `ref` key would in native JSX.
+			// A list of one callback gives back that callback. An empty list still
+			// replaces an earlier spread's ref, as its `ref` key would in native JSX.
 			expect(ref_of(normalize({ ref: [first, false] }))).toBe(first);
 			const empty = /** @type {object} */ (normalize({ ref: [] }));
 			expect('ref' in empty).toBe(true);
@@ -1497,6 +1497,40 @@ describe('spread ref normalization', () => {
 		// comes back as itself.
 		const solid_bag = { title: 't', ref: [first, second] };
 		expect(normalize_spread_props(solid_bag)).toBe(solid_bag);
+	});
+
+	it("merges a ref list's lone ref object into a callback", () => {
+		const node = {};
+		/** @param {unknown} bag */
+		const ref_of = (bag) => /** @type {Record<string, unknown>} */ (bag).ref;
+
+		for (const normalize of [
+			copy_spread_props,
+			copy_spread_props_sharing_refs,
+			copy_spread_props_for_ref_attr,
+			copy_spread_props_for_ref_attr_sharing_refs,
+			normalize_spread_props_for_ref_attr,
+		]) {
+			for (const object of [{ current: null }, { value: null }]) {
+				const ref = /** @type {(node: object | null) => () => void} */ (
+					ref_of(normalize({ ref: [object, null] }))
+				);
+				expect(typeof ref).toBe('function');
+				const cleanup = ref(node);
+				expect(Object.values(object)).toEqual([node]);
+				cleanup();
+				expect(Object.values(object)).toEqual([null]);
+			}
+		}
+
+		// Sharing refs, a new list with the same ref object gives back the same
+		// callback, and a bag whose `ref` is the object itself still passes it on.
+		const object = { value: null };
+		expect(ref_of(copy_spread_props_sharing_refs({ ref: [object] }))).toBe(
+			ref_of(copy_spread_props_for_ref_attr_sharing_refs({ ref: [[object]] })),
+		);
+		expect(ref_of(copy_spread_props_sharing_refs({ ref: object }))).toBe(object);
+		expect(ref_of(copy_spread_props({ ref: object }))).toBe(object);
 	});
 
 	it('preserves explicit ordinary-ref reads, source state, and the selected ref value', () => {

@@ -37,11 +37,13 @@ import {
 	ArraySpreadOwnRefApp,
 	ArraySpreadRefApp,
 	ArraySpreadRefPropsApp,
+	LoneObjectArraySpreadRefApp,
 	NestedArraySpreadRefApp,
 	ObjectArraySpreadRefApp,
 	SingleArraySpreadRefApp,
 	array_spread_ref_log,
 	array_spread_ref_object,
+	array_spread_ref_value,
 } from '@tsrx/core/test-harness/runtime/array-spread-ref-components.tsrx';
 import {
 	JsxTextCharactersApp,
@@ -621,6 +623,19 @@ describe('@tsrx/vite-plugin-hono DOM runtime', () => {
 		const element = container.querySelector('.object-array-spread-ref');
 		expect(array_spread_ref_log).toEqual(['first']);
 		expect(array_spread_ref_object.current).toBe(element);
+	});
+
+	it("calls every ref in a spread's ref list: a lone ref object", () => {
+		array_spread_ref_object.current = null;
+		array_spread_ref_value.value = null;
+		render(<LoneObjectArraySpreadRefApp />, container);
+
+		expect(array_spread_ref_object.current).toBe(
+			container.querySelector('.lone-current-array-spread-ref'),
+		);
+		expect(array_spread_ref_value.value).toBe(
+			container.querySelector('.lone-value-array-spread-ref'),
+		);
 	});
 
 	const spread_bag = { id: 'first', title: 'First' };

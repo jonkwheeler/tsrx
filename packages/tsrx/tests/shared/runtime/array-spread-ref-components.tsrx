@@ -4,6 +4,7 @@
 
 export const array_spread_ref_log: string[] = [];
 export const array_spread_ref_object: { current: Element | null } = { current: null };
+export const array_spread_ref_value: { value: Element | null } = { value: null };
 
 function log_ref(name: string) {
 	return (node: Element | null) => {
@@ -37,6 +38,13 @@ export function SingleArraySpreadRefApp() @{
 
 export function ObjectArraySpreadRefApp() @{
 	<input class="object-array-spread-ref" {...{ ref: [first, array_spread_ref_object] }} />
+}
+
+export function LoneObjectArraySpreadRefApp() @{
+	<>
+		<input class="lone-current-array-spread-ref" {...{ ref: [array_spread_ref_object] }} />
+		<input class="lone-value-array-spread-ref" {...{ ref: [array_spread_ref_value] }} />
+	</>
 }
 
 export function ArraySpreadOwnRefApp() @{

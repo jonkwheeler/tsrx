@@ -11,6 +11,7 @@ import { addVaporInteropToCreateVaporApp } from '@tsrx/vue/interop';
 
 const require = createRequire(import.meta.url);
 const { transformVueJsxVapor } = require('vue-jsx-vapor/api');
+const { default: create_vue_jsx_vapor_plugins } = require('vue-jsx-vapor/raw');
 
 const DEFAULT_INCLUDE = /\.tsrx$/;
 // JavaScript and TypeScript sources outside node_modules. Bun evaluates the
@@ -18,6 +19,12 @@ const DEFAULT_INCLUDE = /\.tsrx$/;
 const PROJECT_SOURCE_PATTERN = /^(?!.*[/\\]node_modules[/\\]).*\.[cm]?[jt]sx?$/;
 const CSS_QUERY = '?tsrx-css&lang.css';
 const CSS_QUERY_PATTERN = /\?tsrx-css&lang\.css$/;
+// The macros import helper modules by ids such as `/vue-jsx-vapor/props`. The
+// plugin serves each at a path that carries the id in this query.
+const VAPOR_HELPER_ID_PATTERN = /^\/vue-jsx-vapor\//;
+const VAPOR_HELPER_IMPORT_PATTERN = /\b(from\s*|import\s*)"(\/vue-jsx-vapor\/[^"]+)"/g;
+const VAPOR_HELPER_QUERY = '?vue-jsx-vapor=';
+const VAPOR_HELPER_PATH_PATTERN = /\?vue-jsx-vapor=([^?&]+)$/;
 const DEFAULT_VAPOR_OPTIONS = {
 	macros: true,
 	compiler: {
@@ -200,6 +207,96 @@ function resolve_vapor_options(options) {
 }
 
 /**
+ * @typedef {((...args: string[]) => unknown) | { filter?: { id?: unknown }, handler: (...args: string[]) => unknown }} VueJsxVaporHook
+ * @typedef {{ name: string, load?: VueJsxVaporHook, transform?: VueJsxVaporHook }} VueJsxVaporPlugin
+ */
+
+/**
+ * Calls a vue-jsx-vapor plugin hook and returns the code it produced, if any.
+ *
+ * @param {VueJsxVaporHook} hook
+ * @param {...string} args
+ * @returns {Promise<string | undefined>}
+ */
+async function call_vapor_hook(hook, ...args) {
+	const result = /** @type {string | { code: string } | null | undefined} */ (
+		await (typeof hook === 'function' ? hook : hook.handler)(...args)
+	);
+	return typeof result === 'string' ? result : (result?.code ?? undefined);
+}
+
+/**
+ * Whether a hook is for the helper module `id`. vue-jsx-vapor filters the
+ * hooks for its helper modules with a plain pattern, and the transforms for
+ * source modules with include and exclude lists.
+ *
+ * @param {VueJsxVaporHook} hook
+ * @param {string} id
+ * @returns {boolean}
+ */
+function is_vapor_helper_hook(hook, id) {
+	const filter = typeof hook === 'function' ? undefined : hook.filter?.id;
+	return filter instanceof RegExp && filter.test(id);
+}
+
+/**
+ * vue-jsx-vapor set up as its Vite plugin sets it up: the macros, unless
+ * `macros` is false, expand before the Vapor transform, and the helper modules
+ * they import load through the same plugin hooks.
+ *
+ * @param {ReturnType<typeof resolve_vapor_options>} vapor_options
+ */
+function create_vue_jsx_vapor(vapor_options) {
+	/** @type {VueJsxVaporPlugin[]} */
+	const plugins = create_vue_jsx_vapor_plugins(vapor_options);
+	const macros = plugins.find((plugin) => plugin.name === '@vue-jsx-vapor/macros')?.transform;
+
+	return {
+		/**
+		 * @param {string} code
+		 * @param {string} id the module's path with a `.tsx` extension
+		 * @returns {Promise<string>}
+		 */
+		async transform(code, id) {
+			const expanded = macros ? await call_vapor_hook(macros, code, id) : undefined;
+			return transformVueJsxVapor(expanded ?? code, id, vapor_options, false, false, false).code;
+		},
+
+		/**
+		 * Loads a helper module by its `/vue-jsx-vapor/…` id, then runs the
+		 * transforms for helper modules, such as the one that compiles a
+		 * `defineStyle` stylesheet.
+		 *
+		 * @param {string} id
+		 * @returns {Promise<string | undefined>}
+		 */
+		async load_helper(id) {
+			let code;
+			for (const { load } of plugins) {
+				if (!load || !is_vapor_helper_hook(load, id)) continue;
+				code = await call_vapor_hook(load, id);
+				if (code !== undefined) break;
+			}
+			if (code === undefined) return undefined;
+			for (const { transform } of plugins) {
+				if (!transform || !is_vapor_helper_hook(transform, id)) continue;
+				code = (await call_vapor_hook(transform, code, id)) ?? code;
+			}
+			return code;
+		},
+	};
+}
+
+/**
+ * @param {string} anchor a file the helper module resolves its imports from
+ * @param {string} id
+ * @returns {string}
+ */
+function to_vapor_helper_path(anchor, id) {
+	return anchor + VAPOR_HELPER_QUERY + encodeURIComponent(id);
+}
+
+/**
  * Bun plugin for `.tsrx` files that compiles them through `@tsrx/vue`, runs
  * the downstream `vue-jsx-vapor` transform, then strips the remaining
  * TypeScript syntax with Bun. Component-local styles are exposed as virtual CSS
@@ -211,7 +308,7 @@ function resolve_vapor_options(options) {
 export function tsrxVue(options = {}) {
 	const explicit_platform = validatePlatform(options.platform);
 	const emit_css = options.emitCss ?? true;
-	const vapor_options = resolve_vapor_options(options.vapor);
+	const vue_jsx_vapor = create_vue_jsx_vapor(resolve_vapor_options(options.vapor));
 
 	/** @type {Map<string, string>} */
 	const css_cache = new Map();
@@ -223,8 +320,9 @@ export function tsrxVue(options = {}) {
 			// build.config is only present for Bun.build(); runtime registration
 			// via Bun.plugin(), including bun:test preloads, does not provide it.
 			const build_config = build.config ?? {};
+			const base = get_tsconfig_base(build_config);
 			const platform = resolveBuildPlatform({
-				root: get_tsconfig_base(build_config),
+				root: base,
 				tsconfig: typeof build_config.tsconfig === 'string' ? build_config.tsconfig : undefined,
 				platform: explicit_platform,
 				integration: '@tsrx/bun-plugin-vue',
@@ -260,6 +358,34 @@ export function tsrxVue(options = {}) {
 				return runtime ? { contents: '', loader: 'css' } : undefined;
 			});
 
+			// Bun.build() resolves the helper modules a build's compiled modules import
+			// to one path each, in the directory Bun builds from, where they resolve
+			// `vue`. Bun.plugin() never calls onResolve hooks, so there `load_tsrx`
+			// points each helper import at the importing module instead.
+			if (build.config) {
+				const anchor = path.join(base, 'vue-jsx-vapor');
+				build.onResolve({ filter: VAPOR_HELPER_ID_PATTERN }, (args) => {
+					if (!should_compile(options, args.importer)) return undefined;
+					return { path: to_vapor_helper_path(anchor, args.path) };
+				});
+			}
+
+			build.onLoad({ filter: VAPOR_HELPER_PATH_PATTERN }, async (args) => {
+				const [, encoded_id] = /** @type {RegExpExecArray} */ (
+					VAPOR_HELPER_PATH_PATTERN.exec(args.path)
+				);
+				const id = decodeURIComponent(encoded_id);
+				const is_css = /\.css$/.test(id);
+				// Bun.plugin() has no CSS loader, and a stylesheet does nothing there.
+				if (runtime && is_css) return { exports: { default: {} }, loader: 'object' };
+				const code = await vue_jsx_vapor.load_helper(id);
+				if (code === undefined) {
+					if (!runtime) return undefined;
+					throw new Error(`@tsrx/bun-plugin-vue: unknown vue-jsx-vapor helper module ${id}`);
+				}
+				return { contents: code, loader: is_css ? 'css' : 'js' };
+			});
+
 			/**
 			 * @param {string} file_path
 			 * @returns {Promise<OnLoadResult>}
@@ -283,24 +409,26 @@ export function tsrxVue(options = {}) {
 					stylesheets.delete(css_id);
 				}
 
-				const transformed = transformVueJsxVapor(
+				let transformed = await vue_jsx_vapor.transform(
 					output,
 					file_path.replace(/\.tsrx$/, '.tsx'),
-					vapor_options,
-					false,
-					false,
-					false,
 				);
+				if (runtime) {
+					transformed = transformed.replace(
+						VAPOR_HELPER_IMPORT_PATTERN,
+						(_, keyword, id) => keyword + JSON.stringify(to_vapor_helper_path(file_path, id)),
+					);
+				}
 
 				if (transpiler) {
 					return {
-						contents: transpiler.transformSync(transformed.code),
+						contents: transpiler.transformSync(transformed),
 						loader: 'js',
 					};
 				}
 
 				return {
-					contents: transformed.code,
+					contents: transformed,
 					loader: 'ts',
 				};
 			};

@@ -246,6 +246,143 @@ describe('@tsrx/bun-plugin-vue', () => {
 		}
 	});
 
+	it("expands vue-jsx-vapor's macros before the Vapor transform", async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-macros-'));
+		try {
+			const file_path = path.join(dir, 'Greeting.tsrx');
+			await writeFile(
+				file_path,
+				`export function Greeting({ name, greeting = 'Hello' }: { name: string; greeting?: string }) @{
+					<p>{greeting}{', '}{name}</p>
+				}`,
+			);
+
+			const transformed = await load_tsrx(setup_plugin(undefined, { root: dir }), file_path);
+			expect(transformed?.contents).toContain('_setNodes(_x0, () => __props.greeting');
+			expect(transformed?.contents).toContain('"name": null');
+			expect(transformed?.contents).toContain('default: "Hello"');
+
+			const unexpanded = await load_tsrx(
+				setup_plugin({ vapor: { macros: false } }, { root: dir }),
+				file_path,
+			);
+			expect(unexpanded?.contents).toContain('function Greeting({ name, greeting = "Hello" }');
+			expect(unexpanded?.contents).not.toContain('props:');
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('serves the helper modules the macros import in Bun.build()', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-helpers-'));
+		try {
+			const file_path = path.join(dir, 'Named.tsrx');
+			await writeFile(
+				file_path,
+				`export function Named(props: { name: string }) @{
+					<p>{props.name}</p>
+				}`,
+			);
+
+			const hooks = setup_plugin(undefined, { root: dir });
+			const transformed = await load_tsrx(hooks, file_path);
+			expect(transformed?.contents).toContain(
+				'import { useFullProps as __useFullProps } from "/vue-jsx-vapor/props";',
+			);
+
+			const helper = { path: '/vue-jsx-vapor/props', namespace: 'file' };
+			expect(
+				await dispatch(hooks.onResolve, { ...helper, importer: path.join(dir, 'main.ts') }),
+			).toBeUndefined();
+			const resolved = await dispatch(hooks.onResolve, { ...helper, importer: file_path });
+			expect(resolved).toEqual({
+				path: `${path.join(dir, 'vue-jsx-vapor')}?vue-jsx-vapor=%2Fvue-jsx-vapor%2Fprops`,
+			});
+			expect(await dispatch(hooks.onLoad, { path: resolved.path, namespace: 'file' })).toEqual({
+				contents: expect.stringContaining('export function useFullProps()'),
+				loader: 'js',
+			});
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	// Bun.plugin() registration doesn't call onResolve hooks.
+	it('points helper imports at the importing module under Bun.plugin() registration', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-helpers-'));
+		try {
+			const file_path = path.join(dir, 'Named.tsrx');
+			await writeFile(
+				file_path,
+				`export function Named(props: { name: string }) @{
+					<p>{props.name}</p>
+				}`,
+			);
+
+			const hooks = setup_plugin(undefined, null);
+			const transformed = await runtime_dispatch(hooks.onLoad, {
+				path: file_path,
+				namespace: 'file',
+			});
+			const helper_path = `${file_path}?vue-jsx-vapor=%2Fvue-jsx-vapor%2Fprops`;
+			expect(transformed.contents).toContain(`from ${JSON.stringify(helper_path)};`);
+			expect(transformed.contents).not.toContain('"/vue-jsx-vapor/props"');
+			expect(
+				await runtime_dispatch(hooks.onLoad, { path: helper_path, namespace: 'file' }),
+			).toEqual({
+				contents: expect.stringContaining('export function useFullProps()'),
+				loader: 'js',
+			});
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('compiles defineStyle stylesheets as helper modules', async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-define-style-'));
+		try {
+			const file_path = path.join(dir, 'Box.tsrx');
+			await writeFile(
+				file_path,
+				`export function Box() @{
+					defineStyle(\`.box { color: red; }\`);
+					<div class="box" />
+				}`,
+			);
+
+			const hooks = setup_plugin(undefined, { root: dir });
+			const transformed = await load_tsrx(hooks, file_path);
+			const [, id] = /import "(\/vue-jsx-vapor\/macros\/define-style\/[^"]+)"/.exec(
+				String(transformed?.contents),
+			) ?? [, ''];
+			expect(id).toMatch(/&scoped=true&lang\.css$/);
+			const resolved = await dispatch(hooks.onResolve, {
+				path: id,
+				namespace: 'file',
+				importer: file_path,
+			});
+			const css = await dispatch(hooks.onLoad, { path: resolved.path, namespace: 'file' });
+			expect(css).toEqual({
+				contents: expect.stringMatching(/\.box\[data-v-\w+\]/),
+				loader: 'css',
+			});
+
+			const runtime_hooks = setup_plugin(undefined, null);
+			const runtime_module = await runtime_dispatch(runtime_hooks.onLoad, {
+				path: file_path,
+				namespace: 'file',
+			});
+			const [, runtime_path] = /import "([^"]+define-style[^"]+)"/.exec(
+				String(runtime_module.contents),
+			) ?? [, ''];
+			expect(
+				await runtime_dispatch(runtime_hooks.onLoad, { path: runtime_path, namespace: 'file' }),
+			).toEqual({ exports: { default: {} }, loader: 'object' });
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it('falls back to TypeScript output when Bun.Transpiler is unavailable', async () => {
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-'));
 		try {

@@ -17,7 +17,8 @@ already do. A list can nest, and a falsy entry such as the `false` of
 list.
 
 The public `mergeRefs` now reads a ref list as the refs in it and leaves out a
-value that is not a ref instead of throwing, and its type takes lists and
-`false`, so the editor accepts `ref={[a, b]}` on every target.
+value that is not a ref instead of throwing, and its type takes lists and the
+falsy `false`, `0` and `''` of `cond && cb`, so the editor accepts
+`ref={[a, b]}` on every target.
 `merge_element_refs` merges a lone ref object from a list rather than giving it
 back. The `MULTIPLE_REFS` hint no longer limits `ref={[a, b]}` to some targets.

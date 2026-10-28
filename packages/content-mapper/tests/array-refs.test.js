@@ -38,9 +38,11 @@ export function AfterSpread(props: { title?: string }) @{
 const ALL_REFS = `${CALLBACK_REFS}
 const object: { current: HTMLInputElement | null } = { current: null };
 const show = false as boolean;
+const count = 0 as number;
+const label = '' as string;
 
 export function Falsy() @{
-	<input ref={[a, show && b, null, undefined]} />
+	<input ref={[a, show && b, count && b, label && b, null, undefined]} />
 }
 
 export function Objects() @{

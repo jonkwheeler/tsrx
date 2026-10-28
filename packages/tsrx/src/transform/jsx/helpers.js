@@ -255,7 +255,8 @@ export function tsx_with_ts_locations(
 		},
 		// esrap writes `readonly` but not `static` before an index signature (up to
 		// at least esrap 2.4.0), which would turn a static signature into an
-		// instance one.
+		// instance one (#1253).
+		// UPSTREAM(sveltejs/esrap, not reported yet): remove once a release prints `static`
 		TSIndexSignature: (node, context) => {
 			if (/** @type {{ static?: boolean }} */ (node).static) context.write('static ');
 			/** @type {NonNullable<typeof base.TSIndexSignature>} */ (base.TSIndexSignature)(

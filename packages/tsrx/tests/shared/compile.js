@@ -2233,9 +2233,10 @@ export function runSharedCompileTests({
 		componentClassAttrName === 'className'
 			? '{ className }: { className?: string }'
 			: '{ class: className }: { class?: string }';
-	// Solid JSX evaluates to a DOM node, so Solid leaves static JSX in place
-	// rather than hoist one node that every use would share (#1236).
-	const hoistsStaticJsx = name !== 'solid';
+	// Solid and Vue Vapor JSX evaluates to a DOM node, so these targets leave
+	// static JSX in place rather than hoist one node that every use would
+	// share (#1236, #1240).
+	const hoistsStaticJsx = !['solid', 'vue'].includes(name);
 
 	runSharedPlatformTests({ compile, name });
 
@@ -4581,8 +4582,8 @@ export function App() @{
 			],
 		])('hoists JSX whose tag reads %s', (_case, source, expected) => {
 			const { code } = compile(source, 'App.tsrx');
-			// Solid never hoists, and Vue never hoists JSX with a component in it
-			if (['react', 'preact', 'hono'].includes(name)) {
+			// Solid and Vue never hoist
+			if (hoistsStaticJsx) {
 				expect(code).toContain('const App__static1 = <div>');
 			}
 			expect(run_result(code)).toBe(expected);

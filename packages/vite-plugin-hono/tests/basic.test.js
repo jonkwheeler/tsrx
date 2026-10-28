@@ -158,12 +158,27 @@ describe('@tsrx/vite-plugin-hono', () => {
 						</style>
 						<span class={value} />
 					</>
+				}
+
+				export function NativeSpread({ value }) @{
+					<span {...{ class: value }} />
+				}
+
+				export function ScopedSpread({ value }) @{
+					<>
+						<style>
+							span {
+								color: red;
+							}
+						</style>
+						<span {...{ class: value }} />
+					</>
 				}`,
 				source_id,
 			);
 			await writeFile(output_id, transformed.code.replace(/^import ".*\?tsrx-css.*";$/m, ''));
 
-			const [{ Native, Scoped }, { jsx }] = await Promise.all([
+			const [{ Native, Scoped, NativeSpread, ScopedSpread }, { jsx }] = await Promise.all([
 				import(`${pathToFileURL(output_id).href}?test=${Date.now()}`),
 				import('hono/jsx'),
 			]);
@@ -183,6 +198,11 @@ describe('@tsrx/vite-plugin-hono', () => {
 			for (const value of [undefined, null, false, true, '', 0, 'a b']) {
 				expect(await classes(Scoped, value)).toEqual([
 					...(await classes(Native, value)),
+					expect.stringMatching(/^tsrx-[0-9a-f]+$/),
+				]);
+				// A spread's class joins the same way.
+				expect(await classes(ScopedSpread, value)).toEqual([
+					...(await classes(NativeSpread, value)),
 					expect.stringMatching(/^tsrx-[0-9a-f]+$/),
 				]);
 			}

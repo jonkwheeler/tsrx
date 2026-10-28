@@ -451,23 +451,17 @@ export interface JsxPlatform {
 		 *   `class` across attributes and spreads itself, such as Vue's
 		 *   `mergeProps`.
 		 *
-		 * A spread's class joins the scope classes as text, as in the class
-		 * attribute, except a thenable class (Hono's server `css`), which applies
-		 * unchanged. `hostSpreadClassList` joins a non-string class as a list.
+		 * A spread's class joins the scope classes as `classValue` says, or as
+		 * text without it; a thenable class (Hono's server `css`) applies
+		 * unchanged.
 		 */
 		hostSpreadClassProps?: ReadonlyArray<'class' | 'className'>;
 		/**
-		 * The runtime's class prop also takes an object or a list, as Solid's
-		 * `class` does, so a spread's non-string class joins the scope classes
-		 * as `[class, scope]`.
-		 */
-		hostSpreadClassList?: boolean;
-		/**
 		 * How the runtime renders a host element's class value. With it, a class
 		 * attribute beside scoped CSS classes whose value may not be a string
-		 * joins them through `join_scope_class` from `imports.refProp`, which
-		 * renders the class as the runtime would and leaves out a class the
-		 * runtime would not render:
+		 * joins them through `join_scope_class` from `imports.refProp`, and a
+		 * spread's class through `merge_spread_class`; both render the class as
+		 * the runtime would and leave out a class the runtime would not render:
 		 *
 		 * - `'text'` (React, Hono DOM): `null`, `undefined`, `true` and `false`
 		 *   are left out; any other value renders as text.

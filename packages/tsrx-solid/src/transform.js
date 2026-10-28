@@ -97,7 +97,6 @@ const solid_platform = {
 		// Solid reads a class only from `class`, which also takes an object or
 		// a list.
 		hostSpreadClassProps: ['class'],
-		hostSpreadClassList: true,
 		classValue: 'list',
 		// Solid doesn't read `className`.
 		rewriteClassNameAttr: true,

@@ -92,7 +92,7 @@ export function merge_spread_class<T extends object | SpreadFalsy>(
 	scope_class: unknown,
 	key: 'class' | 'className',
 	alias?: 'class' | 'className',
-	list?: boolean,
+	kind?: ClassValueKind,
 ): T;
 
 /**

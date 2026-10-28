@@ -2030,23 +2030,34 @@ describe('merge_spread_class', () => {
 		);
 	});
 
+	it('joins a boolean class as the target renders it', () => {
+		/** @param {unknown} value @param {any} [kind] */
+		const joined = (value, kind) =>
+			merge_spread_class({ class: value }, 'tsrx-a', 'class', undefined, kind).class;
+
+		expect(joined(true)).toBe('tsrx-a');
+		expect(joined(false)).toBe('tsrx-a');
+		expect(joined(true, 'text-true')).toBe('true tsrx-a');
+		expect(joined(false, 'text-true')).toBe('tsrx-a');
+		expect(joined(false, 'text-both')).toBe('false tsrx-a');
+	});
+
 	it('keeps a class object or list as a list for a target whose class takes one', () => {
 		const object = { active: true };
 		const list = ['a', { b: true }];
 
-		expect(merge_spread_class({ class: object }, 'tsrx-a', 'class', undefined, true).class).toEqual(
-			[object, 'tsrx-a'],
+		expect(
+			merge_spread_class({ class: object }, 'tsrx-a', 'class', undefined, 'list').class,
+		).toEqual([object, 'tsrx-a']);
+		expect(merge_spread_class({ class: list }, 'tsrx-a', 'class', undefined, 'list').class).toEqual(
+			[list, 'tsrx-a'],
 		);
-		expect(merge_spread_class({ class: list }, 'tsrx-a', 'class', undefined, true).class).toEqual([
-			list,
-			'tsrx-a',
-		]);
-		expect(merge_spread_class({ class: 'x' }, 'tsrx-a', 'class', undefined, true).class).toBe(
+		expect(merge_spread_class({ class: 'x' }, 'tsrx-a', 'class', undefined, 'list').class).toBe(
 			'x tsrx-a',
 		);
 		// Solid renders no class for these, so only the scope classes apply.
 		for (const value of [0, 1, true, () => 'x']) {
-			expect(merge_spread_class({ class: value }, 'tsrx-a', 'class', undefined, true).class).toBe(
+			expect(merge_spread_class({ class: value }, 'tsrx-a', 'class', undefined, 'list').class).toBe(
 				'tsrx-a',
 			);
 		}

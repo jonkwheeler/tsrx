@@ -587,12 +587,11 @@ function is_dom_node(value) {
  * @param {string} [alias] another prop the target reads a class from, such as
  *   `className` beside Preact's `class`; its class moves to `key` so the
  *   element keeps one class prop
- * @param {boolean} [list] the target's class also takes an object or a list,
- *   as Solid's does, so a class of another type joins the scope classes as
- *   `[class, scope_class]`
+ * @param {ClassValueKind} [kind='text'] how the target renders a class value;
+ *   see `join_scope_class`
  * @returns {object | SpreadFalsy}
  */
-export function merge_spread_class(props, scope_class, key, alias, list) {
+export function merge_spread_class(props, scope_class, key, alias, kind = 'text') {
 	if (props === null || (typeof props !== 'object' && typeof props !== 'function')) {
 		return props;
 	}
@@ -628,10 +627,7 @@ export function merge_spread_class(props, scope_class, key, alias, list) {
 		define_property(next, key, {
 			enumerable: true,
 			configurable: true,
-			// A spread's `true` class joins as text, as it did before the
-			// attribute path learned each target's rendering.
-			get: () =>
-				join_class(read_class(source, class_keys), scope_class, list ? 'list' : 'text-true'),
+			get: () => join_class(read_class(source, class_keys), scope_class, kind),
 		});
 	}
 	return next;

@@ -95,7 +95,7 @@ export function prepare_style_scopes(program, ctx) {
 			!ctx.typeOnly && ctx.platform.imports.refProp && ctx.platform.jsx.hostSpreadClassProps
 				? {
 						props: ctx.platform.jsx.hostSpreadClassProps,
-						list: !!ctx.platform.jsx.hostSpreadClassList,
+						kind: ctx.platform.jsx.classValue ?? null,
 					}
 				: null,
 		// The type-only print keeps the template literal, which types as a string.

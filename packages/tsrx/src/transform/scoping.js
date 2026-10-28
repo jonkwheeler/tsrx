@@ -495,7 +495,7 @@ export const MERGE_SPREAD_CLASS_INTERNAL_NAME = '__merge_spread_class';
  * @param {SpreadClassOptions} spread_class
  */
 function merge_spread_classes(attrs, class_index, parts, class_attr_name, spread_class) {
-	const { props, list } = spread_class;
+	const { props, kind } = spread_class;
 	const scope_class = build_scope_class_value({ ...parts, base: null });
 	// A runtime that reads either prop gets the spread's class under the
 	// attribute's name, so the element keeps one class prop.
@@ -520,7 +520,7 @@ function merge_spread_classes(attrs, class_index, parts, class_attr_name, spread
 				before ? b.literal(null, 'null') : scope_class,
 				b.literal(key, JSON.stringify(key)),
 				alias && b.literal(alias, JSON.stringify(alias)),
-				!before && list && b.literal(true, 'true'),
+				!before && kind !== null && kind !== 'text' && b.literal(kind, JSON.stringify(kind)),
 			),
 		};
 	}

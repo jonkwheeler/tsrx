@@ -896,10 +896,10 @@ describe('@tsrx/solid basic', () => {
 			"import { merge_spread_class as __merge_spread_class } from '@tsrx/solid/ref';",
 		);
 		expect(code).toContain(
-			`<span class="${cssHash}" {...__normalize_spread_props(__merge_spread_class(props, "${cssHash}", "class", void 0, true))} />`,
+			`<span class="${cssHash}" {...__normalize_spread_props(__merge_spread_class(props, "${cssHash}", "class", void 0, "list"))} />`,
 		);
 		expect(code).toContain(
-			`<span class="base ${cssHash}" {...__normalize_spread_props(__merge_spread_class(props, "${cssHash}", "class", void 0, true))} />`,
+			`<span class="base ${cssHash}" {...__normalize_spread_props(__merge_spread_class(props, "${cssHash}", "class", void 0, "list"))} />`,
 		);
 		expect(code).toContain(`<span {...__normalize_spread_props(props)} class="last ${cssHash}" />`);
 	});

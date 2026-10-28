@@ -976,6 +976,106 @@ describe('@tsrx/vue basic', () => {
 		});
 	});
 
+	describe('declares the catch helper of a component inside another scope', () => {
+		/** @param {string} read */
+		const try_block = (read) => `@try {
+						<p>{'ready'}</p>
+					} @pending {
+						<p>{'loading'}</p>
+					} @catch (error) {
+						<p>{${read}}</p>
+					}`;
+		const helper =
+			'const App__StatementBodyHook1 = defineVaporComponent(function App__StatementBodyHook1(';
+
+		it.each([
+			[
+				'that reads only the enclosing function',
+				`export function makeApp(label: string) {
+					function App() @{
+						${try_block('label')}
+					}
+					return App;
+				}`,
+				'\tconst App = defineVaporComponent(function App() {',
+			],
+			[
+				'that reads its own catch parameter and locals',
+				`export function makeApp() {
+					function App() @{
+						${try_block('(error as Error).message').replace(
+							'<p>{(error as Error).message}</p>',
+							'const message = (error as Error).message;\n<p>{message}</p>',
+						)}
+					}
+					return App;
+				}`,
+				'\tconst App = defineVaporComponent(function App() {',
+			],
+			[
+				'in a namespace',
+				`export namespace Views {
+					export function App() @{
+						${try_block('(error as Error).message')}
+					}
+				}`,
+				'\texport const App = defineVaporComponent(function App() {',
+			],
+		])('once, beside the component, when it captures nothing: %s', (_label, source, component) => {
+			const { code } = compile(source, 'App.tsrx');
+
+			expect(code).toContain(`\n\t${helper}`);
+			expect(code.indexOf(helper)).toBeLessThan(code.indexOf(component));
+			expect(code).not.toContain(`\t\t${helper}`);
+		});
+
+		it.each([
+			[
+				'a setup local',
+				`export function makeApp() {
+					function App() @{
+						const suffix = '!';
+						${try_block('suffix')}
+					}
+					return App;
+				}`,
+			],
+			[
+				'a prop',
+				`export function makeApp() {
+					function App(props: { name: string }) @{
+						${try_block('props.name')}
+					}
+					return App;
+				}`,
+			],
+			[
+				'a parameter of a callback in the component',
+				`export function makeApp() {
+					function App() @{
+						const row = (x: string) => <div>${try_block('x')}</div>;
+						<>{row('a')}</>
+					}
+					return App;
+				}`,
+			],
+			[
+				'the parameter of an expression-bodied arrow that holds the component',
+				`export const makeApp = (label: string) =>
+					function App() @{
+						${try_block('label')}
+					};`,
+			],
+		])('in the setup when it reads %s', (_label, source) => {
+			const { code } = compile(source, 'App.tsrx');
+
+			// Declared after the component starts, so in its setup.
+			expect(code.indexOf(helper)).toBeGreaterThan(
+				code.indexOf('defineVaporComponent(function App('),
+			);
+		});
+	});
+
 	it('keeps try/pending/catch Suspense lowering valid in type-only output', () => {
 		const source = `import { defineVaporAsyncComponent } from 'vue';
 

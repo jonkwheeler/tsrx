@@ -1,10 +1,12 @@
 /** @import { Compiler, RspackPluginInstance } from '@rspack/core' */
 /** @import { Platform, RuntimeImportMode } from '@tsrx/vue' */
+/** @import { VueJsxVapor } from './vue-jsx-vapor.js' */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPlatformDefinitions, mergePlatformDefinitions, validatePlatform } from '@tsrx/core';
 import { resolveBuildPlatform } from '@tsrx/core/config';
+import { create_vue_jsx_vapor, VAPOR_HELPER_ID_PATTERN } from './vue-jsx-vapor.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +19,10 @@ const INTEROP_LOADER = path.join(__dirname, 'interop-loader.js');
 const TSRX_EXTENSION_PATTERN = /\.tsrx$/;
 const CSS_QUERY_PATTERN = /tsrx-css/;
 const SOURCE_EXTENSION_PATTERN = /\.[cm]?[jt]sx?$/;
+const PLUGIN_NAME = 'TsrxVueRspackPlugin';
+const VAPOR_HELPER_DIR = '.tsrx-vue-jsx-vapor';
+// `defineStyle` sheets: `lang.css`, or `lang.module.css` for CSS modules.
+const VAPOR_HELPER_STYLESHEET_PATTERN = /[/\\]\.tsrx-vue-jsx-vapor[/\\][^/\\]+\.css$/;
 
 /** @param {any} plugin @returns {Record<string, unknown> | undefined} */
 function get_define_plugin_definitions(plugin) {
@@ -50,11 +56,48 @@ function apply_platform_definitions(compiler, platform) {
 }
 
 /**
+ * Resolves the helper modules the macros import into compiled `.tsrx` modules,
+ * such as `/vue-jsx-vapor/props`, to virtual files under the compiler's
+ * context, where they resolve `vue`, as in vue-jsx-vapor's own Rspack plugin.
+ * A stylesheet keeps its `.css` ending for the plugin's CSS rule.
+ *
+ * @param {Compiler} compiler
+ * @param {VueJsxVapor} vue_jsx_vapor
+ */
+function serve_vapor_helpers(compiler, vue_jsx_vapor) {
+	const virtual_modules = new compiler.webpack.experiments.VirtualModulesPlugin();
+	virtual_modules.apply(compiler);
+	/** @type {Set<string>} */
+	const written = new Set();
+
+	compiler.hooks.compilation.tap(PLUGIN_NAME, (_compilation, { normalModuleFactory }) => {
+		normalModuleFactory.hooks.resolve.tapPromise(PLUGIN_NAME, async (data) => {
+			if (!VAPOR_HELPER_ID_PATTERN.test(data.request)) return;
+			if (!TSRX_EXTENSION_PATTERN.test(data.contextInfo.issuer)) return;
+			const code = await vue_jsx_vapor.load_helper(data.request);
+			if (code === undefined) return;
+			const extension = /\.css$/.test(data.request) ? '' : '.js';
+			const file = path.join(
+				compiler.context,
+				'node_modules',
+				VAPOR_HELPER_DIR,
+				encodeURIComponent(data.request) + extension,
+			);
+			if (!written.has(file)) {
+				written.add(file);
+				virtual_modules.writeModule(file, code);
+			}
+			data.request = file;
+		});
+	});
+}
+
+/**
  * Rspack plugin for `.tsrx` files that compiles them via `@tsrx/vue`, runs the
- * result through `vue-jsx-vapor`, and finally strips the remaining TypeScript
- * syntax with rspack's built-in SWC loader. Per-component `<style>` blocks are
- * re-imported via a sibling `?tsrx-css&lang.css` query and handled by rspack's
- * built-in CSS module type.
+ * result through `vue-jsx-vapor`'s macros and Vapor transform, and finally
+ * strips the remaining TypeScript syntax with rspack's built-in SWC loader.
+ * Per-component `<style>` blocks are re-imported via a sibling
+ * `?tsrx-css&lang.css` query and handled by rspack's built-in CSS module type.
  *
  * @implements {RspackPluginInstance}
  */
@@ -105,6 +148,9 @@ export class TsrxVueRspackPlugin {
 			experiments.deferImport = true;
 		}
 
+		const vue_jsx_vapor = create_vue_jsx_vapor(this.options.vapor);
+		serve_vapor_helpers(compiler, vue_jsx_vapor);
+
 		compiler.options.module.rules.unshift(
 			{
 				test: SOURCE_EXTENSION_PATTERN,
@@ -135,6 +181,7 @@ export class TsrxVueRspackPlugin {
 						loader: VAPOR_LOADER,
 						options: {
 							vapor: this.options.vapor,
+							vueJsxVapor: vue_jsx_vapor,
 						},
 					},
 					{
@@ -159,6 +206,10 @@ export class TsrxVueRspackPlugin {
 						},
 					},
 				],
+			},
+			{
+				test: VAPOR_HELPER_STYLESHEET_PATTERN,
+				type: 'css/auto',
 			},
 		);
 	}

@@ -60,10 +60,10 @@ class TSRXReferencer extends Referencer {
 		node.attributes.forEach(this.visit, this);
 	}
 
-	JSXClosingElement(node: any): void {
-		// The opening tag already references the expression this one repeats.
-		if (!node.tagExpression) this.visitChildren(node);
-	}
+	// A closing tag repeats the opening tag's name, so it adds no references.
+	// With JSX enabled, eslint-scope read the `</style>` of a `<style>` element
+	// as one.
+	JSXClosingElement(): void {}
 
 	JSXForExpression(node: any): void {
 		this.#tsrx_for_by_loop.set(node.loop, node);

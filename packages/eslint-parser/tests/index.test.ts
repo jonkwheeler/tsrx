@@ -461,6 +461,23 @@ export function App({ as, ui, key }) @{
 		}
 	});
 
+	it('reads no reference from a closing tag', () => {
+		const code = `export function App() @{
+	<>
+		<style>.a { color: red; }</style>
+		<div class="a" />
+	</>
+}`;
+		for (const jsx of [false, true]) {
+			expect(
+				lint(code, {
+					languageOptions: { parser, parserOptions: { ecmaFeatures: { jsx } } },
+					rules: { 'no-undef': 'error' },
+				}),
+			).toEqual([]);
+		}
+	});
+
 	it('keeps the expression of a dynamic tag in view of rules', () => {
 		const code = `export class List {
 	Item = 'li';

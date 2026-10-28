@@ -489,7 +489,8 @@ function collect_ref_cleanups(ref_value, node, cleanups) {
 /**
  * Collect a spread's refs into one `ref`. A bag with no refs to merge comes back
  * as itself, so a JSX runtime that reads a spread lazily, property by property
- * (Solid's), keeps reading the original bag.
+ * (Solid's), keeps reading the original bag. That includes a bag whose only ref
+ * is a ref list, which Solid applies itself.
  *
  * @param {object | SpreadFalsy} props a props bag, or the falsy value of a
  *   conditional spread such as `{...(enabled && { disabled: true })}`; `object`
@@ -498,7 +499,7 @@ function collect_ref_cleanups(ref_value, node, cleanups) {
  * @returns {SpreadProps | SpreadFalsy}
  */
 export function normalize_spread_props(props, ...outer_refs) {
-	return normalize_spread(props, outer_refs, false, merge_ref_list);
+	return normalize_spread(props, outer_refs, false, merge_ref_list, false);
 }
 
 /**
@@ -511,7 +512,7 @@ export function normalize_spread_props(props, ...outer_refs) {
  * @returns {SpreadProps | SpreadFalsy}
  */
 export function copy_spread_props(props, ...outer_refs) {
-	return normalize_spread(props, outer_refs, true, merge_ref_list);
+	return normalize_spread(props, outer_refs, true, merge_ref_list, true);
 }
 
 /**
@@ -526,7 +527,7 @@ export function copy_spread_props(props, ...outer_refs) {
  * @returns {SpreadProps | SpreadFalsy}
  */
 export function copy_spread_props_sharing_refs(props, ...outer_refs) {
-	return normalize_spread(props, outer_refs, true, merge_shared_ref_list);
+	return normalize_spread(props, outer_refs, true, merge_shared_ref_list, true);
 }
 
 /**
@@ -535,9 +536,11 @@ export function copy_spread_props_sharing_refs(props, ...outer_refs) {
  * @param {boolean} copy return the normalized copy even with nothing to merge
  * @param {(refs: RefValue<Element>[]) => RefValue<Element>} merge merges an
  *   owned list of the bag's refs into one
+ * @param {boolean} merge_ref_lists merge a `ref` that is a ref list even when
+ *   it is the bag's only ref, for a JSX runtime that takes a single ref
  * @returns {SpreadProps | SpreadFalsy}
  */
-function normalize_spread(props, outer_refs, copy, merge) {
+function normalize_spread(props, outer_refs, copy, merge, merge_ref_lists) {
 	// A non-object carries no refs to collect. Returning it unchanged leaves the
 	// spread to treat it exactly as a native JSX spread would.
 	if (props === null || (typeof props !== 'object' && typeof props !== 'function')) {
@@ -587,7 +590,8 @@ function normalize_spread(props, outer_refs, copy, merge) {
 		next[key] = value;
 	}
 
-	if (refs === undefined && outer_refs.length === 0) {
+	const merges_ref_list = merge_ref_lists && is_array(existing_ref);
+	if (refs === undefined && outer_refs.length === 0 && !merges_ref_list) {
 		if (!copy) {
 			return source;
 		}
@@ -603,7 +607,14 @@ function normalize_spread(props, outer_refs, copy, merge) {
 	if (refs === undefined) {
 		// `outer_refs` is a fresh rest array owned by the caller; unshifting
 		// `existing_ref` into place avoids a second concatenated array.
-		if (existing_ref != null) {
+		if (merges_ref_list) {
+			// `merge_ref_list` hands back a lone entry as itself, so it gets the
+			// list's refs rather than the list.
+			/** @type {RefValue<Element>[]} */
+			const list_refs = [];
+			collect_live_refs(/** @type {readonly RefValue<Element>[]} */ (existing_ref), list_refs);
+			outer_refs.unshift(...list_refs);
+		} else if (existing_ref != null) {
 			outer_refs.unshift(existing_ref);
 		}
 		merged_ref = merge(outer_refs);
@@ -622,7 +633,9 @@ function normalize_spread(props, outer_refs, copy, merge) {
 		}
 		merged_ref = merge(refs);
 	}
-	if (merged_ref !== undefined) {
+	// An empty list still replaces an earlier spread's ref, as its `ref` key
+	// would in native JSX.
+	if (merged_ref !== undefined || merges_ref_list) {
 		next.ref = merged_ref;
 	}
 
@@ -640,7 +653,7 @@ function normalize_spread(props, outer_refs, copy, merge) {
  * @returns {SpreadProps | Exclude<SpreadFalsy, null | undefined | void>}
  */
 export function normalize_spread_props_for_ref_attr(props, ...outer_refs) {
-	return hide_spread_ref(normalize_spread(props, outer_refs, false, merge_ref_list));
+	return hide_spread_ref(normalize_spread(props, outer_refs, false, merge_ref_list, true));
 }
 
 /**
@@ -652,7 +665,7 @@ export function normalize_spread_props_for_ref_attr(props, ...outer_refs) {
  * @returns {SpreadProps | Exclude<SpreadFalsy, null | undefined | void>}
  */
 export function copy_spread_props_for_ref_attr(props, ...outer_refs) {
-	return hide_spread_ref(normalize_spread(props, outer_refs, true, merge_ref_list));
+	return hide_spread_ref(normalize_spread(props, outer_refs, true, merge_ref_list, true));
 }
 
 /**
@@ -664,7 +677,7 @@ export function copy_spread_props_for_ref_attr(props, ...outer_refs) {
  * @returns {SpreadProps | Exclude<SpreadFalsy, null | undefined | void>}
  */
 export function copy_spread_props_for_ref_attr_sharing_refs(props, ...outer_refs) {
-	return hide_spread_ref(normalize_spread(props, outer_refs, true, merge_shared_ref_list));
+	return hide_spread_ref(normalize_spread(props, outer_refs, true, merge_shared_ref_list, true));
 }
 
 /**

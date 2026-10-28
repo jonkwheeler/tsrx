@@ -437,8 +437,8 @@ export function Card({ s: size = cfg.size }: { s?: number }) @{
 			['{ [k]: v }', 'k', "reads `[k]` as the prop 'k'", '{props[k]}'],
 			['{ t, [k]: v }', 'k', "reads `[k]` as the prop 'k'", '{props[k]}'],
 			['{ [k]: { a: v } }', 'k', "reads `[k]` as the prop 'k'", null],
-			['{ t: { [k]: v } }', 'k', "reads `[k]` as the prop 'k'", '{props.t[k]}'],
-			['{ t: [{ [k]: v }] }', 'k', "reads `[k]` as the prop 'k'", '{props.t[0][k]}'],
+			['{ t: { [k]: v } }', 'k', "reads `[k]` as the prop 'k'", '{props.t?.[k]}'],
+			['{ t: [{ [k]: v }] }', 'k', "reads `[k]` as the prop 'k'", '{props.t?.[0]?.[k]}'],
 			// It leaves out any other key. With no key it reads, the component gets no
 			// prop options, so Vue passes it no props.
 			["{ ['s']: v = 3 }", "'s'", "the prop at `['s']`", '{props.s === undefined ? 3 : props.s}'],
@@ -454,8 +454,8 @@ export function Card({ s: size = cfg.size }: { s?: number }) @{
 			['{ [`s`]: v, ...rest }', '`s`', 'the prop at `[`s`]`', '{props.s}'],
 			['{ [obj.k]: v }', 'obj.k', 'the prop at `[obj.k]`', '{props[obj.k]}'],
 			["{ [k + '']: v }", "k + ''", "the prop at `[k + '']`", "{props[k + '']}"],
-			["{ t: { 's': v } }", "'s'", "the prop at `'s'`", '{props.t.s}'],
-			["{ t: { 'a-b': v } }", "'a-b'", "the prop at `'a-b'`", '{props.t["a-b"]}'],
+			["{ t: { 's': v } }", "'s'", "the prop at `'s'`", '{props.t?.s}'],
+			["{ t: { 'a-b': v } }", "'a-b'", "the prop at `'a-b'`", '{props.t?.["a-b"]}'],
 		]) {
 			const source = `const cfg = { size: 1 };
 const k = 's';
@@ -508,10 +508,10 @@ export function Card({ t, [k +
 				'{ s: { a: v = cfg.size } }',
 				'cfg.size',
 				's.a',
-				'{props.s.a === undefined ? cfg.size : props.s.a}',
+				'{props.s?.a === undefined ? cfg.size : props.s?.a}',
 			],
-			['{ s: { a: v = 3 } }', '3', 's.a', '{props.s.a === undefined ? 3 : props.s.a}'],
-			['{ s: [v = 1] }', '1', 's[0]', '{props.s[0] === undefined ? 1 : props.s[0]}'],
+			['{ s: { a: v = 3 } }', '3', 's.a', '{props.s?.a === undefined ? 3 : props.s?.a}'],
+			['{ s: [v = 1] }', '1', 's[0]', '{props.s?.[0] === undefined ? 1 : props.s?.[0]}'],
 			['{ s: { t: { a } = {} } }', '{}', 's.t', null],
 		]) {
 			const source = `const cfg = { size: 1 };
@@ -535,6 +535,60 @@ export function Card(${params}: any) @{
 		}
 	});
 
+	it('reports a props parameter with a default, which vue-jsx-vapor skips', () => {
+		for (const [param, fallback] of [
+			['{ s: v }: { s?: number } = {}', '{}'],
+			['props: { s?: number } = { s: 1 }', '{ s: 1 }'],
+		]) {
+			const { errors } = compile_to_volar_mappings(
+				`export function Card(${param}) @{
+	<div>{String(v)}</div>
+}`,
+				'App.tsrx',
+			);
+			expect(
+				errors.map((error) => error.code),
+				param,
+			).toEqual(['TSRX2031']);
+			expect(errors[0].message, param).toContain(
+				`cannot read a props parameter with a default: vue-jsx-vapor skips it, so this component gets no props. Remove \`= ${fallback}\`; Vue always passes a props object.`,
+			);
+			expect(errors[0].loc.start, param).toEqual({
+				line: 1,
+				column: 'export function Card('.length + param.lastIndexOf(fallback),
+			});
+		}
+	});
+
+	it("reports a rest element inside a prop that vue-jsx-vapor doesn't give the rest of it", () => {
+		for (const [params, rest, path] of [
+			// The last rest element of the pattern gets the component's attrs.
+			['{ t: { a, ...r } }', '...r', 't'],
+			['{ t: [a, ...r] }', '...r', 't'],
+			['{ t: { a, ...r }, u: { b, ...q } }', '...q', 'u'],
+			// An array's rest element gets the whole array.
+			['{ t: [a, ...r], ...rest }', '...r', 't'],
+		]) {
+			const { errors } = compile_to_volar_mappings(
+				`export function Card(${params}: any) @{
+	<div>{String(a)}</div>
+}`,
+				'App.tsrx',
+			);
+			expect(
+				errors.map((error) => error.code),
+				params,
+			).toEqual(['TSRX2031']);
+			expect(errors[0].message, params).toContain(
+				`cannot read this rest element inside '${path}': vue-jsx-vapor gives the last rest element in the props pattern the component's attrs`,
+			);
+			expect(errors[0].loc.start, params).toEqual({
+				line: 1,
+				column: 'export function Card('.length + params.indexOf(rest),
+			});
+		}
+	});
+
 	it('accepts destructured props vue-jsx-vapor reads as written', () => {
 		for (const params of [
 			'{ s: v, t = 1 }',
@@ -542,6 +596,10 @@ export function Card(${params}: any) @{
 			'{ s: { a: v } }',
 			// A prop's own default, which vue-jsx-vapor keeps for an object literal.
 			'{ s: { a: v } = {} }',
+			// The pattern's own rest element gets the attrs, which are the props it
+			// doesn't declare, and a prop's rest element before it is read right.
+			'{ s: v, ...rest }',
+			'{ t: { a, ...r }, ...rest }',
 		]) {
 			const source = `export function Card(${params}: any) @{
 	<div>{String(v)}</div>

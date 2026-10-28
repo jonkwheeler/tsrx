@@ -1,6 +1,11 @@
 /** @import * as AST from 'estree' */
 /** @import * as ESTreeJSX from 'estree-jsx' */
 /** @import { JsxHelperComponent, JsxPlatform, JsxTransformContext as TransformContext } from '@tsrx/core/types' */
+/**
+ * A rest element inside a destructured prop, with how the body reads the value
+ * it destructures, and whether it is in an array pattern.
+ * @typedef {{ node: AST.RestElement, object: string, array: boolean }} PropRest
+ */
 
 import { walk } from 'zimmerframe';
 import is_reference from 'is-reference';
@@ -926,9 +931,7 @@ function wrap_native_function_component(fn, source, ctx, path) {
 
 	ctx.needs_define_vapor_component = true;
 	validate_prop_defaults(fn, ctx);
-	if (fn.params[0]?.type === 'ObjectPattern') {
-		validate_prop_keys(fn.params[0], 'props', false, ctx);
-	}
+	validate_props_param(fn, ctx);
 
 	const call = setLocation(
 		create_define_vapor_component_call(
@@ -998,32 +1001,82 @@ function validate_prop_defaults(fn, ctx) {
 }
 
 /**
- * vue-jsx-vapor reads a component's destructured props by name, and reads
- * only keys that are names: it reads `{ [k]: v }` as the prop `k`, whatever
- * `k` holds, and leaves out any other key (`{ 'a-b': v }`, `{ [1]: v }`), so
- * its binding never gets the prop. That holds at every level, and a pattern
- * with no key it reads also gets no prop options, so Vue passes it no props
- * at all. Inside a prop, it applies a default only when the whole prop is
- * missing. Report each such key (TSRX2031) and nested default (TSRX2029).
+ * Check a component's props parameter the way vue-jsx-vapor's props macro
+ * reads it (TSRX2031, and TSRX2029 for a default inside a prop):
  *
- * @param {AST.ObjectPattern} pattern
- * @param {string} object how the body reads the value the pattern destructures
- * @param {boolean} nested whether the pattern is inside a prop
+ * - It skips a props parameter with a default (`{ s } = {}`), so the
+ *   component gets no prop options and Vue passes it no props.
+ * - It reads destructured props by name, and reads only keys that are names:
+ *   it reads `{ [k]: v }` as the prop `k`, whatever `k` holds, and leaves out
+ *   any other key (`{ 'a-b': v }`, `{ [1]: v }`), so its binding never gets
+ *   the prop. That holds at every level, and a pattern with no key it reads
+ *   also gets no prop options.
+ * - Inside a prop, it applies a default only when the whole prop is missing.
+ * - It gives the pattern's last rest element the component's attrs, even
+ *   inside a prop, and a rest element in an array the whole array.
+ *
+ * @param {AST.Function} fn
  * @param {TransformContext} ctx
  * @returns {void}
  */
-function validate_prop_keys(pattern, object, nested, ctx) {
+function validate_props_param(fn, ctx) {
+	const param = fn.params[0];
+	if (param?.type === 'AssignmentPattern') {
+		error(
+			TSRX_ERRORS.TARGET_PROPS_PARAM_DEFAULT(ctx.platform.name, get_inline_text(param.right, ctx)),
+			ctx.filename,
+			param.right,
+			ctx.errors,
+			ctx.comments,
+		);
+		return;
+	}
+	if (param?.type !== 'ObjectPattern') return;
+	/** @type {PropRest[]} */
+	const rests = [];
+	validate_prop_keys(param, 'props', false, rests, ctx);
+	const own_rest = param.properties.at(-1)?.type === 'RestElement';
+	rests.forEach((rest, index) => {
+		if (!rest.array && (own_rest || index < rests.length - 1)) return;
+		error(
+			TSRX_ERRORS.TARGET_PROP_NESTED_REST(ctx.platform.name, get_prop_path(rest.object)),
+			ctx.filename,
+			rest.node,
+			ctx.errors,
+			ctx.comments,
+		);
+	});
+}
+
+/**
+ * @param {AST.ObjectPattern} pattern
+ * @param {string} object how the body reads the value the pattern destructures
+ * @param {boolean} nested whether the pattern is inside a prop
+ * @param {PropRest[]} rests the rest elements inside props, in the macro's order
+ * @param {TransformContext} ctx
+ * @returns {void}
+ */
+function validate_prop_keys(pattern, object, nested, rests, ctx) {
 	for (const property of pattern.properties) {
-		if (property.type !== 'Property') continue;
-		const key = property.key;
-		if (!property.computed && key.type === 'Identifier') {
-			validate_prop_value(property.value, `${object}.${key.name}`, nested, ctx);
+		if (property.type === 'RestElement') {
+			if (nested) rests.push({ node: property, object, array: false });
 			continue;
 		}
-		const written = get_key_text(key, ctx);
+		const key = property.key;
+		if (!property.computed && key.type === 'Identifier') {
+			validate_prop_value(
+				property.value,
+				join_prop_member(object, `.${key.name}`, nested),
+				nested,
+				rests,
+				ctx,
+			);
+			continue;
+		}
+		const written = get_inline_text(key, ctx);
 		const example = get_prop_read_example(
 			property.value,
-			`${object}${get_prop_member_access(key, written, !nested)}`,
+			join_prop_member(object, get_prop_member_access(key, written, !nested), nested),
 			ctx,
 		);
 		error(
@@ -1049,16 +1102,17 @@ function validate_prop_keys(pattern, object, nested, ctx) {
  * @param {AST.Pattern} pattern
  * @param {string} object how the body reads the value
  * @param {boolean} nested whether the value is inside a prop
+ * @param {PropRest[]} rests
  * @param {TransformContext} ctx
  * @returns {void}
  */
-function validate_prop_value(pattern, object, nested, ctx) {
+function validate_prop_value(pattern, object, nested, rests, ctx) {
 	if (pattern.type === 'AssignmentPattern') {
 		if (nested) {
 			error(
 				TSRX_ERRORS.TARGET_PROP_NESTED_DEFAULT_UNSUPPORTED(
 					ctx.platform.name,
-					object.slice('props.'.length),
+					get_prop_path(object),
 					get_prop_read_example(pattern, object, ctx),
 				),
 				ctx.filename,
@@ -1067,14 +1121,49 @@ function validate_prop_value(pattern, object, nested, ctx) {
 				ctx.comments,
 			);
 		}
-		validate_prop_value(pattern.left, object, nested, ctx);
+		validate_prop_value(pattern.left, object, nested, rests, ctx);
 	} else if (pattern.type === 'ObjectPattern') {
-		validate_prop_keys(pattern, object, true, ctx);
+		validate_prop_keys(pattern, object, true, rests, ctx);
 	} else if (pattern.type === 'ArrayPattern') {
 		pattern.elements.forEach((element, index) => {
-			if (element) validate_prop_value(element, `${object}[${index}]`, true, ctx);
+			if (element?.type === 'RestElement') {
+				rests.push({ node: element, object, array: true });
+			} else if (element) {
+				validate_prop_value(
+					element,
+					join_prop_member(object, `[${index}]`, true),
+					true,
+					rests,
+					ctx,
+				);
+			}
 		});
 	}
+}
+
+/**
+ * Read a member of a prop's value with optional chaining, since the prop
+ * itself can be missing.
+ *
+ * @param {string} object
+ * @param {string} member `.name` or `[key]`
+ * @param {boolean} nested whether `object` is a prop's value, not the props
+ * @returns {string}
+ */
+function join_prop_member(object, member, nested) {
+	return nested
+		? `${object}?.${member.startsWith('.') ? member.slice(1) : member}`
+		: object + member;
+}
+
+/**
+ * A value's path in the props as the messages show it, such as `s.a`.
+ *
+ * @param {string} object
+ * @returns {string}
+ */
+function get_prop_path(object) {
+	return object.slice('props.'.length).replace(/\?\.(\[)?/g, (_, bracket) => bracket ?? '.');
 }
 
 /**
@@ -1118,17 +1207,21 @@ function get_prop_read_example(value, access, ctx) {
 }
 
 /**
- * A key's source text, on one line.
+ * A node's source text, on one line.
  *
- * @param {AST.Node} key
+ * @param {AST.Node} node
  * @param {TransformContext} ctx
  * @returns {string}
  */
-function get_key_text(key, ctx) {
-	if (ctx.source && key.start != null && key.end != null) {
-		return ctx.source.slice(key.start, key.end).replace(/\s*\n\s*/g, ' ');
+function get_inline_text(node, ctx) {
+	if (ctx.source && node.start != null && node.end != null) {
+		return ctx.source.slice(node.start, node.end).replace(/\s*\n\s*/g, ' ');
 	}
-	return key.type === 'Identifier' ? key.name : key.type === 'Literal' ? String(key.value) : '…';
+	return node.type === 'Identifier'
+		? node.name
+		: node.type === 'Literal'
+			? String(node.value)
+			: '…';
 }
 
 /**

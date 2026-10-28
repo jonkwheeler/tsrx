@@ -451,6 +451,24 @@ export const TSRX_ERRORS = {
 			`${target} TSRX cannot keep this default for '${path}': vue-jsx-vapor applies a default inside a destructured prop only when the whole prop is missing, so it is lost whenever the prop is passed without this value. ${read_prop_where_used(example)}`,
 	),
 	/**
+	 * `target` is the target's name, and `fallback` the parameter's default as
+	 * written. Only Vue's vue-jsx-vapor skips a props parameter with a default.
+	 */
+	TARGET_PROPS_PARAM_DEFAULT: tsrx_with_values(
+		'TARGET_PROP_KEY_UNSUPPORTED',
+		(target, fallback) =>
+			`${target} TSRX cannot read a props parameter with a default: vue-jsx-vapor skips it, so this component gets no props. Remove \`= ${fallback}\`; Vue always passes a props object.`,
+	),
+	/**
+	 * `target` is the target's name, and `path` the path in the props of the
+	 * value the rest element destructures (such as `t`).
+	 */
+	TARGET_PROP_NESTED_REST: tsrx_with_values(
+		'TARGET_PROP_KEY_UNSUPPORTED',
+		(target, path) =>
+			`${target} TSRX cannot read this rest element inside '${path}': vue-jsx-vapor gives the last rest element in the props pattern the component's attrs, and an array's rest element the whole array, so it doesn't hold the rest of '${path}'. ${read_prop_where_used('')}`,
+	),
+	/**
 	 * `target` is the target's name, `name` the computed key, and `example`,
 	 * which can be empty, an expression that reads the prop where it is used.
 	 * Only Vue's vue-jsx-vapor reads a destructured prop by its key's name.

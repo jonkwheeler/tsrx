@@ -1,6 +1,7 @@
 import { TS_ERRORS } from '@tsrx/core';
 import { describe, expect, it } from 'vitest';
 import {
+	runSharedArrayRefTests,
 	runSharedCodeBlockChildrenTests,
 	runSharedCompileDiagnosticsTests,
 	runSharedCompileTests,
@@ -55,6 +56,12 @@ runSharedCompileTests({
 });
 runSharedCompileDiagnosticsTests({ compile_to_volar_mappings, name: 'react' });
 runSharedCodeBlockChildrenTests({ compile, name: 'react' });
+runSharedArrayRefTests({
+	compile,
+	compile_to_volar_mappings,
+	name: 'react',
+	merge: 'merge_element_refs',
+});
 runSharedHookBodyTests({ compile, compile_to_volar_mappings, name: 'react' });
 
 /**

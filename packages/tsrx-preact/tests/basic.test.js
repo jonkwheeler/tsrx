@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	runSharedArrayRefTests,
 	runSharedCodeBlockChildrenTests,
 	runSharedCompileDiagnosticsTests,
 	runSharedCompileTests,
@@ -47,6 +48,7 @@ runSharedTsxExpressionTsrxTests({ compile, name: 'preact', classAttrName: 'class
 runSharedCompileTests({ compile, name: 'preact', classAttrName: 'class' });
 runSharedCompileDiagnosticsTests({ compile_to_volar_mappings, name: 'preact' });
 runSharedCodeBlockChildrenTests({ compile, name: 'preact' });
+runSharedArrayRefTests({ compile, compile_to_volar_mappings, name: 'preact', merge: 'mergeRefs' });
 runSharedHookBodyTests({ compile, compile_to_volar_mappings, name: 'preact' });
 
 describe('@tsrx/preact basic', () => {

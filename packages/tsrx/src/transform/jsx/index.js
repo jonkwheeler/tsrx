@@ -1361,9 +1361,12 @@ function create_helper_state(base_name, local = false, component) {
 }
 
 /**
- * Whether the statement list nearest to a node is in the same function as the
- * node, so a declaration put there sees every binding the node sees outside
- * its own scope. A component in an expression-bodied arrow has none.
+ * Whether a node sits in a statement list of its own enclosing function with
+ * nothing in between that owns a scope or a statement position, so a
+ * declaration put ahead of the statement that holds it sees every binding the
+ * node sees outside its own scope. A component in an expression-bodied arrow,
+ * in the body of a `for`, `while` or `if` without braces, in a labeled
+ * statement or in a `switch` case's test has none.
  *
  * @param {AST.Node} node
  * @param {AST.Node[]} path the node's ancestors, which can end with the node itself
@@ -1372,14 +1375,32 @@ function create_helper_state(base_name, local = false, component) {
 function has_statement_list_beside(node, path) {
 	// The path can end with the node, or with the node it was copied from.
 	const last = path.at(-1);
-	const end = last === node || (last?.type === node.type && last?.start === node.start) ? -1 : 0;
-	for (let index = path.length - 1 + end; index >= 0; index -= 1) {
+	const ends_with_node = last === node || (last?.type === node.type && last?.start === node.start);
+	let child = ends_with_node ? /** @type {AST.Node} */ (last) : node;
+	for (let index = path.length - (ends_with_node ? 2 : 1); index >= 0; index -= 1) {
 		const ancestor = path[index];
-		if (is_statement_list_owner(ancestor, 'body') || ancestor.type === 'SwitchCase') return true;
-		if (is_function_node(ancestor)) return false;
+		if (ancestor.type === 'SwitchCase') {
+			return ancestor.consequent.includes(/** @type {AST.Statement} */ (child));
+		}
+		if (is_statement_list_owner(ancestor, 'body')) return true;
+		if (is_function_node(ancestor) || SCOPE_STATEMENT_TYPES.has(ancestor.type)) return false;
+		child = ancestor;
 	}
 	return false;
 }
+
+/** Statements whose parts aren't statement lists of the enclosing function. */
+const SCOPE_STATEMENT_TYPES = new Set([
+	'IfStatement',
+	'ForStatement',
+	'ForInStatement',
+	'ForOfStatement',
+	'WhileStatement',
+	'DoWhileStatement',
+	'LabeledStatement',
+	'WithStatement',
+	'CatchClause',
+]);
 
 /**
  * @param {JsxHelperState} helper_state
@@ -2907,13 +2928,38 @@ function helper_captures_nothing(
 ) {
 	if (!source_node || !has_location(source_node)) return false;
 	if (helper_bindings.some((binding) => !transient_bindings.has(binding.name))) return false;
+	// A direct `eval` can read any binding of the component by name.
+	if (calls_direct_eval(component)) return false;
 	/** @type {Map<string, AST.Identifier>} */
 	const declared = new Map();
+	// A function expression's own name is bound inside it.
+	if (component.type !== 'ArrowFunctionExpression' && component.id) {
+		declared.set(component.id.name, component.id);
+	}
+	collect_declared_bindings(component.typeParameters, declared, source_node);
 	for (const param of component.params) {
 		collect_declared_bindings(param, declared, source_node);
 	}
 	collect_declared_bindings(component.body, declared, source_node);
 	return !body_nodes.some((node) => references_scope_bindings(node, declared));
+}
+
+/**
+ * Whether `node` calls `eval` directly anywhere, nested functions included.
+ *
+ * @param {AST.Node | null | undefined} node
+ * @returns {boolean}
+ */
+function calls_direct_eval(node) {
+	if (!node || typeof node !== 'object') return false;
+	if (
+		node.type === 'CallExpression' &&
+		node.callee.type === 'Identifier' &&
+		node.callee.name === 'eval'
+	) {
+		return true;
+	}
+	return child_nodes(node).some(calls_direct_eval);
 }
 
 /**
@@ -2936,8 +2982,19 @@ function collect_declared_bindings(node, bindings, skip) {
 	else if (is_function_node(node)) {
 		if (node.type !== 'ArrowFunctionExpression' && node.id) patterns.push(node.id);
 		patterns.push(...node.params);
-	} else if ((node.type === 'ClassDeclaration' || node.type === 'ClassExpression') && node.id) {
-		patterns.push(node.id);
+	} else if (
+		(node.type === 'ClassDeclaration' ||
+			node.type === 'ClassExpression' ||
+			node.type === 'TSEnumDeclaration' ||
+			node.type === 'TSModuleDeclaration' ||
+			node.type === 'TSTypeAliasDeclaration' ||
+			node.type === 'TSInterfaceDeclaration') &&
+		node.id
+	) {
+		// Types count too: a helper declared outside the component can't name them.
+		patterns.push(/** @type {AST.Node} */ (node.id));
+	} else if (node.type === 'TSTypeParameter') {
+		patterns.push(/** @type {AST.Node} */ (/** @type {unknown} */ (node.name)));
 	}
 	for (const pattern of patterns) collect_pattern_bindings(pattern, bindings);
 

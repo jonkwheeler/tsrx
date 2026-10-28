@@ -1066,13 +1066,111 @@ describe('@tsrx/vue basic', () => {
 						${try_block('label')}
 					};`,
 			],
+			[
+				'the name of the function expression that is the component',
+				`export function makeApp() {
+					return function App() @{
+						${try_block('App.name')}
+					};
+				}`,
+			],
+			[
+				'an enum declared in the component',
+				`export function makeApp() {
+					function App() @{
+						enum Tone {
+							Loud = 'loud',
+						}
+						${try_block('Tone.Loud')}
+					}
+					return App;
+				}`,
+			],
+			[
+				'a type alias declared in the component',
+				`export function makeApp() {
+					function App() @{
+						type Label = string;
+						${try_block('(error as Label)')}
+					}
+					return App;
+				}`,
+			],
+			[
+				'an interface declared in the component',
+				`export function makeApp() {
+					function App() @{
+						interface Failure {
+							message: string;
+						}
+						${try_block('(error as Failure).message')}
+					}
+					return App;
+				}`,
+			],
+			[
+				'a type parameter of the component',
+				`export function makeApp() {
+					function App<T>() @{
+						${try_block('(error as T)')}
+					}
+					return App;
+				}`,
+			],
+			[
+				'nothing, in a loop body without braces',
+				`export function makeApps(labels: string[]) {
+					const apps: unknown[] = [];
+					for (const label of labels) apps.push(function App() @{
+						${try_block('label')}
+					});
+					return apps;
+				}`,
+			],
+			[
+				'nothing, in an if body without braces',
+				`export function makeApps(apps: unknown[]) {
+					if (apps.length === 0) apps.push(function App() @{
+						${try_block('(error as Error).message')}
+					});
+				}`,
+			],
+			[
+				'nothing, in a labeled statement',
+				`export function makeApps(apps: unknown[]) {
+					register: apps.push(function App() @{
+						${try_block('(error as Error).message')}
+					});
+				}`,
+			],
+			[
+				'nothing, in a switch case test',
+				`export function pick(kind: unknown) {
+					switch (kind) {
+						case function App() @{
+							${try_block('(error as Error).message')}
+						}:
+							break;
+					}
+				}`,
+			],
+			[
+				'a setup local through a direct eval',
+				`export function makeApp() {
+					function App() @{
+						const secret = 'secret';
+						${try_block("eval('secret')")}
+					}
+					return App;
+				}`,
+			],
 		])('in the setup when it reads %s', (_label, source) => {
 			const { code } = compile(source, 'App.tsrx');
 
 			// Declared after the component starts, so in its setup.
-			expect(code.indexOf(helper)).toBeGreaterThan(
-				code.indexOf('defineVaporComponent(function App('),
-			);
+			const component_start = code.search(/defineVaporComponent\(function App[<(]/);
+			expect(component_start).toBeGreaterThan(-1);
+			expect(code.indexOf(helper)).toBeGreaterThan(component_start);
 		});
 	});
 

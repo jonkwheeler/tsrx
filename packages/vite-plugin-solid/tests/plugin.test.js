@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tsrxSolid } from '../src/index.js';
@@ -48,6 +48,20 @@ function resolved_id(result) {
 }
 
 describe('@tsrx/vite-plugin-solid routing', () => {
+	it('anchors a root-relative virtual id to the file under the root', async () => {
+		// Vitest asks for a test module by its URL. Imports from the module
+		// resolve against its id, so the id has to be the real file.
+		const root = mkdtempSync(join(tmpdir(), 'tsrx-solid-root-'));
+		mkdirSync(join(root, 'tests'));
+		writeFileSync(join(root, 'tests', 'App.test.tsrx'), '');
+		const plugin = tsrxSolid();
+		/** @type {any} */ (plugin).configResolved({ root });
+
+		const virtual_id = join(root, 'tests', 'App.test.tsrx.tsx');
+		expect(await call_resolve_id(plugin, '/tests/App.test.tsrx.tsx')).toBe(virtual_id);
+		expect(await call_resolve_id(plugin, virtual_id)).toBe(virtual_id);
+	});
+
 	it('forwards direct runtime imports to the compiler', async () => {
 		const plugin = tsrxSolid({ runtimeImports: 'direct' });
 		const dir = mkdtempSync(join(tmpdir(), 'tsrx-solid-runtime-'));

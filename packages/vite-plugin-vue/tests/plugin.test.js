@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tsrxVue } from '../src/index.js';
@@ -55,5 +55,24 @@ describe('@tsrx/vite-plugin-vue source maps', () => {
 		expect(result).toBeTruthy();
 		expect(/** @type {any} */ (result).map.sources).toEqual([real_path]);
 		expect(/** @type {any} */ (result).map.sourcesContent).toEqual([source]);
+	});
+});
+
+describe('@tsrx/vite-plugin-vue module ids', () => {
+	it('anchors a root-relative virtual id to the file under the root', async () => {
+		// Vitest asks for a test module by its URL. Imports from the module
+		// resolve against its id, so the id has to be the real file.
+		const root = mkdtempSync(join(tmpdir(), 'tsrx-vue-root-'));
+		mkdirSync(join(root, 'tests'));
+		writeFileSync(join(root, 'tests', 'App.test.tsrx'), '');
+		const plugin = get_main_plugin();
+		/** @type {any} */ (plugin).configResolved({ root });
+		const hook = /** @type {any} */ (plugin).resolveId;
+		/** @param {string} source */
+		const resolve_id = (source) => hook.call({}, source, undefined, { isEntry: false });
+
+		const virtual_id = join(root, 'tests', 'App.test.tsrx.tsx');
+		expect(await resolve_id('/tests/App.test.tsrx.tsx')).toBe(virtual_id);
+		expect(await resolve_id(virtual_id)).toBe(virtual_id);
 	});
 });

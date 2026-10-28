@@ -197,7 +197,14 @@ function create_tsrx_vue_plugin(options) {
 			const workerQuery = source.slice(path.length);
 
 			if (isVirtual(path)) {
-				return isAbsolute(source) ? source : pathResolve(rootDir, source.replace(/^\/+/, ''));
+				// Vitest can ask for a module by its root-relative URL. Anchor the
+				// id to the real file, or imports from the module resolve against
+				// the root.
+				const realPath = toRealPath(path);
+				const absolutePath = isAbsolute(realPath)
+					? realPath
+					: pathResolve(rootDir, realPath.replace(/^\/+/, ''));
+				return absolutePath + VIRTUAL_TSX_SUFFIX + workerQuery;
 			}
 
 			if (isTsrxSource(path)) {

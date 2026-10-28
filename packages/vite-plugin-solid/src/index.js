@@ -155,7 +155,9 @@ export function tsrxSolid(options = {}) {
 			// worker plugin reads it back to set the entry up as a worker.
 			const path = stripWorkerEntryQuery(source);
 			const worker_query = source.slice(path.length);
-			if (is_virtual(path)) return source;
+			// Vitest can ask for a module by its root-relative URL. Anchor the id to
+			// the real file, or imports from the module resolve against the root.
+			if (is_virtual(path)) return to_real_path(path) + VIRTUAL_TSX_SUFFIX + worker_query;
 
 			// Rewrite tsrx source imports to their virtual `<path>.tsx` form
 			// so downstream extension-based plugins pick the module up as TSX.

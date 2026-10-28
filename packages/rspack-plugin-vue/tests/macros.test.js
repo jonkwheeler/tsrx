@@ -230,4 +230,26 @@ describe("@tsrx/rspack-plugin-vue vue-jsx-vapor's macros", () => {
 			rmSync(cache_path, { recursive: true, force: true });
 		}
 	});
+
+	it("reports defineStyle stylesheets in a language the plugin can't compile", async () => {
+		const output_path = mkdtempSync(path.join(tmpdir(), 'tsrx-rspack-vue-macros-'));
+		try {
+			await expect(
+				build(
+					{
+						'tests/virtual-define-style-scss/entry.js': `export { Box } from './Box.tsrx';`,
+						'tests/virtual-define-style-scss/Box.tsrx': `
+							export function Box() @{
+								defineStyle.scss(\`.box { .inner { color: red; } }\`);
+								<div class="box">{'box'}</div>
+							}
+						`,
+					},
+					output_path,
+				),
+			).rejects.toThrow("@tsrx/rspack-plugin-vue can't compile a defineStyle.scss stylesheet");
+		} finally {
+			rmSync(output_path, { recursive: true, force: true });
+		}
+	});
 });

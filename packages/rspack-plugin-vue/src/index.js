@@ -82,6 +82,11 @@ function serve_vapor_helpers(compiler, vue_jsx_vapor) {
 			if (!TSRX_EXTENSION_PATTERN.test(data.contextInfo.issuer)) return;
 			const { id, source } = parse_vapor_helper_request(data.request);
 			const [, css_module, lang] = VAPOR_STYLESHEET_ID_PATTERN.exec(id) ?? [];
+			if (lang !== undefined && lang !== 'css') {
+				throw new Error(
+					`@tsrx/rspack-plugin-vue can't compile a defineStyle.${lang} stylesheet (${id}). Use defineStyle() or defineStyle.css().`,
+				);
+			}
 			const code = await vue_jsx_vapor.load_helper(id, source);
 			if (code === undefined) return;
 			const extension = !lang ? '.js' : css_module ? '.vapor-module-css' : '.vapor-css';

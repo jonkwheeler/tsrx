@@ -253,6 +253,16 @@ export function tsx_with_ts_locations(
 				context,
 			);
 		},
+		// esrap writes `readonly` but not `static` before an index signature (up to
+		// at least esrap 2.4.0), which would turn a static signature into an
+		// instance one.
+		TSIndexSignature: (node, context) => {
+			if (/** @type {{ static?: boolean }} */ (node).static) context.write('static ');
+			/** @type {NonNullable<typeof base.TSIndexSignature>} */ (base.TSIndexSignature)(
+				node,
+				context,
+			);
+		},
 		TSNamedTupleMember: (node, context) => {
 			context.visit(node.label);
 			if (node.optional) {

@@ -1925,8 +1925,22 @@ describe('join_scope_class', () => {
 		expect(join_scope_class(0, 'tsrx-a')).toBe('0 tsrx-a');
 		expect(join_scope_class(['a', 'b'], 'tsrx-a')).toBe('a,b tsrx-a');
 		expect(join_scope_class({ toString: () => 'css-1' }, 'tsrx-a')).toBe('css-1 tsrx-a');
-		const thenable = Promise.resolve('css-2');
-		expect(join_scope_class(thenable, 'tsrx-a')).toBe(thenable);
+	});
+
+	it('joins a thenable class once it settles, keeping an escaped value and its callbacks', async () => {
+		const callbacks = [() => {}];
+		const escaped = Object.assign(new String('css-1'), { isEscaped: true, callbacks });
+
+		const joined = /** @type {any} */ (
+			await join_scope_class(Promise.resolve(escaped), 'tsrx-a', 'text-both')
+		);
+		expect(String(joined)).toBe('css-1 tsrx-a');
+		expect(joined.isEscaped).toBe(true);
+		expect(joined.callbacks).toBe(callbacks);
+
+		expect(join_scope_class(Promise.resolve('css-2'), 'tsrx-a')).toBeInstanceOf(Promise);
+		expect(await join_scope_class(Promise.resolve('css-2'), 'tsrx-a')).toBe('css-2 tsrx-a');
+		expect(await join_scope_class(Promise.resolve(undefined), 'tsrx-a')).toBe('tsrx-a');
 	});
 
 	it('joins a boolean class as text where the runtime renders it', () => {
@@ -2022,11 +2036,11 @@ describe('merge_spread_class', () => {
 		);
 	});
 
-	it('applies a thenable class unchanged', () => {
+	it('joins a thenable class once it settles', async () => {
 		const promise = Promise.resolve('css-class');
 
-		expect(merge_spread_class({ class: promise }, 'tsrx-a', 'class', 'className').class).toBe(
-			promise,
+		expect(await merge_spread_class({ class: promise }, 'tsrx-a', 'class', 'className').class).toBe(
+			'css-class tsrx-a',
 		);
 	});
 

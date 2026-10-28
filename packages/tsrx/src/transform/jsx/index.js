@@ -5803,7 +5803,9 @@ function create_spread_props_name(transform_context) {
  * @returns {boolean}
  */
 function source_mentions_identifier(source, name) {
-	return new RegExp(`(?<![\\w$])${name}(?![\\w$])`).test(source);
+	// `$` is an identifier character and a regex anchor.
+	const escaped = name.replace(/\$/g, '\\$');
+	return new RegExp(`(?<![\\w$])${escaped}(?![\\w$])`).test(source);
 }
 
 /**

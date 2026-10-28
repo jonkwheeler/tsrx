@@ -956,6 +956,24 @@ describe('@tsrx/vue basic', () => {
 			expect(code).toContain('return <span>{App__StatementBodyHook1}</span>;');
 			expect(code).toContain('return <App__StatementBodyHook2 />;');
 		});
+
+		it('skipping a prefixed name the source already uses when the component name has a $', () => {
+			const { code } = compile(
+				`const App$__StatementBodyHook1 = 'mine';
+				export function App$() @{
+					${try_block.replace('{StatementBodyHook1}', '{App$__StatementBodyHook1}')}
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code.match(/(?:const|let|var|function) App\$__StatementBodyHook1\b/g)).toEqual([
+				'const App$__StatementBodyHook1',
+			]);
+			expect(code).toContain(
+				'const App$__StatementBodyHook2 = defineVaporComponent(function App$__StatementBodyHook2() {',
+			);
+			expect(code).toContain('return <span>{App$__StatementBodyHook1}</span>;');
+		});
 	});
 
 	it('keeps try/pending/catch Suspense lowering valid in type-only output', () => {

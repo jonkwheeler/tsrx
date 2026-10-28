@@ -875,24 +875,32 @@ describe('@tsrx/vue basic', () => {
 			[
 				'an import from another module',
 				`import { defineVaporComponent } from './helpers';\n\n${component}`,
-				true,
 			],
 			[
 				'a module function',
 				`function defineVaporComponent<T>(component: T): T {\n\treturn component;\n}\n\n${component}`,
-				true,
+			],
+			[
+				'a declared function',
+				`declare function defineVaporComponent<T>(component: T): T;\n\n${component}`,
 			],
 			[
 				'a module const',
 				`const defineVaporComponent = <T,>(component: T): T => component;\n\n${component}`,
-				true,
+			],
+			[
+				'a namespace with a value',
+				`namespace defineVaporComponent {\n\texport const options = {};\n}\n\n${component}`,
+			],
+			[
+				'a var in a top-level block',
+				`if (Math.random() > 1) {\n\tvar defineVaporComponent = (component: unknown) => component;\n}\n\n${component}`,
 			],
 			[
 				'a setup local in a component',
 				`export function App() @{\n\tconst defineVaporComponent = 'mine';\n\t<p>{defineVaporComponent}</p>\n}`,
-				false,
 			],
-		])('reports %s with TSRX2032', (_label, source, at_module_level) => {
+		])('reports %s with TSRX2032', (_label, source) => {
 			const start = source.indexOf('defineVaporComponent');
 			const end = start + 'defineVaporComponent'.length;
 
@@ -909,11 +917,33 @@ describe('@tsrx/vue basic', () => {
 					errors.map((error) => [error.code, error.pos, error.end]),
 					mode,
 				).toEqual([['TSRX2032', start, end]]);
-				// The module's own binding takes the name, so the compiler adds no
-				// import that would declare it a second time.
-				expect(vue_jsx_vapor_imports(code), mode).toEqual(
-					at_module_level ? [] : ["import { defineVaporComponent } from 'vue-jsx-vapor';"],
-				);
+				// After the error the compiler adds no import, which could declare
+				// the name a second time.
+				expect(vue_jsx_vapor_imports(code), mode).toEqual([]);
+			}
+		});
+
+		it.each([
+			[
+				'a namespace of types only',
+				`declare namespace defineVaporComponent {\n\ttype Options = { name: string };\n}`,
+				["import { defineVaporComponent } from 'vue-jsx-vapor';"],
+			],
+			[
+				'a quoted import from vue-jsx-vapor',
+				`import { "defineVaporComponent" as defineVaporComponent } from 'vue-jsx-vapor';`,
+				[`import { "defineVaporComponent" as defineVaporComponent } from 'vue-jsx-vapor';`],
+			],
+		])('does not report %s', (_label, declaration, imports) => {
+			const source = `${declaration}\n\n${component}`;
+
+			for (const result of [
+				compile(source, 'App.tsrx'),
+				...compile_modes.map(([, compile_in_mode]) => compile_in_mode(source)),
+			]) {
+				expect(result.errors).toEqual([]);
+				expect(vue_jsx_vapor_imports(result.code)).toEqual(imports);
+				expect(result.code).toContain('const App = defineVaporComponent(function App(');
 			}
 		});
 

@@ -1217,10 +1217,23 @@ function imports_define_vapor_component(declaration, specifier) {
 		declaration.source.type === 'Literal' &&
 		declaration.source.value === 'vue-jsx-vapor' &&
 		specifier.type === 'ImportSpecifier' &&
-		specifier.imported.type === 'Identifier' &&
-		specifier.imported.name === DEFINE_VAPOR_COMPONENT &&
+		imported_name(specifier) === DEFINE_VAPOR_COMPONENT &&
 		specifier.local.name === DEFINE_VAPOR_COMPONENT
 	);
+}
+
+/**
+ * The name an import specifier imports, written as an identifier or quoted
+ * (`import { "a" as a }`).
+ *
+ * @param {AST.ImportSpecifier} specifier
+ * @returns {string | undefined}
+ */
+function imported_name(specifier) {
+	const imported = specifier.imported;
+	if (imported?.type === 'Identifier') return imported.name;
+	if (imported?.type === 'Literal' && typeof imported.value === 'string') return imported.value;
+	return undefined;
 }
 
 /**
@@ -1262,21 +1275,16 @@ function promote_type_only_define_vapor_component_import(program) {
  *
  * @param {AST.Program} program
  * @param {TransformContext} transform_context
- * @returns {boolean} whether one of those bindings is declared at module level
+ * @returns {boolean} whether it reported one
  */
 function report_define_vapor_component_bindings(program, transform_context) {
-	let at_module_level = false;
 	/** @type {Set<number>} */
 	const reported = new Set();
 
-	/**
-	 * @param {AST.Node | null | undefined} pattern
-	 * @param {boolean} module_level
-	 */
-	const check = (pattern, module_level) => {
+	/** @param {AST.Node | null | undefined} pattern */
+	const check = (pattern) => {
 		for (const id of pattern_identifiers(pattern)) {
 			if (id.name !== DEFINE_VAPOR_COMPONENT || !has_location(id)) continue;
-			at_module_level ||= module_level;
 			// The transform can carry one authored node to more than one place.
 			if (reported.has(id.start)) continue;
 			reported.add(id.start);
@@ -1290,78 +1298,94 @@ function report_define_vapor_component_bindings(program, transform_context) {
 		}
 	};
 
-	/**
-	 * Whether a declaration whose ancestors are `path` binds at module level.
-	 * @param {AST.Node[]} path
-	 */
-	const is_module_level = (path) =>
-		path.every(
-			(node) =>
-				node.type === 'Program' ||
-				node.type === 'ExportNamedDeclaration' ||
-				node.type === 'ExportDefaultDeclaration' ||
-				node.type === 'VariableDeclaration',
-		);
-
-	/**
-	 * @param {AST.Function} node
-	 * @param {AST.Node[]} path
-	 */
-	const check_function = (node, path) => {
-		if (node.type === 'FunctionDeclaration') check(node.id, is_module_level(path));
-		else if (node.type === 'FunctionExpression') check(node.id, false);
-		for (const param of node.params) check(param, false);
+	/** @param {AST.Function} node */
+	const check_function = (node) => {
+		if (node.type !== 'ArrowFunctionExpression') check(node.id);
+		for (const param of node.params) check(param);
 	};
 
 	walk(/** @type {AST.Node} */ (program), null, {
 		ImportDeclaration(node) {
 			for (const specifier of node.specifiers) {
-				if (!imports_define_vapor_component(node, specifier)) check(specifier.local, true);
+				if (!imports_define_vapor_component(node, specifier)) check(specifier.local);
 			}
 		},
-		VariableDeclarator(node, { next, path }) {
-			check(node.id, is_module_level(path));
+		VariableDeclarator(node, { next }) {
+			check(node.id);
 			next();
 		},
-		FunctionDeclaration(node, { next, path }) {
-			check_function(node, path);
+		FunctionDeclaration(node, { next }) {
+			check_function(node);
 			next();
 		},
-		FunctionExpression(node, { next, path }) {
-			check_function(node, path);
+		FunctionExpression(node, { next }) {
+			check_function(node);
 			next();
 		},
-		ArrowFunctionExpression(node, { next, path }) {
-			check_function(node, path);
+		ArrowFunctionExpression(node, { next }) {
+			check_function(node);
 			next();
 		},
-		ClassDeclaration(node, { next, path }) {
-			check(node.id, is_module_level(path));
+		// `declare function`: its parameters only name types.
+		TSDeclareFunction(node) {
+			check(node.id);
+		},
+		ClassDeclaration(node, { next }) {
+			check(node.id);
 			next();
 		},
 		ClassExpression(node, { next }) {
-			check(node.id, false);
+			check(node.id);
 			next();
 		},
 		CatchClause(node, { next }) {
-			check(node.param, false);
+			check(node.param);
 			next();
 		},
-		TSEnumDeclaration(node, { next, path }) {
-			check(node.id, is_module_level(path));
+		TSEnumDeclaration(node, { next }) {
+			check(node.id);
 			next();
 		},
-		TSModuleDeclaration(node, { next, path }) {
-			check(node.id, is_module_level(path));
+		TSModuleDeclaration(node, { next }) {
+			if (is_instantiated_namespace(node)) check(node.id);
 			next();
 		},
-		TSImportEqualsDeclaration(node, { next, path }) {
-			check(node.id, is_module_level(path));
+		TSImportEqualsDeclaration(node, { next }) {
+			check(node.id);
 			next();
 		},
 	});
 
-	return at_module_level;
+	return reported.size > 0;
+}
+
+/**
+ * Whether a namespace declares a value, as TypeScript decides: a namespace of
+ * interfaces, type aliases and namespaces of those binds only a type.
+ *
+ * @param {AST.TSModuleDeclaration} node
+ * @returns {boolean}
+ */
+function is_instantiated_namespace(node) {
+	const body = node.body;
+	if (!body) return false;
+	if (body.type === 'TSModuleDeclaration') return is_instantiated_namespace(body);
+	return body.body.some((statement) => {
+		const declaration = /** @type {AST.Node} */ (
+			statement.type === 'ExportNamedDeclaration' && statement.declaration
+				? statement.declaration
+				: statement
+		);
+		switch (declaration.type) {
+			case 'TSInterfaceDeclaration':
+			case 'TSTypeAliasDeclaration':
+				return false;
+			case 'TSModuleDeclaration':
+				return is_instantiated_namespace(declaration);
+			default:
+				return true;
+		}
+	});
 }
 
 /**
@@ -1403,14 +1427,14 @@ function inject_vue_imports(program, transform_context) {
 	if (transform_context.needs_define_vapor_component) {
 		promote_type_only_define_vapor_component_import(program);
 	}
-	const module_binds_define_vapor_component = report_define_vapor_component_bindings(
+	const reported_define_vapor_component = report_define_vapor_component_bindings(
 		program,
 		transform_context,
 	);
 
-	// After the error, a module-level binding keeps the name, so the import
-	// would only declare it a second time.
-	if (transform_context.needs_define_vapor_component && !module_binds_define_vapor_component) {
+	// After the error the authored binding keeps the name, and an import could
+	// only declare it a second time.
+	if (transform_context.needs_define_vapor_component && !reported_define_vapor_component) {
 		ensure_named_import(program, 'vue-jsx-vapor', DEFINE_VAPOR_COMPONENT);
 	}
 
@@ -1475,8 +1499,7 @@ function ensure_named_import(program, source, name, local = name) {
 			(specifier) =>
 				specifier.type === 'ImportSpecifier' &&
 				specifier.importKind !== 'type' &&
-				specifier.imported?.type === 'Identifier' &&
-				specifier.imported.name === name &&
+				imported_name(specifier) === name &&
 				specifier.local?.name === local,
 		);
 

@@ -466,7 +466,7 @@ export const TSRX_ERRORS = {
 	TARGET_PROP_NESTED_REST: tsrx_with_values(
 		'TARGET_PROP_KEY_UNSUPPORTED',
 		(target, path) =>
-			`${target} TSRX cannot read this rest element inside '${path}': vue-jsx-vapor gives the last rest element in the props pattern the component's attrs, and an array's rest element the whole array, so it doesn't hold the rest of '${path}'. ${read_prop_where_used('')}`,
+			`${target} TSRX cannot read this rest element inside '${path}': vue-jsx-vapor doesn't keep it as the rest of '${path}'. It gives the last rest element in the props pattern the component's attrs, an array's rest element the whole array, and any other the rest of '${path}' only as it was at setup. ${read_prop_where_used('')}`,
 	),
 	/**
 	 * `target` is the target's name, `name` the computed key, and `example`,

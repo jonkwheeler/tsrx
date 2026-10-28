@@ -1,11 +1,6 @@
 /** @import * as AST from 'estree' */
 /** @import * as ESTreeJSX from 'estree-jsx' */
 /** @import { JsxHelperComponent, JsxPlatform, JsxTransformContext as TransformContext } from '@tsrx/core/types' */
-/**
- * A rest element inside a destructured prop, with how the body reads the value
- * it destructures, and whether it is in an array pattern.
- * @typedef {{ node: AST.RestElement, object: string, array: boolean }} PropRest
- */
 
 import { walk } from 'zimmerframe';
 import is_reference from 'is-reference';
@@ -1012,8 +1007,9 @@ function validate_prop_defaults(fn, ctx) {
  *   the prop. That holds at every level, and a pattern with no key it reads
  *   also gets no prop options.
  * - Inside a prop, it applies a default only when the whole prop is missing.
- * - It gives the pattern's last rest element the component's attrs, even
- *   inside a prop, and a rest element in an array the whole array.
+ * - It doesn't keep a rest element inside a prop as the rest of that prop:
+ *   the pattern's last rest element gets the component's attrs, an array's
+ *   gets the whole array, and any other gets the rest as it was at setup.
  *
  * @param {AST.Function} fn
  * @param {TransformContext} ctx
@@ -1031,35 +1027,38 @@ function validate_props_param(fn, ctx) {
 		);
 		return;
 	}
-	if (param?.type !== 'ObjectPattern') return;
-	/** @type {PropRest[]} */
-	const rests = [];
-	validate_prop_keys(param, 'props', false, rests, ctx);
-	const own_rest = param.properties.at(-1)?.type === 'RestElement';
-	rests.forEach((rest, index) => {
-		if (!rest.array && (own_rest || index < rests.length - 1)) return;
-		error(
-			TSRX_ERRORS.TARGET_PROP_NESTED_REST(ctx.platform.name, get_prop_path(rest.object)),
-			ctx.filename,
-			rest.node,
-			ctx.errors,
-			ctx.comments,
-		);
-	});
+	if (param?.type === 'ObjectPattern') validate_prop_keys(param, 'props', false, ctx);
+}
+
+/**
+ * @param {AST.RestElement} rest a rest element inside a prop
+ * @param {string} object how the body reads the value it destructures
+ * @param {TransformContext} ctx
+ * @returns {void}
+ */
+function report_prop_rest(rest, object, ctx) {
+	error(
+		TSRX_ERRORS.TARGET_PROP_NESTED_REST(ctx.platform.name, get_prop_path(object)),
+		ctx.filename,
+		rest,
+		ctx.errors,
+		ctx.comments,
+	);
 }
 
 /**
  * @param {AST.ObjectPattern} pattern
  * @param {string} object how the body reads the value the pattern destructures
  * @param {boolean} nested whether the pattern is inside a prop
- * @param {PropRest[]} rests the rest elements inside props, in the macro's order
  * @param {TransformContext} ctx
  * @returns {void}
  */
-function validate_prop_keys(pattern, object, nested, rests, ctx) {
+function validate_prop_keys(pattern, object, nested, ctx) {
 	for (const property of pattern.properties) {
 		if (property.type === 'RestElement') {
-			if (nested) rests.push({ node: property, object, array: false });
+			// The pattern's own rest element gets the attrs: the props it doesn't
+			// declare.
+			if (nested) report_prop_rest(property, object, ctx);
 			continue;
 		}
 		const key = property.key;
@@ -1068,7 +1067,6 @@ function validate_prop_keys(pattern, object, nested, rests, ctx) {
 				property.value,
 				join_prop_member(object, `.${key.name}`, nested),
 				nested,
-				rests,
 				ctx,
 			);
 			continue;
@@ -1102,11 +1100,10 @@ function validate_prop_keys(pattern, object, nested, rests, ctx) {
  * @param {AST.Pattern} pattern
  * @param {string} object how the body reads the value
  * @param {boolean} nested whether the value is inside a prop
- * @param {PropRest[]} rests
  * @param {TransformContext} ctx
  * @returns {void}
  */
-function validate_prop_value(pattern, object, nested, rests, ctx) {
+function validate_prop_value(pattern, object, nested, ctx) {
 	if (pattern.type === 'AssignmentPattern') {
 		if (nested) {
 			error(
@@ -1121,21 +1118,15 @@ function validate_prop_value(pattern, object, nested, rests, ctx) {
 				ctx.comments,
 			);
 		}
-		validate_prop_value(pattern.left, object, nested, rests, ctx);
+		validate_prop_value(pattern.left, object, nested, ctx);
 	} else if (pattern.type === 'ObjectPattern') {
-		validate_prop_keys(pattern, object, true, rests, ctx);
+		validate_prop_keys(pattern, object, true, ctx);
 	} else if (pattern.type === 'ArrayPattern') {
 		pattern.elements.forEach((element, index) => {
 			if (element?.type === 'RestElement') {
-				rests.push({ node: element, object, array: true });
+				report_prop_rest(element, object, ctx);
 			} else if (element) {
-				validate_prop_value(
-					element,
-					join_prop_member(object, `[${index}]`, true),
-					true,
-					rests,
-					ctx,
-				);
+				validate_prop_value(element, join_prop_member(object, `[${index}]`, true), true, ctx);
 			}
 		});
 	}

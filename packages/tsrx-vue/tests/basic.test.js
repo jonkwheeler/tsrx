@@ -561,13 +561,16 @@ export function Card(${params}: any) @{
 	});
 
 	it("reports a rest element inside a prop that vue-jsx-vapor doesn't give the rest of it", () => {
-		for (const [params, rest, path] of [
+		for (const [params, rests, path] of [
 			// The last rest element of the pattern gets the component's attrs.
-			['{ t: { a, ...r } }', '...r', 't'],
-			['{ t: [a, ...r] }', '...r', 't'],
-			['{ t: { a, ...r }, u: { b, ...q } }', '...q', 'u'],
+			['{ t: { a, ...r } }', ['...r'], 't'],
+			['{ t: [a, ...r] }', ['...r'], 't'],
 			// An array's rest element gets the whole array.
-			['{ t: [a, ...r], ...rest }', '...r', 't'],
+			['{ t: [a, ...r], ...rest }', ['...r'], 't'],
+			// Any other gets the rest as it was at setup.
+			['{ t: { a, ...r }, ...rest }', ['...r'], 't'],
+			['{ t: [{ a, ...r }], ...rest }', ['...r'], 't[0]'],
+			['{ t: { a, ...r }, u: { b, ...q } }', ['...r', '...q'], null],
 		]) {
 			const { errors } = compile_to_volar_mappings(
 				`export function Card(${params}: any) @{
@@ -578,14 +581,21 @@ export function Card(${params}: any) @{
 			expect(
 				errors.map((error) => error.code),
 				params,
-			).toEqual(['TSRX2031']);
-			expect(errors[0].message, params).toContain(
-				`cannot read this rest element inside '${path}': vue-jsx-vapor gives the last rest element in the props pattern the component's attrs`,
+			).toEqual(rests.map(() => 'TSRX2031'));
+			if (path) {
+				expect(errors[0].message, params).toContain(
+					`cannot read this rest element inside '${path}': vue-jsx-vapor doesn't keep it as the rest of '${path}'.`,
+				);
+			}
+			expect(
+				errors.map((error) => error.loc.start),
+				params,
+			).toEqual(
+				rests.map((rest) => ({
+					line: 1,
+					column: 'export function Card('.length + params.indexOf(rest),
+				})),
 			);
-			expect(errors[0].loc.start, params).toEqual({
-				line: 1,
-				column: 'export function Card('.length + params.indexOf(rest),
-			});
 		}
 	});
 
@@ -597,9 +607,9 @@ export function Card(${params}: any) @{
 			// A prop's own default, which vue-jsx-vapor keeps for an object literal.
 			'{ s: { a: v } = {} }',
 			// The pattern's own rest element gets the attrs, which are the props it
-			// doesn't declare, and a prop's rest element before it is read right.
+			// doesn't declare.
 			'{ s: v, ...rest }',
-			'{ t: { a, ...r }, ...rest }',
+			'{ ...rest }',
 		]) {
 			const source = `export function Card(${params}: any) @{
 	<div>{String(v)}</div>

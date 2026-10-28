@@ -1,7 +1,7 @@
-import { defineVaporComponent } from 'vue';
+import { defineVaporComponent, ref } from 'vue';
 
 // Props patterns @tsrx/vue reports as TSRX2031, run through vue-jsx-vapor's
-// props macro as the compiler would wrap them, and the forms it accepts. An
+// props macro as the compiler would wrap them, and the form it suggests. An
 // explicit `defineVaporComponent` call is not a component TSRX checks, so
 // these reach the macro as written.
 
@@ -39,10 +39,20 @@ const NestedRestBeforeOwnRest = defineVaporComponent(function ({
 	t: { a, ...r },
 	...rest
 }: {
-	t: Record<string, number>;
+	t: Record<string, unknown>;
 	[key: string]: unknown;
 }) {
 	return <p>{`${a} ${JSON.stringify({ ...r })} ${Object.keys(rest).join(',')}`}</p>;
+});
+
+let set_t: (value: Record<string, string>) => void = () => {};
+
+const NestedRestParent = defineVaporComponent(function () {
+	const t = ref<Record<string, string>>({ a: 'A', b: 'B1' });
+	set_t = (value) => {
+		t.value = value;
+	};
+	return <NestedRestBeforeOwnRest t={t.value} />;
 });
 
 describe('vue-jsx-vapor props parameters at runtime', () => {
@@ -71,8 +81,12 @@ describe('vue-jsx-vapor props parameters at runtime', () => {
 		expect(container.textContent).toBe('1 {"0":1,"1":2,"2":3} 0');
 	});
 
-	it("reads a prop's rest element followed by the pattern's own rest", async () => {
-		await render(NestedRestBeforeOwnRest, { t: { a: 1, b: 2 }, other: 'x' });
-		expect(container.textContent).toBe('1 {"b":2} other');
+	it("gives a prop's rest element before the pattern's own rest the rest as it was at setup", async () => {
+		await render(NestedRestParent);
+		expect(container.textContent).toBe('A {"b":"B1"} ');
+		set_t({ a: 'A2', b: 'B2', c: 'C2' });
+		await flush();
+		// `a` follows the new `t`; `r` doesn't.
+		expect(container.textContent).toBe('A2 {"b":"B1"} ');
 	});
 });

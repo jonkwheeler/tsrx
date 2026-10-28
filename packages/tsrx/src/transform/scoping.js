@@ -203,10 +203,10 @@ function class_attribute_base(attr) {
  * An element with one `class` and one `className` joins them into the first
  * one's place: as one string literal when both are string literals, otherwise
  * as `[class, className]` in written order. With a spread between them, the
- * runtime output renames `className` in place instead, so the last class
- * written still wins; the type-only print joins them anyway, since TypeScript
- * reports two `class` attributes even across a spread. Any other `className`
- * is renamed in place. Copy-on-write.
+ * runtime output renames `className` in place instead, so the runtime handles
+ * two `class` attributes around the spread as written; the type-only print
+ * joins them anyway, since TypeScript reports two `class` attributes even
+ * across a spread. Any other `className` is renamed in place. Copy-on-write.
  *
  * @template {AST.Node} T
  * @param {T} node

@@ -425,11 +425,12 @@ export interface JsxPlatform {
 		 * `class`: their text when both are string literals, otherwise
 		 * `[class, className]` in written order, which needs a runtime whose
 		 * `class` takes a list. With a spread between them, `className` is
-		 * renamed where it is written instead, so the last class written still
-		 * wins. The type-only print renames it too, so it type-checks against
-		 * the target's `class`, and maps the generated `class` back to the
-		 * authored `className`. Components, member and dynamic tags (which may
-		 * be components) and spread bags keep `className`.
+		 * renamed where it is written instead, so the runtime handles them as
+		 * two `class` attributes around the spread, as written. The type-only
+		 * print renames it too, so it type-checks against the target's `class`,
+		 * and maps the generated `class` back to the authored `className`.
+		 * Components, member and dynamic tags (which may be components) and
+		 * spread bags keep `className`.
 		 */
 		rewriteClassNameAttr?: boolean;
 		/**

@@ -68,12 +68,11 @@ export default function vaporLoader(source, inputMap) {
 	const callback = this.async();
 	const options = this.getOptions?.() ?? {};
 	const vue_jsx_vapor = options.vueJsxVapor ?? create_vue_jsx_vapor(options.vapor);
-
-	const vaporId = this.resourcePath.replace(/\.tsrx$/, '.tsx');
+	const resourcePath = this.resourcePath;
 
 	Promise.resolve()
 		.then(async () => {
-			const result = await vue_jsx_vapor.transform(source, vaporId);
+			const result = await vue_jsx_vapor.transform(source, resourcePath);
 			let output_map =
 				typeof inputMap === 'string' ? JSON.parse(inputMap) : /** @type {any} */ (inputMap ?? null);
 			for (const map of result.maps) {

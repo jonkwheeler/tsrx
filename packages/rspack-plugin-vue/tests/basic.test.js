@@ -127,6 +127,27 @@ describe("@tsrx/rspack-plugin-vue vapor-loader with vue-jsx-vapor's macros", () 
 	});
 });
 
+describe("@tsrx/rspack-plugin-vue vapor-loader with the macros' filters", () => {
+	it("applies the macros' include and exclude options", async () => {
+		const source = `export function Greeting({ name }: { name: string }) @{
+			<p>{name}</p>
+		}`;
+		const expands = async (/** @type {string} */ id, /** @type {any} */ vapor) => {
+			const compiled = compile(source, id);
+			const { context, promise } = createLoaderContext(id, { vapor });
+			vaporLoader.call(context, compiled.code, compiled.map);
+			return String((await promise).output).includes('"name": null');
+		};
+
+		// By default, as in the Vite plugin, modules in node_modules are left out.
+		expect(await expands('/project/src/Greeting.tsrx', undefined)).toBe(true);
+		expect(await expands('/project/node_modules/lib/Greeting.tsrx', undefined)).toBe(false);
+		const vapor = { macros: { exclude: [/[/\\]legacy[/\\]/] } };
+		expect(await expands('/project/src/Greeting.tsrx', vapor)).toBe(true);
+		expect(await expands('/project/src/legacy/Greeting.tsrx', vapor)).toBe(false);
+	});
+});
+
 describe('@tsrx/rspack-plugin-vue css-loader', () => {
 	it('returns the compiled scoped css text', async () => {
 		const id = '/virtual/App.tsrx';

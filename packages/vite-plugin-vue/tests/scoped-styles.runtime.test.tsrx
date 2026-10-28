@@ -64,8 +64,19 @@ function ScopedClassName(props: { value?: unknown }) @{
 	</>
 }
 
+function GotClassName(props: { className?: string }) @{
+	<span data-probe="got" data-class-name={props.className ?? 'none'} />
+}
+
+const tags = { GotClassName };
+
 function ClassNameApp(props: { value?: unknown }) @{
+	const Tag = GotClassName;
 	<>
+		<span data-probe="class-around-spread" class="a" {...{ class: 'bag' }} class="b" />
+		<span data-probe="class-name-around-spread" class="a" {...{ class: 'bag' }} className="b" />
+		<{Tag} className="dynamic" />
+		<tags.GotClassName className="member" />
 		<span data-probe="class" class={props.value} />
 		<span data-probe="class-name" className={props.value} />
 		<span data-probe="class-pair" class={['a', props.value]} />
@@ -156,6 +167,9 @@ describe('sibling-scoped apply runtime (vue)', function () {
 				['class-name-pair', 'class-pair'],
 				['class-name-static', 'class-static'],
 				['scoped-class-name', 'scoped-class'],
+				// With a spread between, `className` stays where it is written, as
+				// a second `class`.
+				['class-name-around-spread', 'class-around-spread'],
 			]) {
 				expect(class_list(probe)).toEqual(class_list(expected));
 			}
@@ -163,6 +177,17 @@ describe('sibling-scoped apply runtime (vue)', function () {
 			expect(container.querySelector('[classname]')).toBeNull();
 		});
 	}
+
+	// A dynamic or member tag may be a component, which reads `className`.
+	it('passes an authored className to a dynamic or member tag as written', async function () {
+		await render(ClassNameApp, { value: 'b c' });
+
+		expect(
+			Array.from(container.querySelectorAll('[data-probe="got"]'), (element) =>
+				element.getAttribute('data-class-name'),
+			),
+		).toEqual(['dynamic', 'member']);
+	});
 
 	for (const [label, value] of [
 		['an undefined', undefined],

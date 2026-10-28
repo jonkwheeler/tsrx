@@ -418,15 +418,18 @@ export interface JsxPlatform {
 		 */
 		rewriteClassAttr: boolean;
 		/**
-		 * Compile an authored `className` attribute on a host element to
-		 * `class`, for a runtime that reads a class only from `class` (Solid,
-		 * Vue), so React-style source keeps its class. An element with both
-		 * joins them into one `class`: their text when both are string
-		 * literals, otherwise `[class, className]` in written order, which
-		 * needs a runtime whose `class` takes a list. The type-only print renames
-		 * it too, so it type-checks against the target's `class`, and maps the
-		 * generated `class` back to the authored `className`. Props of
-		 * components and spread bags are left as written.
+		 * Compile an authored `className` attribute on an intrinsic element
+		 * (a lowercase tag) to `class`, for a runtime that reads a class only
+		 * from `class` (Solid, Vue), so React-style source keeps its class. An
+		 * element with one `class` and one `className` joins them into one
+		 * `class`: their text when both are string literals, otherwise
+		 * `[class, className]` in written order, which needs a runtime whose
+		 * `class` takes a list. With a spread between them, `className` is
+		 * renamed where it is written instead, so the last class written still
+		 * wins. The type-only print renames it too, so it type-checks against
+		 * the target's `class`, and maps the generated `class` back to the
+		 * authored `className`. Components, member and dynamic tags (which may
+		 * be components) and spread bags keep `className`.
 		 */
 		rewriteClassNameAttr?: boolean;
 		/**

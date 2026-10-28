@@ -617,7 +617,7 @@ export function createJsxTransform(platform) {
 		// too, so it type-checks against the target's `class`, and maps the
 		// generated `class` back to the authored `className`.
 		if (platform.jsx.rewriteClassNameAttr) {
-			ast = rewrite_class_name_attributes(ast);
+			ast = rewrite_class_name_attributes(ast, transform_context.typeOnly);
 		}
 
 		// Style scopes: which `<style>` blocks scope which template, CSS emission

@@ -68,18 +68,23 @@ describe.each(Object.keys(target_dependencies))('%s target', (target) => {
 
 // Solid and Vue compile an authored `className` on a host element to `class`,
 // and so does the type-only output, which neither target's JSX types would
-// otherwise accept. A component's `className` prop stays as written.
+// otherwise accept. A component's `className` prop stays as written, also
+// through a dynamic tag, and `class` and `className` around a spread don't
+// report two `class` attributes.
 /** @param {string} target */
 const class_name_source = (target) => `export function Inner(props: { className: string }) @{
 	<span class={props.className} />
 }
 
-export function Classes(props: { c?: string }) @{
+export function Classes(props: { c?: string; bag?: { id?: string } }) @{
+	const Tag = Inner;
 	<>
 		<div className="x" />
 		<div className={props.c} />
 		<div class="a" className={props.c} />
-		<Inner className="kept" />${target === 'solid' ? "\n\t\t<p className={Symbol('no')} />" : ''}
+		<div class="a" {...props.bag} className={props.c} />
+		<Inner className="kept" />
+		<{Tag} className="dynamic" />${target === 'solid' ? "\n\t\t<p className={Symbol('no')} />" : ''}
 	</>
 }
 `;
@@ -115,7 +120,7 @@ describe.each(['solid', 'vue'])('%s target', (target) => {
 		// `className`. Vue's `class` takes any value.
 		expect(classic_diagnostics).toEqual(
 			target === 'solid'
-				? [expect.objectContaining({ file: 'Classes.tsrx', line: 11, column: 6, code: 'TS2322' })]
+				? [expect.objectContaining({ file: 'Classes.tsrx', line: 14, column: 6, code: 'TS2322' })]
 				: [],
 		);
 		// TypeScript 7 orders the union in the message differently.

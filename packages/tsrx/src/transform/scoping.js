@@ -195,18 +195,26 @@ function class_attribute_base(attr) {
 }
 
 /**
- * Compile each host element's authored `className` attribute to `class`, for a
- * runtime that reads a class only from `class` (the platform's
- * `jsx.rewriteClassNameAttr`). An element with both joins them into the first
+ * Compile each intrinsic element's authored `className` attribute to `class`,
+ * for a runtime that reads a class only from `class` (the platform's
+ * `jsx.rewriteClassNameAttr`). A component, a member tag (`<ui.Button>`) and
+ * a dynamic tag (`<{Tag}>`) may be a component, so they keep `className`.
+ *
+ * An element with one `class` and one `className` joins them into the first
  * one's place: as one string literal when both are string literals, otherwise
- * as `[class, className]` in written order. Copy-on-write.
+ * as `[class, className]` in written order. With a spread between them, the
+ * runtime output renames `className` in place instead, so the last class
+ * written still wins; the type-only print joins them anyway, since TypeScript
+ * reports two `class` attributes even across a spread. Any other `className`
+ * is renamed in place. Copy-on-write.
  *
  * @template {AST.Node} T
  * @param {T} node
+ * @param {boolean} [type_only]
  * @param {Set<object>} [seen]
  * @returns {T}
  */
-export function rewrite_class_name_attributes(node, seen = new Set()) {
+export function rewrite_class_name_attributes(node, type_only = false, seen = new Set()) {
 	if (seen.has(node)) return node;
 	seen.add(node);
 
@@ -220,11 +228,11 @@ export function rewrite_class_name_attributes(node, seen = new Set()) {
 		let next = value;
 		if (Array.isArray(value)) {
 			const mapped = value.map((entry) =>
-				is_ast_node(entry) ? rewrite_class_name_attributes(entry, seen) : entry,
+				is_ast_node(entry) ? rewrite_class_name_attributes(entry, type_only, seen) : entry,
 			);
 			if (mapped.some((entry, index) => entry !== value[index])) next = mapped;
 		} else if (is_ast_node(value)) {
-			next = rewrite_class_name_attributes(value, seen);
+			next = rewrite_class_name_attributes(value, type_only, seen);
 		}
 		if (next !== value) {
 			if (out === source) out = { ...source };
@@ -232,12 +240,9 @@ export function rewrite_class_name_attributes(node, seen = new Set()) {
 		}
 	}
 
-	if (
-		out.type === 'JSXElement' &&
-		(!is_composite_jsx_element(/** @type {AST.Node} */ (out)) || out.metadata?.dynamicElement)
-	) {
+	if (out.type === 'JSXElement' && is_intrinsic_jsx_element(out)) {
 		const attributes = out.openingElement.attributes ?? [];
-		const merged = merge_class_name_attribute(attributes);
+		const merged = merge_class_name_attribute(attributes, type_only);
 		if (merged !== attributes) {
 			out = { ...out, openingElement: { ...out.openingElement, attributes: merged } };
 		}
@@ -246,44 +251,78 @@ export function rewrite_class_name_attributes(node, seen = new Set()) {
 }
 
 /**
+ * Whether a JSX element is surely an intrinsic one: its tag is a lowercase
+ * name or a namespaced name, and not a dynamic `<{Tag}>`.
+ *
+ * @param {Record<string, any>} element
+ * @returns {boolean}
+ */
+function is_intrinsic_jsx_element(element) {
+	if (element.isDynamic === true || element.metadata?.dynamicElement === true) return false;
+	const name = element.openingElement?.name;
+	return (
+		name?.type === 'JSXNamespacedName' ||
+		(name?.type === 'JSXIdentifier' && /^[a-z]/.test(name.name))
+	);
+}
+
+/**
  * @param {ESTreeJSX.JSXAttributeNode[]} attributes
+ * @param {boolean} type_only
  * @returns {ESTreeJSX.JSXAttributeNode[]}
  */
-function merge_class_name_attribute(attributes) {
+function merge_class_name_attribute(attributes, type_only) {
 	/** @type {number[]} */
-	const indexes = [];
-	let has_class_name = false;
+	const class_indexes = [];
+	/** @type {number[]} */
+	const class_name_indexes = [];
 	for (let i = 0; i < attributes.length; i++) {
 		const attr = attributes[i];
 		if (!is_class_attribute(attr)) continue;
-		indexes.push(i);
 		if (/** @type {ESTreeJSX.JSXIdentifier} */ (attr.name).name === 'className') {
-			has_class_name = true;
+			class_name_indexes.push(i);
+		} else {
+			class_indexes.push(i);
 		}
 	}
-	if (!has_class_name) return attributes;
+	if (class_name_indexes.length === 0) return attributes;
 
-	const first = /** @type {ESTreeJSX.JSXAttribute} */ (attributes[indexes[0]]);
-	const first_name = /** @type {ESTreeJSX.JSXIdentifier} */ (first.name);
-	// The editor maps the generated `class` back to an authored `className`.
-	const name =
-		first_name.name === 'className'
-			? {
-					...first_name,
-					name: 'class',
-					metadata: { ...first_name.metadata, source_name: 'className', source_length: 9 },
-				}
-			: first_name;
-	/** @param {ESTreeJSX.JSXAttribute['value']} value */
-	const class_attribute = (value) =>
-		/** @type {ESTreeJSX.JSXAttribute} */ ({ ...first, name, value });
-	if (indexes.length === 1) {
-		return attributes.map((attr, i) => (i === indexes[0] ? class_attribute(first.value) : attr));
+	const pair = class_indexes.length === 1 && class_name_indexes.length === 1;
+	const low = Math.min(class_indexes[0], class_name_indexes[0]);
+	const high = Math.max(class_indexes[0], class_name_indexes[0]);
+	const spread_between =
+		pair && attributes.slice(low + 1, high).some((attr) => attr.type === 'JSXSpreadAttribute');
+	if (!pair || (spread_between && !type_only)) {
+		return attributes.map((attr, i) =>
+			class_name_indexes.includes(i)
+				? /** @type {ESTreeJSX.JSXAttribute} */ ({
+						...attr,
+						name: class_name_to_class(
+							/** @type {ESTreeJSX.JSXIdentifier} */ (
+								/** @type {ESTreeJSX.JSXAttribute} */ (attr).name
+							),
+						),
+					})
+				: attr,
+		);
 	}
 
-	const values = indexes
-		.map((i) => class_attribute_base(/** @type {ESTreeJSX.JSXAttribute} */ (attributes[i])))
-		.filter((value) => value !== null);
+	const first = /** @type {ESTreeJSX.JSXAttribute} */ (attributes[low]);
+	const second = /** @type {ESTreeJSX.JSXAttribute} */ (attributes[high]);
+	const first_name = /** @type {ESTreeJSX.JSXIdentifier} */ (first.name);
+	const renamed = first_name.name === 'className' ? class_name_to_class(first_name) : first_name;
+	// The second attribute's name maps to the surviving `class` too, so the
+	// editor keeps hover and navigation on it.
+	const name = {
+		...renamed,
+		metadata: {
+			...renamed.metadata,
+			extra_source_mappings: [...(renamed.metadata?.extra_source_mappings ?? []), second.name],
+		},
+	};
+	const values = [class_attribute_base(first), class_attribute_base(second)].filter(
+		(value) => value !== null,
+	);
 	/** @type {ESTreeJSX.JSXAttribute['value']} */
 	let value;
 	if (values.every((value) => value.type === 'Literal' && typeof value.value === 'string')) {
@@ -295,9 +334,23 @@ function merge_class_name_attribute(attributes) {
 	} else {
 		value = b.jsx_expression_container(b.array(values));
 	}
-	return attributes.flatMap((attr, i) =>
-		i === indexes[0] ? [class_attribute(value)] : indexes.includes(i) ? [] : [attr],
-	);
+	const merged = /** @type {ESTreeJSX.JSXAttribute} */ ({ ...first, name, value });
+	return attributes.flatMap((attr, i) => (i === low ? [merged] : i === high ? [] : [attr]));
+}
+
+/**
+ * A `className` attribute name renamed to `class`, which the editor maps back
+ * to the authored `className`.
+ *
+ * @param {ESTreeJSX.JSXIdentifier} name
+ * @returns {ESTreeJSX.JSXIdentifier}
+ */
+function class_name_to_class(name) {
+	return {
+		...name,
+		name: 'class',
+		metadata: { ...name.metadata, source_name: 'className', source_length: 9 },
+	};
 }
 
 /**

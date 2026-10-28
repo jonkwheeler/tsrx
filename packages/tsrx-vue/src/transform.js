@@ -1267,10 +1267,19 @@ function ensure_named_import(program, source, name, local = name) {
 		if (statement.type !== 'ImportDeclaration' || statement.source?.value !== source) {
 			continue;
 		}
+		// A type-only import is erased from the build, and a namespace import
+		// takes no named specifiers: the helper gets an import of its own.
+		if (
+			statement.importKind === 'type' ||
+			statement.specifiers.some((specifier) => specifier.type === 'ImportNamespaceSpecifier')
+		) {
+			continue;
+		}
 
 		const has_specifier = statement.specifiers.some(
 			(specifier) =>
 				specifier.type === 'ImportSpecifier' &&
+				specifier.importKind !== 'type' &&
 				specifier.imported?.type === 'Identifier' &&
 				specifier.imported.name === name &&
 				specifier.local?.name === local,

@@ -210,6 +210,30 @@ describe('@tsrx/vue basic', () => {
 		expect(mapping?.data).toMatchObject({ verification: true, semantic: true, navigation: true });
 	});
 
+	for (const [label, existing] of [
+		['a namespace import', "import * as ref from '@tsrx/vue/ref';"],
+		['a type-only import', "import type { RefValue } from '@tsrx/vue/ref';"],
+	]) {
+		it(`imports a scope class helper on its own beside ${label} of the same module`, () => {
+			const { code } = compile(
+				`${existing}
+
+				export function App(props: { c?: string }) @{
+					<>
+						<style>span { color: red; }</style>
+						<span class={props.c} />
+					</>
+				}`,
+				'App.tsrx',
+			);
+
+			expect(code).toContain(existing);
+			expect(code).toContain(
+				"import { join_scope_class as __join_scope_class } from '@tsrx/vue/ref';",
+			);
+		});
+	}
+
 	it('leaves host spreads as written beside the scope classes', () => {
 		const { code, cssHash } = compile(
 			`export function App(props) @{

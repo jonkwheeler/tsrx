@@ -37,8 +37,8 @@ const regex_space_and_comments = /(?:\s|\/\/[^\n\r\u2028\u2029]*|\/\*[\s\S]*?\*\
  * function threw after its `=>`. In a `.mts` or `.cts` file, while it's read as
  * an arrow function whose type parameters are TS7060 (`reserved`), the checker
  * errors in it, which come after its own (`held`, see
- * `#reportReservedArrowTypeParameters`), and the errors held around it
- * (`outerHeld`).
+ * `#reportReservedArrowTypeParameters`), the errors held around it
+ * (`outerHeld`), and the arrow function once its `=>` is read (`node`).
  * @typedef {{
  *   typeParametersStart: number,
  *   parametersStart: number,
@@ -47,6 +47,7 @@ const regex_space_and_comments = /(?:\s|\/\/[^\n\r\u2028\u2029]*|\/\*[\s\S]*?\*\
  *   reserved: AST.TSTypeParameterDeclaration | null,
  *   held: CompileError[],
  *   outerHeld: CompileError[] | null,
+ *   node?: AST.ArrowFunctionExpression,
  * }} GenericArrowFunction
  */
 
@@ -729,6 +730,21 @@ const raised_errors = new WeakSet();
 const deferred_errors = new WeakSet();
 
 /**
+ * The held errors that a collecting parse records outside acorn-typescript's
+ * undo log when it doesn't hold them, so that they stay when it abandons a parse
+ * (see `#releaseErrors`).
+ * @type {WeakSet<CompileError>}
+ */
+const unlogged_errors = new WeakSet();
+
+/**
+ * The deferred errors of a method's parameter list, which come once the method
+ * is read (see `parseMethod`).
+ * @type {WeakMap<unknown[], CompileError[]>}
+ */
+const deferred_parameter_errors = new WeakMap();
+
+/**
  * The parameter lists whose duplicate names are reported as they're read (see
  * `#reportParameterList`), which `checkParams` then leaves out.
  * @type {WeakSet<unknown[]>}
@@ -1338,7 +1354,7 @@ export function TSRXPlugin(config) {
 			// While a function's or method's parameters are read: whether a parameter
 			// property is TS2369 on them whatever follows the list, and the errors
 			// held until the list is read (see `#parseAssignableListItem`).
-			/** @type {{ outside: boolean, held: CompileError[] } | null} */
+			/** @type {{ outside: boolean, held: CompileError[], deferred: CompileError[] } | null} */
 			#parameterList = null;
 			// While checker errors are held, to be reported in the order TypeScript
 			// reports them, where they're recorded, by a strict parse as by a
@@ -5225,10 +5241,10 @@ export function TSRXPlugin(config) {
 				const outer_generic_arrow = this.#readingGenericArrowParameters;
 				const outer_list = this.#parameterList;
 				const own = this.#ownParameterList;
-				/** @type {{ outside: boolean, held: CompileError[] } | null} */
+				/** @type {{ outside: boolean, held: CompileError[], deferred: CompileError[] } | null} */
 				const list =
 					own && close === tt.parenR && this.lastTokStart === own.start
-						? { outside: own.outside, held: [] }
+						? { outside: own.outside, held: [], deferred: [] }
 						: null;
 				if (list) this.#ownParameterList = null;
 				this.#parameterList = list;
@@ -5251,8 +5267,11 @@ export function TSRXPlugin(config) {
 					// one, and `parseFunctionBody` throws TS2369 after its `=>` (#1162).
 					allowModifiers = !this.#collect && this.#readingGenericArrowParameters;
 				}
+				const outer_hold = this.#hold.held;
+				/** @type {AST.Pattern[]} */
+				let params;
 				try {
-					const params = this.#collect
+					params = this.#collect
 						? this.#parseBindingListPastRestElement(
 								close,
 								allowEmpty,
@@ -5260,16 +5279,23 @@ export function TSRXPlugin(config) {
 								allowModifiers,
 							)
 						: super.parseBindingList(close, allowEmpty, allowTrailingComma, allowModifiers);
-					if (list?.held.length) {
-						this.#parameterList = outer_list;
-						this.#reportParameterList(params, list.held);
+				} catch (error) {
+					this.#hold.held = outer_hold;
+					if (list?.held.length) this.#abandonHeldErrors(list.held);
+					const arrow = this.#genericArrowFunction;
+					if (this.#readingGenericArrowParameters && arrow?.reserved) {
+						this.#abandonReservedArrow(arrow);
 					}
-					return params;
+					throw error;
 				} finally {
 					this.#bindingListClose = outer;
 					this.#readingGenericArrowParameters = outer_generic_arrow;
 					this.#parameterList = outer_list;
+					this.#hold.held = outer_hold;
 				}
+				if (list?.deferred.length) deferred_parameter_errors.set(params, list.deferred);
+				if (list?.held.length) this.#reportParameterList(params, list.held);
+				return params;
 			}
 
 			/**
@@ -5294,6 +5320,7 @@ export function TSRXPlugin(config) {
 							TS_ERRORS.ARGUMENT_NAME_CLASH,
 							clashes,
 						);
+						unlogged_errors.add(clashes[clashes.length - 1]);
 					}
 				}
 				this.#releaseErrors([...held, ...clashes]);
@@ -5554,17 +5581,23 @@ export function TSRXPlugin(config) {
 				// TS7060 before the checker errors in it, which are read first, those of
 				// the arrow functions in it among them: while it's read as an arrow
 				// function, they're held on it (see `tsParseTypeParameters`), and
-				// reported after its own, by position, at its `=>` (see
-				// `parseArrowExpression`) (#1214).
+				// reported after its own, by position, once it's read, or for an async
+				// one at its `=>`, where a strict parse threw it before (see
+				// `parseArrowExpression`). TypeScript doesn't report it after an error
+				// in the parameter list (`checkGrammarParameterList`), such as TS1047
+				// for `<T>(...a?: T[]) => a` (#1214).
 				const own =
 					this.#genericArrowFunction?.typeParametersStart === node.start
 						? this.#genericArrowFunction
 						: null;
-				// Reported at its `=>` already.
+				// Reported already.
 				if (own && !own.reserved) return;
 				/** @type {CompileError[]} */
 				const reported = [];
-				error(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER, this.#filename, node.params[0], reported);
+				if (!own?.node || !this.#hasParameterListError(own.node.params)) {
+					error(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER, this.#filename, node.params[0], reported);
+					unlogged_errors.add(reported[0]);
+				}
 				if (own) {
 					this.parseEffects?.willSet(own, 'reserved');
 					own.reserved = null;
@@ -5573,6 +5606,25 @@ export function TSRXPlugin(config) {
 					reported.push(...own.held);
 				}
 				this.#releaseErrors(reported);
+			}
+
+			/**
+			 * Whether `params` have a mistake that TypeScript's grammar check of a
+			 * parameter list reports, and the parser reports too (see
+			 * `#reportRestParameterMistakes`): a rest parameter before another
+			 * (TS1014), optional (TS1047) or with a default (TS1048).
+			 * @param {AST.Pattern[]} params
+			 */
+			#hasParameterListError(params) {
+				return params.some(
+					(param, index) =>
+						param.type === 'RestElement' &&
+						(index < params.length - 1 ||
+							(!this.isAmbientContext &&
+								(this.#restParameterQuestions.has(param) ||
+									!!(/** @type {{ optional?: boolean }} */ (param).optional))) ||
+							this.#isRestParameterWithDefault(param)),
+				);
 			}
 
 			/**
@@ -7812,17 +7864,21 @@ export function TSRXPlugin(config) {
 					this.#raiseCheckerError(start, TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR);
 					return read();
 				}
-				// A function's or method's own parameter: its errors are held until the
-				// list is read, for the duplicate names before it (see
-				// `#reportParameterList`), and TS2369 at its start comes first then.
-				const item = this.#holdingErrors(list.held, read);
+				// A function's or method's own parameter: its errors, and the checker
+				// errors in the rest of the list, are held until the list is read, for
+				// the duplicate names before it (see `#reportParameterList`), and
+				// TS2369 at its start comes first then (see `parseBindingList`).
+				this.#hold.held = list.held;
+				const item = read();
 				const held_length = list.held.length;
-				this.#holdingErrors(list.held, () =>
-					this.#raiseCheckerError(start, TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR),
-				);
-				// On a method's parameter, a strict parse threw it after the body.
+				this.#raiseCheckerError(start, TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR);
+				// On a method's parameter, a strict parse threw it after the body (see
+				// `parseMethod`).
 				if (allowModifiers) {
-					for (const error of list.held.slice(held_length)) deferred_errors.add(error);
+					for (const error of list.held.slice(held_length)) {
+						deferred_errors.add(error);
+						list.deferred.push(error);
+					}
 				}
 				return item;
 			}
@@ -8867,6 +8923,7 @@ export function TSRXPlugin(config) {
 						TS_ERRORS.ARGUMENT_NAME_CLASH,
 						held ?? (this.#collect ? this.#errors : undefined),
 					);
+					if (held) unlogged_errors.add(held[held.length - 1]);
 				}
 				if (failure) throw failure;
 			}
@@ -8928,6 +8985,13 @@ export function TSRXPlugin(config) {
 					? { parameters: true, position: -1, error: null }
 					: NON_PARAMETER_LIST;
 				this.#expressionList = list;
+				// The parameters and body of a generic arrow function whose errors are
+				// held (see `#reportReservedArrowTypeParameters`).
+				const reserved =
+					this.#genericArrowFunction?.reserved &&
+					this.#genericArrowFunction.parametersStart === startPos
+						? this.#genericArrowFunction
+						: null;
 				/** @type {AST.Expression} */
 				let expr;
 				try {
@@ -8938,6 +9002,9 @@ export function TSRXPlugin(config) {
 								() => super.parseParenAndDistinguishExpression(canBeArrow, forInit),
 							)
 						: super.parseParenAndDistinguishExpression(canBeArrow, forInit);
+				} catch (error) {
+					if (reserved) this.#abandonReservedArrow(reserved);
+					throw error;
 				} finally {
 					this.#expressionList = outer_list;
 				}
@@ -9326,13 +9393,14 @@ export function TSRXPlugin(config) {
 				const type_parameters = /** @type {{ typeParameters?: AST.TSTypeParameterDeclaration }} */ (
 					node
 				).typeParameters;
+				const arrow = this.#genericArrowFunction;
 				// See `#reportReservedArrowTypeParameters`.
+				if (arrow?.reserved && arrow.arrowStart === node.start) {
+					this.parseEffects?.willSet(arrow, 'node');
+					arrow.node = /** @type {AST.ArrowFunctionExpression} */ (node);
+				}
 				if (isAsync && type_parameters) {
 					this.#reportReservedArrowTypeParameters(type_parameters, true);
-				}
-				const arrow = this.#genericArrowFunction;
-				if (!isAsync && arrow?.reserved && arrow.arrowStart === node.start) {
-					this.#reportReservedArrowTypeParameters(arrow.reserved, false);
 				}
 				if (arrow === null || arrow.arrowStart !== node.start) {
 					return super.parseArrowExpression(node, params, isAsync, forInit);
@@ -9611,9 +9679,7 @@ export function TSRXPlugin(config) {
 			 * reports them, after one that it reports first. A strict parse reads on
 			 * past them as a collecting one does. Any other error still throws, or is
 			 * recorded, as it comes: TypeScript reports a syntax error before them.
-			 * When `read` throws, a collecting parse records what it held, and a
-			 * strict parse throws the first error it held that it threw as it came
-			 * before holding them, which it threw then.
+			 * When `read` throws, see `#abandonHeldErrors`.
 			 * @template T
 			 * @param {CompileError[]} held
 			 * @param {() => T} read
@@ -9626,13 +9692,55 @@ export function TSRXPlugin(config) {
 					return read();
 				} catch (error) {
 					this.#hold.held = outer;
-					const first = held.find((other) => !deferred_errors.has(other));
-					if (this.#collect) this.#releaseErrors(held);
-					else if (first) this.#throwHeldError(first);
+					this.#abandonHeldErrors(held);
 					throw error;
 				} finally {
 					this.#hold.held = outer;
 				}
+			}
+
+			/**
+			 * When code whose checker errors were held throws, keep the held errors
+			 * that a parse that doesn't hold them reports before that: a collecting
+			 * parse records them before the error, and a strict parse throws the
+			 * first, which it threw then, unless errors are held around the code,
+			 * where they go. Those it reports only later (`deferred_errors`, such as
+			 * a method's TS2369, after its body) go.
+			 * @param {CompileError[]} held
+			 */
+			#abandonHeldErrors(held) {
+				const kept = held.filter((error) => !deferred_errors.has(error));
+				if (this.#collect) {
+					this.#releaseErrors(kept);
+					return;
+				}
+				const outer = this.#hold.held;
+				if (!outer) {
+					if (kept.length > 0) this.#throwHeldError(kept[0]);
+					return;
+				}
+				for (const error of kept) {
+					if (outer.some((other) => other.pos === error.pos && other.message === error.message)) {
+						continue;
+					}
+					this.parseEffects?.willAppend(outer);
+					outer.push(error);
+				}
+			}
+
+			/**
+			 * When the generic arrow function `arrow`, whose errors are held, throws,
+			 * stop holding them, and keep the held errors that come before, as
+			 * `#abandonHeldErrors` does, before acorn-typescript abandons the arrow
+			 * function.
+			 * @param {GenericArrowFunction} arrow
+			 */
+			#abandonReservedArrow(arrow) {
+				this.parseEffects?.willSet(arrow, 'reserved');
+				arrow.reserved = null;
+				this.parseEffects?.willSet(this.#hold, 'held');
+				this.#hold.held = arrow.outerHeld;
+				this.#abandonHeldErrors(arrow.held);
 			}
 
 			/**
@@ -9644,12 +9752,15 @@ export function TSRXPlugin(config) {
 			#releaseErrors(held) {
 				const sorted = held.slice().sort((a, b) => (a.pos ?? 0) - (b.pos ?? 0));
 				for (const error of sorted) {
-					const errors = this.#hold.held ?? (this.#collect ? this.#errors : undefined);
+					const outer = this.#hold.held;
+					const errors = outer ?? (this.#collect ? this.#errors : undefined);
 					if (!errors) this.#throwHeldError(error);
 					if (errors.some((other) => other.pos === error.pos && other.message === error.message)) {
 						continue;
 					}
-					this.parseEffects?.willAppend(errors);
+					// Recorded where acorn-typescript's undo log drops it with an
+					// abandoned parse, unless it's recorded outside it when not held.
+					if (outer || !unlogged_errors.has(error)) this.parseEffects?.willAppend(errors);
 					errors.push(error);
 				}
 			}
@@ -13063,6 +13174,11 @@ export function TSRXPlugin(config) {
 					!(method?.kind === 'constructor' || static_constructor),
 					() => super.parseMethod(isGenerator, isAsync, allowDirectSuper, inClassScope, method),
 				);
+				// A strict parse that doesn't hold them throws its parameters' TS2369
+				// from here (see `#parseAssignableListItem`).
+				for (const error of deferred_parameter_errors.get(node.params) ?? []) {
+					deferred_errors.delete(error);
+				}
 				// Written with an escape, TS1260 is a syntax error first (see
 				// `parseClassElement`).
 				const key = /** @type {AST.Identifier} */ (method?.key);

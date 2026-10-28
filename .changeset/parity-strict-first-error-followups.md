@@ -9,4 +9,4 @@ A strict parse (a normal compile) now throws the error TypeScript reports first,
 - `async <T,>(public [a]: T[]) => a` throws TS2369 at `public`, not `Unexpected token` at the `(`.
 - Decorators written before `export` and after it report TS1206 at the first one: `@a export @b function f() {}` throws at `@a`.
 - Decorators or modifiers before a class `static` block report TS1206 or TS1184 before the checker errors in the block. A syntax error in the block still comes first.
-- In a `.mts` or `.cts` file, a generic arrow function's TS7060 comes before the checker errors in it, such as the TS7060 of the arrow functions in its parameters.
+- In a `.mts` or `.cts` file, a generic arrow function's TS7060 comes before the checker errors in it, such as the TS7060 of the arrow functions in its parameters, and isn't reported after a mistake in its parameter list (`<T>(...a?: T[]) => a` reports TS1047 only), as in TypeScript.

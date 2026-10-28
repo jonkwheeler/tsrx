@@ -12406,6 +12406,16 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				'@dec',
 			],
 			['class A { public static { <div> } }', TSRX_ERRORS.UNCLOSED_TAG, '} }'],
+			[
+				'function f(public x, y = (() => { const q; })()) {}',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'public x',
+			],
+			[
+				'function f(public x, y = class { m(z, public z) {} }) {}',
+				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				'public x',
+			],
 		];
 		const outcomes = await parse_in_worker_with_ast(
 			cases.flatMap(([source]) => [{ source }, { source, options: { collect: true } }]),
@@ -12429,6 +12439,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		const reserved_word = code_of(TS_ERRORS.STRICT_MODE_RESERVED_WORD);
 		const let_name = code_of(TS_ERRORS.LET_DECLARATION_NAME);
 		const uninitialized = code_of(TS_ERRORS.DECLARATION_NOT_INITIALIZED);
+		const optional_rest = code_of(TS_ERRORS.OPTIONAL_REST_PARAMETER);
 		/** @type {Array<[source: string, errors: Array<[code: string | undefined, at: string]>]>} */
 		const cases = [
 			[
@@ -12484,6 +12495,9 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 					[reserved, 'U>'],
 				],
 			],
+			// Not after a mistake in its parameter list (`checkGrammarParameterList`).
+			['const f = <T>(...a?: number[]) => a;', [[optional_rest, '?:']]],
+			['const f = async <T>(...a?: number[]) => a;', [[optional_rest, '?:']]],
 		];
 		for (const [source, expected] of cases) {
 			const [code, at] = expected[0];
@@ -12497,6 +12511,75 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				errors.map(({ code, pos }) => [code, pos]),
 				source,
 			).toEqual(expected.map(([code, at]) => [code, source.indexOf(at)]));
+		}
+	});
+
+	it('keeps the held errors that come before a syntax error, and drops the later ones (#1214)', () => {
+		// A strict parse throws what it threw before holding them, and a collecting
+		// one records them before it throws the syntax error. A method's TS2369
+		// comes once the method is read, and a generic arrow function's TS7060
+		// once it's read (an async one's at its `=>`).
+		const unexpected = code_of(TS_ERRORS.UNEXPECTED_TOKEN);
+		const parameter_property = code_of(TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR);
+		const reserved = code_of(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER);
+		/** @type {Array<[filename: string, source: string, strict: [code: string | undefined, at: string], collected: Array<[code: string | undefined, at: string]>, thrown: [code: string | undefined, at: string]]>} */
+		const cases = [
+			[
+				'a.ts',
+				'function f(public x y) {}',
+				[parameter_property, 'public x'],
+				[[parameter_property, 'public x']],
+				[unexpected, 'y)'],
+			],
+			[
+				'a.ts',
+				'function f(public x, :) {}',
+				[parameter_property, 'public x'],
+				[[parameter_property, 'public x']],
+				[unexpected, ':)'],
+			],
+			[
+				'a.ts',
+				'class A { m(public a, public b = ) {} }',
+				[unexpected, ') {}'],
+				[],
+				[unexpected, ') {}'],
+			],
+			[
+				'a.ts',
+				'class A { public static { class B { m(public x) {} } const y = ; } }',
+				[parameter_property, 'public x'],
+				[[parameter_property, 'public x']],
+				[unexpected, '; } }'],
+			],
+			[
+				'a.mts',
+				'const f = <T>(x: T) => { const y = ; };',
+				[unexpected, '; };'],
+				[],
+				[unexpected, '; };'],
+			],
+			[
+				'a.mts',
+				'const f = <T>(x = <U>(u: U) => u, y = ) => x;',
+				[reserved, 'U>'],
+				[[reserved, 'U>']],
+				[unexpected, '<T>'],
+			],
+		];
+		for (const [filename, source, [code, at], collected, [thrown_code, thrown_at]] of cases) {
+			expect(() => parseModule(source, filename), source).toThrow(
+				expect.objectContaining({ code, pos: source.indexOf(at) }),
+			);
+			/** @type {CompileError[]} */
+			const errors = [];
+			expect(() => parseModule(source, filename, { collect: true, errors }), source).toThrow(
+				expect.objectContaining({ code: thrown_code, pos: source.indexOf(thrown_at) }),
+			);
+			expect(
+				errors.map(({ code, pos }) => [code, pos]),
+				source,
+			).toEqual(collected.map(([code, at]) => [code, source.indexOf(at)]));
 		}
 	});
 

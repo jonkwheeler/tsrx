@@ -11,7 +11,10 @@ import { addVaporInteropToCreateVaporApp } from '@tsrx/vue/interop';
 
 const require = createRequire(import.meta.url);
 const { transformVueJsxVapor } = require('vue-jsx-vapor/api');
-const { default: create_vue_jsx_vapor_plugins } = require('vue-jsx-vapor/raw');
+// vue-jsx-vapor's plugin hooks as its Rollup plugin. Called outside Rollup,
+// each hook applies its own `filter` first, as unplugin does for Rollup
+// versions without hook filters.
+const { default: create_vue_jsx_vapor_plugins } = require('vue-jsx-vapor/rollup');
 
 const DEFAULT_INCLUDE = /\.tsrx$/;
 // JavaScript and TypeScript sources outside node_modules. Bun evaluates the
@@ -212,7 +215,7 @@ function resolve_vapor_options(options) {
 }
 
 /**
- * @typedef {((...args: string[]) => unknown) | { filter?: { id?: unknown }, handler: (...args: string[]) => unknown }} VueJsxVaporHook
+ * @typedef {((...args: string[]) => unknown) | { handler: (...args: string[]) => unknown }} VueJsxVaporHook
  * @typedef {{ name: string, load?: VueJsxVaporHook, transform?: VueJsxVaporHook }} VueJsxVaporPlugin
  */
 
@@ -231,20 +234,6 @@ async function call_vapor_hook(hook, ...args) {
 }
 
 /**
- * Whether a hook is for the helper module `id`. vue-jsx-vapor filters the
- * hooks for its helper modules with a plain pattern, and the transforms for
- * source modules with include and exclude lists.
- *
- * @param {VueJsxVaporHook} hook
- * @param {string} id
- * @returns {boolean}
- */
-function is_vapor_helper_hook(hook, id) {
-	const filter = typeof hook === 'function' ? undefined : hook.filter?.id;
-	return filter instanceof RegExp && filter.test(id);
-}
-
-/**
  * vue-jsx-vapor set up as its Vite plugin sets it up: the macros, unless
  * `macros` is false, expand before the Vapor transform, and the helper modules
  * they import load through the same plugin hooks.
@@ -253,17 +242,22 @@ function is_vapor_helper_hook(hook, id) {
  */
 function create_vue_jsx_vapor(vapor_options) {
 	/** @type {VueJsxVaporPlugin[]} */
-	const plugins = create_vue_jsx_vapor_plugins(vapor_options);
+	const plugins = [create_vue_jsx_vapor_plugins(vapor_options)].flat();
 	const macros = plugins.find((plugin) => plugin.name === '@vue-jsx-vapor/macros')?.transform;
 
 	return {
 		/**
+		 * Expands the macros, unless their `include` and `exclude` options leave
+		 * the module out, then runs the Vapor transform.
+		 *
 		 * @param {string} code
-		 * @param {string} id the module's path with a `.tsx` extension
+		 * @param {string} file_path the `.tsrx` module's path
 		 * @returns {Promise<string>}
 		 */
-		async transform(code, id) {
-			const expanded = macros ? await call_vapor_hook(macros, code, id) : undefined;
+		async transform(code, file_path) {
+			// The macros' `include` and `exclude` see the id the Vite plugin gives it.
+			const expanded = macros ? await call_vapor_hook(macros, code, `${file_path}.tsx`) : undefined;
+			const id = file_path.replace(/\.tsrx$/, '.tsx');
 			return transformVueJsxVapor(expanded ?? code, id, vapor_options, false, false, false).code;
 		},
 
@@ -278,14 +272,12 @@ function create_vue_jsx_vapor(vapor_options) {
 		async load_helper(id) {
 			let code;
 			for (const { load } of plugins) {
-				if (!load || !is_vapor_helper_hook(load, id)) continue;
-				code = await call_vapor_hook(load, id);
+				code = load && (await call_vapor_hook(load, id));
 				if (code !== undefined) break;
 			}
 			if (code === undefined) return undefined;
 			for (const { transform } of plugins) {
-				if (!transform || !is_vapor_helper_hook(transform, id)) continue;
-				code = (await call_vapor_hook(transform, code, id)) ?? code;
+				code = (transform && (await call_vapor_hook(transform, code, id))) ?? code;
 			}
 			return code;
 		},
@@ -418,10 +410,7 @@ export function tsrxVue(options = {}) {
 					stylesheets.delete(css_id);
 				}
 
-				let transformed = await vue_jsx_vapor.transform(
-					output,
-					file_path.replace(/\.tsrx$/, '.tsx'),
-				);
+				let transformed = await vue_jsx_vapor.transform(output, file_path);
 				if (runtime) {
 					transformed = transformed.replace(
 						VAPOR_HELPER_IMPORT_PATTERN,

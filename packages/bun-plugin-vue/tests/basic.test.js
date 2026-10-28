@@ -383,6 +383,37 @@ describe('@tsrx/bun-plugin-vue', () => {
 		}
 	});
 
+	it("applies the macros' include and exclude options", async () => {
+		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-macros-filter-'));
+		try {
+			const source = `export function Greeting({ name }: { name: string }) @{
+				<p>{name}</p>
+			}`;
+			await mkdir(path.join(dir, 'legacy'));
+			await mkdir(path.join(dir, 'node_modules/lib'), { recursive: true });
+			for (const file of [
+				'Greeting.tsrx',
+				'legacy/Greeting.tsrx',
+				'node_modules/lib/Greeting.tsrx',
+			]) {
+				await writeFile(path.join(dir, file), source);
+			}
+			const expands = async (/** @type {any} */ options, /** @type {string} */ file) =>
+				String(
+					(await load_tsrx(setup_plugin(options, { root: dir }), path.join(dir, file)))?.contents,
+				).includes('"name": null');
+
+			// By default, as in the Vite plugin, modules in node_modules are left out.
+			expect(await expands(undefined, 'Greeting.tsrx')).toBe(true);
+			expect(await expands(undefined, 'node_modules/lib/Greeting.tsrx')).toBe(false);
+			const options = { vapor: { macros: { exclude: [/[/\\]legacy[/\\]/] } } };
+			expect(await expands(options, 'Greeting.tsrx')).toBe(true);
+			expect(await expands(options, 'legacy/Greeting.tsrx')).toBe(false);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	// Bun.plugin() registration calls only the first matching onLoad hook.
 	it("serves another instance's helper modules under Bun.plugin() registration", async () => {
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-helpers-'));

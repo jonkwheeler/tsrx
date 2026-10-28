@@ -714,6 +714,28 @@ export function convert_source_map_to_mappings(
 	}
 
 	/**
+	 * Map the start and the end of a node as the two points of one mapping, for
+	 * diagnostics only. Volar maps a range only when both of its ends fall in one
+	 * mapping, and points have no length, so a range inside the node still maps
+	 * through its own tokens.
+	 * @param {AST.Node} node
+	 * @param {string} start_text The text the node starts with.
+	 * @returns {CodeMapping | undefined}
+	 */
+	function push_points_mapping(node, start_text) {
+		if (!has_location(node)) return;
+		const mapping = declaration_mapping(node, start_text);
+		if (!mapping) return;
+		const generated_start = mapping.generatedOffsets[0];
+		mapping.sourceOffsets = [node.start, node.end];
+		mapping.generatedOffsets = [generated_start, generated_start + mapping.generatedLengths[0]];
+		mapping.lengths = [0, 0];
+		mapping.generatedLengths = [0, 0];
+		mappings.push(mapping);
+		return mapping;
+	}
+
+	/**
 	 * Map a literal for errors TypeScript reports on all of it (TS2344 on the
 	 * `{}` of `g<{}>()`, TS2322 on the `[]` of `[ {}, [] ]`), which the printer
 	 * respaces. A mapping over the whole literal would also map every position
@@ -721,13 +743,13 @@ export function convert_source_map_to_mappings(
 	 * for example after a comment the printer leaves out. Instead:
 	 *
 	 * - Its start and its end are the two points of one diagnostics-only
-	 *   mapping. Volar maps a range only when both of its ends fall in one
-	 *   mapping, and points contain nothing between them.
+	 *   mapping (see {@link push_points_mapping}).
 	 * - Its brackets are mapped with no Volar feature at all. The TypeScript 7
 	 *   content mapper drops points, which have no length, but turns any
-	 *   mapping into a span that places diagnostics. Volar ignores a mapping
-	 *   without features; with diagnostics on, a bracket's end would also catch
-	 *   a range that starts right after it.
+	 *   mapping into a span that places diagnostics, and joins a span without
+	 *   features to its neighbours. Volar ignores a mapping without features;
+	 *   with diagnostics on, a bracket's end would also catch a range that
+	 *   starts right after it.
 	 * @param {AST.Node} node
 	 * @param {string} open
 	 * @param {string} close
@@ -735,25 +757,24 @@ export function convert_source_map_to_mappings(
 	 */
 	function push_literal_mappings(node, open, close) {
 		if (!has_location(node)) return;
-		const mapping = declaration_mapping(node, open);
-		if (mapping) {
-			const generated_start = mapping.generatedOffsets[0];
-			mapping.sourceOffsets = [node.start, node.end];
-			mapping.generatedOffsets = [generated_start, generated_start + mapping.generatedLengths[0]];
-			mapping.lengths = [0, 0];
-			mapping.generatedLengths = [0, 0];
-			mappings.push(mapping);
-		}
+		if (!push_points_mapping(node, open)) return;
 		const opening = find_source_token(source_tokens, open, node.start, 'after');
 		const closing = find_source_token(source_tokens, close, node.end, 'before');
 		if (opening?.start !== node.start || closing?.end !== node.end) return;
-		for (const [token, text] of /** @type {const} */ ([
-			[opening, open],
-			[closing, close],
-		])) {
-			if (!token.loc || generated_offset_for_text(token.loc.start, text) === undefined) continue;
-			tokens.push({ source: text, generated: text, loc: token.loc, metadata: {}, mappingData: {} });
-		}
+		push_position_only_token(opening, open);
+		push_position_only_token(closing, close);
+	}
+
+	/**
+	 * Map a source token where the printer writes it, with no Volar feature, as
+	 * a place for TypeScript 7 diagnostics (see {@link push_literal_mappings}).
+	 * @param {Parse.Token} token
+	 * @param {string} text
+	 * @returns {void}
+	 */
+	function push_position_only_token(token, text) {
+		if (!token.loc || generated_offset_for_text(token.loc.start, text) === undefined) return;
+		tokens.push({ source: text, generated: text, loc: token.loc, metadata: {}, mappingData: {} });
 	}
 
 	/**
@@ -2017,6 +2038,17 @@ export function convert_source_map_to_mappings(
 				}
 				return;
 			} else if (node.type === 'SpreadElement' || node.type === 'RestElement') {
+				// TypeScript reports some errors on a whole spread (TS2698 on
+				// `{ ...value }` when the value is not an object), so it maps like a
+				// literal: its ends as points, and its `...` for TypeScript 7.
+				if (
+					node.type === 'SpreadElement' &&
+					has_location(node) &&
+					push_points_mapping(node, '...')
+				) {
+					const ellipsis = find_source_token(source_tokens, '...', node.start, 'after');
+					if (ellipsis && ellipsis.start === node.start) push_position_only_token(ellipsis, '...');
+				}
 				// Visit the argument
 				if (node.argument) {
 					visit(node.argument);

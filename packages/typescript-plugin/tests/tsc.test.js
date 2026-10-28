@@ -737,6 +737,28 @@ it('reports errors after a comment inside an array or object literal where they 
 	}
 });
 
+it('reports errors on a whole spread in .tsrx files', () => {
+	const lines = [
+		'declare const n: number; declare const s: string | undefined;',
+		'export const a = { ...n }; export const b = { ...s }; export const c = { /* c */ ...s };',
+		"export const d: number[] = [ ...['x'] ];",
+	];
+	fs.appendFileSync(path.join(workspace, 'layout.tsrx'), `${lines.join('\n')}\n`);
+	const result = run_cli('native');
+	expect(result.status).toBe(2);
+	const ts2698 = 'error TS2698: Spread types may only be created from object types.';
+	for (const offset of [
+		lines[1].indexOf('...n'),
+		lines[1].indexOf('...s'),
+		lines[1].lastIndexOf('...s'),
+	]) {
+		expect(result.output).toContain(`layout.tsrx(5,${offset + 1}): ${ts2698}`);
+	}
+	expect(result.output).toContain(
+		`layout.tsrx(6,${lines[2].indexOf('...') + 1}): error TS2322: Type 'string' is not assignable to type 'number'.`,
+	);
+});
+
 it('reports errors on a bare this in .tsrx files', () => {
 	const line =
 		'export function readValue() { return this; } class Base {} export class Derived extends Base { constructor() { this; super(); } }';

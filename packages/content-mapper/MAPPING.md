@@ -61,7 +61,9 @@ diagnostic text shows the authored name.
   shorter before longer, disjoint in generated space).
 - Neighbouring Verbatim spans with equal feature bits whose gap is identical text
   in both files are coalesced, so whole statements such as import declarations
-  become one edit-safe span.
+  become one edit-safe span. A span from a mapping with no Volar feature at all,
+  not even `verification` (the brackets of a respaced literal), joins either
+  neighbour and takes its features, as unmapped text between them would.
 - Atom candidates that are fragments of an identifier (the one-character
   file-start anchor) are dropped.
 - A container that lost keeps its uncovered edges, from its start to its first

@@ -40,6 +40,7 @@ function expect_static_index_signatures(code) {
 	expect(code).toContain('static [key: string]: number');
 	expect(code).toContain('static readonly [index: number]: string');
 	expect(code).not.toContain('static [symbol: symbol]');
+	expect(code).not.toMatch(/static\s+static/);
 	expect(virtual_parse_diagnostics(code)).toEqual([]);
 }
 

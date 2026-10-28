@@ -644,6 +644,19 @@ it('keeps a static index signature static in .tsrx files and their declarations'
 	expect(result.output).toContain(
 		`layout.tsrx(6,${lines[2].indexOf('new') + 1}): error TS7053: Element implicitly has an 'any' type`,
 	);
+
+	run_cli('native', [
+		'-p',
+		'tsconfig.json',
+		'--declaration',
+		'--emitDeclarationOnly',
+		'--outDir',
+		'dist',
+	]);
+	const declaration = fs.readFileSync(path.join(workspace, 'dist', 'layout.d.ts'), 'utf8');
+	expect(declaration).toContain('static [key: string]: number;');
+	expect(declaration).toContain('static [key: string]: string;');
+	expect(declaration).not.toMatch(/^\s*\[key: string\]/m);
 });
 
 it('reports errors on a bare this in .tsrx files', () => {

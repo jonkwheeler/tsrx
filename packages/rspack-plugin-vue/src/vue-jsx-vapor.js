@@ -9,6 +9,9 @@ const { default: create_vue_jsx_vapor_plugins } = require('vue-jsx-vapor/rollup'
 
 // The macros import helper modules by ids such as `/vue-jsx-vapor/props`.
 export const VAPOR_HELPER_ID_PATTERN = /^\/vue-jsx-vapor\//;
+// A `defineStyle` stylesheet: `lang.css`, or `lang.module.css` for a CSS module.
+export const VAPOR_STYLESHEET_ID_PATTERN =
+	/^\/vue-jsx-vapor\/macros\/define-style\/.*&lang\.(module\.)?(\w+)$/;
 
 const DEFAULT_VAPOR_OPTIONS = {
 	macros: true,

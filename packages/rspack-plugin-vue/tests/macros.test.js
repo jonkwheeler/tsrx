@@ -18,9 +18,10 @@ const vue_browser_build = path.join(
 /**
  * @param {Record<string, string>} modules
  * @param {string} output_path
+ * @param {{ rules?: object[], cache?: object }} [config]
  * @returns {Promise<void>}
  */
-function build(modules, output_path) {
+function build(modules, output_path, config = {}) {
 	const package_root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 	return new Promise((resolve, reject) => {
 		rspack(
@@ -32,6 +33,8 @@ function build(modules, output_path) {
 				devtool: false,
 				optimization: { minimize: false },
 				resolve: { alias: { vue$: vue_browser_build } },
+				module: { rules: config.rules ?? [] },
+				cache: config.cache,
 				output: { path: output_path, filename: 'main.cjs', library: { type: 'commonjs2' } },
 				plugins: [new experiments.VirtualModulesPlugin(modules), new TsrxVueRspackPlugin()],
 			},
@@ -84,12 +87,13 @@ function render(bundle, mounts) {
  *
  * @param {Record<string, string>} modules
  * @param {Array<[string, Record<string, unknown>]>} mounts
+ * @param {{ rules?: object[], cache?: object }} [config]
  * @returns {Promise<{ html: string[], css: string }>}
  */
-async function build_and_render(modules, mounts) {
+async function build_and_render(modules, mounts, config) {
 	const output_path = mkdtempSync(path.join(tmpdir(), 'tsrx-rspack-vue-macros-'));
 	try {
-		await build(modules, output_path);
+		await build(modules, output_path, config);
 		const css_path = path.join(output_path, 'main.css');
 		return {
 			html: render(path.join(output_path, 'main.cjs'), mounts),
@@ -134,6 +138,7 @@ describe("@tsrx/rspack-plugin-vue vue-jsx-vapor's macros", () => {
 		]);
 	});
 
+	// A project rule for `.css` files must not turn the scoped sheet into a CSS module.
 	it('compiles defineStyle stylesheets in a Rspack 2 bundle', async () => {
 		const { html, css } = await build_and_render(
 			{
@@ -149,11 +154,37 @@ describe("@tsrx/rspack-plugin-vue vue-jsx-vapor's macros", () => {
 				`,
 			},
 			[['Box', { label: 'Styled' }]],
+			{ rules: [{ test: /\.css$/, type: 'css/module' }] },
 		);
 
 		const [, scope] = /data-v-(\w+)/.exec(html[0]) ?? [];
 		expect(html).toEqual([`<div data-v-${scope}="" class="box">Styled</div>`]);
 		expect(css).toContain(`.box[data-v-${scope}]`);
 		expect(css).toContain('--tsrx-define-style-mark: box;');
+	});
+
+	it('compiles an assigned defineStyle as a CSS module in a Rspack 2 bundle', async () => {
+		const { html, css } = await build_and_render(
+			{
+				'tests/virtual-define-style-module/entry.js': `
+					export { Card } from './Card.tsrx';
+					export { createVaporApp } from 'vue';
+				`,
+				'tests/virtual-define-style-module/Card.tsrx': `
+					export function Card({ label }: { label: string }) @{
+						const styles = defineStyle(\`.title { font-weight: 700; }\`);
+						<p class={styles.title}>{label}</p>
+					}
+				`,
+			},
+			[['Card', { label: 'Styled' }]],
+		);
+
+		const [, scope, title] = /data-v-(\w+)="" class="([^"]+)"/.exec(html[0]) ?? [];
+		expect(title).not.toBe('title');
+		expect(html).toEqual([`<p data-v-${scope}="" class="${title}">Styled</p>`]);
+		// The class name has the escaped package name in the stylesheet.
+		expect(css.replaceAll('\\', '')).toContain(`.${title}[data-v-${scope}]`);
+		expect(css).toContain('font-weight: 700;');
 	});
 });

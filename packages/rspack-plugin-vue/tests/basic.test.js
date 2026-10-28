@@ -243,9 +243,9 @@ describe('@tsrx/rspack-plugin-vue plugin', () => {
 		expect(compiler.options.resolve.extensions).toContain('.tsrx');
 		expect(compiler.options.experiments.css).toBe(true);
 		expect(compiler.options.experiments.deferImport).toBe(true);
-		expect(compiler.options.module.rules).toHaveLength(4);
+		expect(compiler.options.module.rules).toHaveLength(5);
 
-		const [interopRule, jsRule, cssRule, helperCssRule] = /** @type {any[]} */ (
+		const [interopRule, jsRule, cssRule, stylesheetRule, cssModuleRule] = /** @type {any[]} */ (
 			compiler.options.module.rules
 		);
 		expect(interopRule.test.toString()).toContain('[jt]sx');
@@ -265,12 +265,12 @@ describe('@tsrx/rspack-plugin-vue plugin', () => {
 		expect(cssRule.resourceQuery.toString()).toContain('tsrx-css');
 		expect(cssRule.type).toBe('css/auto');
 		expect(cssRule.use[0].options.runtimeImports).toBe('direct');
-		expect(helperCssRule.type).toBe('css/auto');
-		expect(
-			helperCssRule.test.test(
-				'/project/node_modules/.tsrx-vue-jsx-vapor/%2Fvue-jsx-vapor%2Fmacros%2Fdefine-style%2F0%3Fscoped%3Dtrue%26lang.css',
-			),
-		).toBe(true);
+		const helper_dir = '/project/node_modules/.tsrx-vue-jsx-vapor/';
+		expect(stylesheetRule).toMatchObject({ type: 'css' });
+		expect(stylesheetRule.test.test(`${helper_dir}define-style.vapor-css`)).toBe(true);
+		expect(stylesheetRule.test.test(`${helper_dir}define-style.vapor-module-css`)).toBe(false);
+		expect(cssModuleRule).toMatchObject({ type: 'css/module', parser: { namedExports: false } });
+		expect(cssModuleRule.test.test(`${helper_dir}define-style.vapor-module-css`)).toBe(true);
 	});
 
 	it('passes custom vapor options to the loader', () => {

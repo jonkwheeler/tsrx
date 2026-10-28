@@ -6,7 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPlatformDefinitions, mergePlatformDefinitions, validatePlatform } from '@tsrx/core';
 import { resolveBuildPlatform } from '@tsrx/core/config';
-import { create_vue_jsx_vapor, VAPOR_HELPER_ID_PATTERN } from './vue-jsx-vapor.js';
+import {
+	create_vue_jsx_vapor,
+	VAPOR_HELPER_ID_PATTERN,
+	VAPOR_STYLESHEET_ID_PATTERN,
+} from './vue-jsx-vapor.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,8 +25,9 @@ const CSS_QUERY_PATTERN = /tsrx-css/;
 const SOURCE_EXTENSION_PATTERN = /\.[cm]?[jt]sx?$/;
 const PLUGIN_NAME = 'TsrxVueRspackPlugin';
 const VAPOR_HELPER_DIR = '.tsrx-vue-jsx-vapor';
-// `defineStyle` sheets: `lang.css`, or `lang.module.css` for CSS modules.
-const VAPOR_HELPER_STYLESHEET_PATTERN = /[/\\]\.tsrx-vue-jsx-vapor[/\\][^/\\]+\.css$/;
+// `defineStyle` sheets get extensions that no project rule for `.css` matches.
+const VAPOR_STYLESHEET_PATTERN = /[/\\]\.tsrx-vue-jsx-vapor[/\\][^/\\]+\.vapor-css$/;
+const VAPOR_CSS_MODULE_PATTERN = /[/\\]\.tsrx-vue-jsx-vapor[/\\][^/\\]+\.vapor-module-css$/;
 
 /** @param {any} plugin @returns {Record<string, unknown> | undefined} */
 function get_define_plugin_definitions(plugin) {
@@ -59,7 +64,7 @@ function apply_platform_definitions(compiler, platform) {
  * Resolves the helper modules the macros import into compiled `.tsrx` modules,
  * such as `/vue-jsx-vapor/props`, to virtual files under the compiler's
  * context, where they resolve `vue`, as in vue-jsx-vapor's own Rspack plugin.
- * A stylesheet keeps its `.css` ending for the plugin's CSS rule.
+ * A `defineStyle` stylesheet gets an extension for the plugin's CSS rules.
  *
  * @param {Compiler} compiler
  * @param {VueJsxVapor} vue_jsx_vapor
@@ -74,9 +79,10 @@ function serve_vapor_helpers(compiler, vue_jsx_vapor) {
 		normalModuleFactory.hooks.resolve.tapPromise(PLUGIN_NAME, async (data) => {
 			if (!VAPOR_HELPER_ID_PATTERN.test(data.request)) return;
 			if (!TSRX_EXTENSION_PATTERN.test(data.contextInfo.issuer)) return;
+			const [, css_module, lang] = VAPOR_STYLESHEET_ID_PATTERN.exec(data.request) ?? [];
 			const code = await vue_jsx_vapor.load_helper(data.request);
 			if (code === undefined) return;
-			const extension = /\.css$/.test(data.request) ? '' : '.js';
+			const extension = !lang ? '.js' : css_module ? '.vapor-module-css' : '.vapor-css';
 			const file = path.join(
 				compiler.context,
 				'node_modules',
@@ -208,8 +214,14 @@ export class TsrxVueRspackPlugin {
 				],
 			},
 			{
-				test: VAPOR_HELPER_STYLESHEET_PATTERN,
-				type: 'css/auto',
+				test: VAPOR_STYLESHEET_PATTERN,
+				type: 'css',
+			},
+			{
+				test: VAPOR_CSS_MODULE_PATTERN,
+				type: 'css/module',
+				// `const styles = defineStyle(…)` imports the class names as the default.
+				parser: { namedExports: false },
 			},
 		);
 	}

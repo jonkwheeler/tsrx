@@ -25,6 +25,9 @@ The recommended configuration:
 - uses `@tsrx/eslint-parser` for `.tsrx` files when installed;
 - uses `@typescript-eslint/parser` for `.ts` and `.tsx` files when installed;
 - registers the plugin under the `tsrx` rule namespace;
+- uses `tsrx/jsx-curly-brace-presence` for `.tsrx` files, and turns off
+  `react/jsx-curly-brace-presence` there (a rule that is off needs no plugin, so
+  this works without `eslint-plugin-react`);
 - ignores declaration files, dependencies, and common build output folders.
 
 Use the strict configuration to enable the same syntax rules at error severity:
@@ -41,6 +44,13 @@ export default [...tsrx.configs.strict];
 - `tsrx/require-statement-container-body` detects component bodies that need the
   `@{ ... }` statement-container marker.
 - `tsrx/valid-for-of-key` validates identifiers used in TSRX loop keys.
+- `tsrx/jsx-curly-brace-presence` is `react/jsx-curly-brace-presence`, with the
+  same options and messages, for TSRX text. It doesn't unwrap a string that TSRX
+  would read as syntax: a directive such as `{'@for (item of items)'}`, a comment
+  such as `{'// note'}` or ``{`/* note */`}``, or the first child of a `<style>`.
+  If you also use eslint-plugin-react's configurations, list
+  `tsrx.configs.recommended` after them, so that the react rule stays off for
+  `.tsrx` files.
 - `tsrx/no-return-in-component` is a deprecated no-op retained for compatibility.
 
 Target runtime rules do not belong in the shared recommended configuration. For

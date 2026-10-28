@@ -3,6 +3,7 @@ import noReturnInComponent from './rules/no-return-in-component.js';
 import controlFlowJsx from './rules/control-flow-jsx.js';
 import validForOfKey from './rules/valid-for-of-key.js';
 import requireStatementContainerBody from './rules/require-statement-container-body.js';
+import jsxCurlyBracePresence from './rules/jsx-curly-brace-presence.js';
 
 const plugin = {
 	meta: {
@@ -14,6 +15,7 @@ const plugin = {
 		'control-flow-jsx': controlFlowJsx,
 		'valid-for-of-key': validForOfKey,
 		'require-statement-container-body': requireStatementContainerBody,
+		'jsx-curly-brace-presence': jsxCurlyBracePresence,
 	},
 	configs: {} as any,
 };
@@ -47,6 +49,10 @@ function createConfig(name: string, files: string[], parser: any, isTsrx: boolea
 
 	if (isTsrx) {
 		rules['tsrx/require-statement-container-body'] = 'error';
+		// eslint-plugin-react's version unwraps strings that TSRX text reads as
+		// syntax. A rule that is off needs no plugin, so this is safe without it.
+		rules['tsrx/jsx-curly-brace-presence'] = 'error';
+		rules['react/jsx-curly-brace-presence'] = 'off';
 	}
 
 	const config: any = {

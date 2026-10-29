@@ -238,7 +238,9 @@ export function List({ items =${whitespace}EMPTY_ARRAY as string[] }: { items?: 
 		});
 	});
 
-	describe(`[${name}] yield in lowered expressions (#246)`, () => {
+	// Solid and Vue report some of these as TSRX2034 (#259); their own tests say
+	// which.
+	describe.skipIf(rejectsTemplateYield)(`[${name}] yield in lowered expressions (#246)`, () => {
 		/** @type {Record<string, string>} */
 		const SOURCES = {
 			'host spread beside a ref in a ternary arm': `export function* makeInput(enabled: boolean) {
@@ -251,27 +253,6 @@ export function List({ items =${whitespace}EMPTY_ARRAY as string[] }: { items?: 
 	return <p>{@switch (kind) { @case 1: { <span title={yield 'title'} /> } }}</p>;
 }`,
 		};
-
-		if (rejectsTemplateYield) {
-			it.each([
-				...Object.entries(SOURCES),
-				[
-					'@for body',
-					`export function* makeList(items: string[]) {
-	return <ul>{@for (const item of items) { <li title={yield item} /> }}</ul>;
-}`,
-				],
-			])('reports the yield in the %s once, as a yield in a template (#259)', (_label, source) => {
-				const error = expect.objectContaining({
-					code: DIAGNOSTIC_CODES.TARGET_TEMPLATE_YIELD_UNSUPPORTED,
-					pos: source.indexOf('yield'),
-				});
-				expect(() => compile(source, 'App.tsrx')).toThrow(error);
-				expect(compile(source, 'App.tsrx', { collect: true }).errors).toEqual([error]);
-				expect(compile_to_volar_mappings(source, 'App.tsrx').errors).toEqual([error]);
-			});
-			return;
-		}
 
 		it.each(Object.keys(SOURCES))('keeps the yield inside a generator for the %s', (label) => {
 			const runtime = compile(SOURCES[label], 'App.tsrx').code;
@@ -381,27 +362,9 @@ export function List({ items =${whitespace}EMPTY_ARRAY as string[] }: { items?: 
 }`,
 		};
 
-		if (rejectsTemplateYield) {
-			it.each(Object.keys(SOURCES))('reports each yield in the %s once', (label) => {
-				const source = SOURCES[label];
-				const yields = [...source.matchAll(/\byield\b/g)].map((match) => match.index);
-				expect(() => compile(source, 'App.tsrx')).toThrow(
-					expect.objectContaining({
-						code: DIAGNOSTIC_CODES.TARGET_TEMPLATE_YIELD_UNSUPPORTED,
-						pos: yields[0],
-					}),
-				);
-				for (const { errors } of [
-					compile(source, 'App.tsrx', { collect: true }),
-					compile_to_volar_mappings(source, 'App.tsrx'),
-				]) {
-					expect(errors.map((error) => [error.code, error.pos])).toEqual(
-						yields.map((start) => [DIAGNOSTIC_CODES.TARGET_TEMPLATE_YIELD_UNSUPPORTED, start]),
-					);
-					expect(new Set(errors.map((error) => error.message)).size).toBe(1);
-				}
-			});
-		} else {
+		// Solid's and Vue's compilers evaluate some of these in effects; their
+		// own tests say which TSRX reports.
+		if (!rejectsTemplateYield) {
 			it.each(Object.keys(SOURCES))('accepts the yield in the %s', (label) => {
 				const source = SOURCES[label];
 				const result = compile(source, 'App.tsrx', { collect: true });

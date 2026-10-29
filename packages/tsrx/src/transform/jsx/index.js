@@ -575,7 +575,6 @@ export function createJsxTransform(platform) {
 			needs_vapor_for: false,
 			stylesheets,
 			type_only_style_anchors,
-			rejected_yields: new Set(),
 			helper_state: null,
 			available_bindings: new Map(),
 			filename: filename ?? null,
@@ -603,10 +602,6 @@ export function createJsxTransform(platform) {
 		// same object.
 		if (transform_context.typeOnly && platform.serverModule) {
 			ast = lower_server_module_for_types(ast, platform.serverModule);
-		}
-
-		if (platform.validation.templateYieldUnsupported) {
-			validate_template_yields(ast, transform_context);
 		}
 
 		// Style scopes: which `<style>` blocks scope which template, CSS emission
@@ -847,6 +842,7 @@ export function createJsxTransform(platform) {
 			lower_remaining_jsx_code_blocks(expanded, transform_context),
 			transform_context,
 		);
+		report_deferred_template_yields(final_program, transform_context);
 		inject_dynamic_import(final_program, transform_context);
 		if (platform.hooks?.injectImports) {
 			platform.hooks.injectImports(final_program, transform_context, suspense_source);
@@ -2585,60 +2581,52 @@ function lower_remaining_jsx_code_blocks(node, transform_context, seen = new Set
 }
 
 /**
- * Reports each `yield` in a template, for a target whose JSX compiler moves
- * template expressions into reactive effects (Solid, Vue): there the `yield`
- * no longer runs in its generator, so the compiled output fails to parse. A
- * `yield` in a nested function belongs to that function, and the setup
- * statements of a function's own `@{ … }` body run in the function.
+ * Reports the `yield`s a target's own JSX compiler would move out of their
+ * generator (TSRX2034): Solid's and Vue's compilers evaluate some template
+ * expressions in effects, getters or callbacks, where a `yield` no longer
+ * runs in its generator and the compiled output fails to parse. The target's
+ * `findDeferredTemplateYields` hook finds them in the final output, which is
+ * what that compiler reads. A `yield*` that delegates to a generator made from
+ * a generated closure stands for the authored `yield`s inside it.
  *
- * @param {AST.Node} program
+ * @param {AST.Program} program
  * @param {TransformContext} transform_context
  * @returns {void}
  */
-function validate_template_yields(program, transform_context) {
-	if (transform_context.source && !transform_context.source.includes('yield')) {
+function report_deferred_template_yields(program, transform_context) {
+	const find = transform_context.platform.hooks?.findDeferredTemplateYields;
+	if (!find || (transform_context.source && !transform_context.source.includes('yield'))) {
 		return;
 	}
 
-	/** @type {AST.YieldExpression[]} */
-	const yields = [];
-
-	/**
-	 * @param {AST.Node} node
-	 * @param {boolean} in_template
-	 */
-	const visit = (node, in_template) => {
-		if (is_function_node(node)) {
-			for (const child of child_nodes(node, 'body')) visit(child, false);
-			if (node.body?.type === 'JSXCodeBlock') {
-				for (const statement of node.body.body || []) visit(statement, false);
-				if (node.body.render) visit(node.body.render, true);
-			} else if (node.body) {
-				visit(node.body, false);
-			}
-			return;
+	/** @type {Map<number, AST.YieldExpression>} */
+	const authored = new Map();
+	/** @param {AST.YieldExpression} node */
+	const add = (node) => {
+		const generator = /** @type {AST.FunctionExpression | undefined} */ (
+			node.metadata?.generated_delegation
+		);
+		if (generator) {
+			for (const inner of find_own_yields(generator.body)) add(inner);
+		} else if (typeof node.start === 'number') {
+			authored.set(node.start, node);
 		}
-
-		if (in_template && node.type === 'YieldExpression') {
-			yields.push(node);
-		}
-
-		const child_in_template =
-			in_template ||
-			node.type === 'JSXElement' ||
-			node.type === 'JSXFragment' ||
-			node.type === 'JSXCodeBlock' ||
-			is_jsx_control_flow_expression(node);
-		for (const child of child_nodes(node)) visit(child, child_in_template);
 	};
+	for (const node of find(program, transform_context)) add(node);
 
-	visit(program, false);
-
-	// The walk visits an element's children before its attributes. Strict mode
-	// throws at the first error, so report in source order.
-	yields.sort((a, b) => /** @type {number} */ (a.start) - /** @type {number} */ (b.start));
-	for (const node of yields) {
-		const reported = transform_context.errors?.length ?? 0;
+	// A `yield` with an error of its own already, or one inside it, needs no
+	// second: TSRX2022 for a callback the target calls itself, TSRX2023 for a
+	// `super` that the lowering for the `yield` can't read.
+	const reported = (transform_context.errors ?? []).map((error) => error.pos ?? -1);
+	for (const node of [...authored.values()]
+		.filter(
+			(node) =>
+				!reported.some(
+					(pos) =>
+						pos >= /** @type {number} */ (node.start) && pos < /** @type {number} */ (node.end),
+				),
+		)
+		.sort((a, b) => /** @type {number} */ (a.start) - /** @type {number} */ (b.start))) {
 		error(
 			TSRX_ERRORS.TARGET_TEMPLATE_YIELD_UNSUPPORTED(transform_context.platform.name),
 			transform_context.filename,
@@ -2646,12 +2634,21 @@ function validate_template_yields(program, transform_context) {
 			transform_context.errors,
 			transform_context.comments,
 		);
-		// Only a recorded error stands in for the shared checks of a `yield` in
-		// a generated callback; one `@tsrx-ignore` suppressed leaves them as before.
-		if ((transform_context.errors?.length ?? 0) > reported) {
-			transform_context.rejected_yields.add(/** @type {number} */ (node.start));
-		}
 	}
+}
+
+/**
+ * The `yield`s in `node` that belong to the function around it.
+ *
+ * @param {AST.Node} node
+ * @param {AST.YieldExpression[]} [found]
+ * @returns {AST.YieldExpression[]}
+ */
+function find_own_yields(node, found = []) {
+	if (is_function_node(node)) return found;
+	if (node.type === 'YieldExpression') found.push(node);
+	for (const child of child_nodes(node)) find_own_yields(child, found);
+	return found;
 }
 
 /**
@@ -2805,9 +2802,7 @@ function suspend_generated_closures(program, transform_context) {
 			if (make_generator) {
 				if (delegable) {
 					fn = to_generator_function(fn);
-				} else if (
-					!transform_context.rejected_yields.has(/** @type {number} */ (first_yield?.start))
-				) {
+				} else {
 					error(
 						TSRX_ERRORS.TARGET_YIELD_UNSUPPORTED(transform_context.platform.name),
 						transform_context.filename,
@@ -2832,22 +2827,17 @@ function suspend_generated_closures(program, transform_context) {
 			if (made_generator.has(call.callee)) {
 				// `yield*` also settles a delegated async generator, so a closure
 				// made both async and a generator is not awaited as well.
-				const first_generated_yield = made_generator.get(call.callee);
+				const delegation = b.yield(delegate_to_generated_generator(call, transform_context), true);
+				// It stands for the authored `yield`s in the generated generator,
+				// which is where a later check reports them.
+				delegation.metadata = {
+					...delegation.metadata,
+					generated_delegation: /** @type {AST.FunctionExpression} */ (call.callee),
+				};
 				result = {
-					node: b.yield(
-						delegate_to_generated_generator(
-							call,
-							transform_context,
-							// A `super` is a problem only because of that `yield`; one the
-							// target has reported needs no second error.
-							!transform_context.rejected_yields.has(
-								/** @type {number} */ (first_generated_yield?.start),
-							),
-						),
-						true,
-					),
+					node: delegation,
 					first_await: made_async.get(call.callee) ?? first_await,
-					first_yield: first_generated_yield ?? first_yield,
+					first_yield: made_generator.get(call.callee) ?? first_yield,
 				};
 			} else if (made_async.has(call.callee)) {
 				result = {
@@ -2910,10 +2900,9 @@ function to_generator_function(fn) {
  *
  * @param {AST.CallExpression} call
  * @param {TransformContext} transform_context
- * @param {boolean} [report_super] whether to report a `super` in the body
  * @returns {AST.CallExpression}
  */
-function delegate_to_generated_generator(call, transform_context, report_super = true) {
+function delegate_to_generated_generator(call, transform_context) {
 	const generator = /** @type {AST.FunctionExpression} */ (call.callee);
 	/** @type {{ this: boolean, arguments: boolean, super: AST.Node | null }} */
 	const found = { this: false, arguments: false, super: null };
@@ -2921,7 +2910,7 @@ function delegate_to_generated_generator(call, transform_context, report_super =
 		find_function_context_references(child, found);
 	}
 
-	if (found.super && report_super) {
+	if (found.super) {
 		error(
 			TSRX_ERRORS.TARGET_SUPER_UNSUPPORTED(transform_context.platform.name),
 			transform_context.filename,

@@ -17,6 +17,7 @@
  */
 
 import { walk } from 'zimmerframe';
+import { find_deferred_template_yields } from './template-yield.js';
 import {
 	DIAGNOSTIC_CODES,
 	TSRX_ERRORS,
@@ -107,8 +108,6 @@ const solid_platform = {
 		// so directive scanning is redundant work. Keep the fallback flag
 		// above true as a safety net if the custom hook is removed.
 		scanUseServerDirectiveForAwaitWithCustomValidator: false,
-		// babel-preset-solid evaluates template expressions in effects.
-		templateYieldUnsupported: true,
 	},
 	hooks: {
 		initialState: () => ({
@@ -131,6 +130,7 @@ const solid_platform = {
 			// subtree contains a *component* JSX element. Same logic Vue uses.
 			return !contains_component_jsx(node);
 		},
+		findDeferredTemplateYields: find_deferred_template_yields,
 		validateComponentAwait: (await_expression, _component, ctx, _requires, source) => {
 			const await_start = get_await_keyword_start(await_expression, source);
 			const adjusted_node = /** @type {AST.Node} */ ({

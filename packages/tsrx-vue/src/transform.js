@@ -4,6 +4,7 @@
 
 import { walk } from 'zimmerframe';
 import is_reference from 'is-reference';
+import { find_deferred_template_yields } from './template-yield.js';
 import {
 	builders as b,
 	addJsxSetupDeclaration,
@@ -64,8 +65,6 @@ const vue_platform = {
 	validation: {
 		requireUseServerForAwait: true,
 		scanUseServerDirectiveForAwaitWithCustomValidator: false,
-		// vue-jsx-vapor evaluates template expressions in render effects.
-		templateYieldUnsupported: true,
 	},
 	hooks: {
 		initialState: () => ({
@@ -138,6 +137,7 @@ const vue_platform = {
 		transformElementChildren(node, walked_children, raw_children, attributes, ctx) {
 			return rewrite_host_text_children(node, walked_children, raw_children, attributes);
 		},
+		findDeferredTemplateYields: find_deferred_template_yields,
 		validateComponentAwait(await_expression, _component, ctx) {
 			error(
 				'`await` is not yet supported in Vue TSRX components.',

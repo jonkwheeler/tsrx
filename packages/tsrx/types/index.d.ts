@@ -159,6 +159,11 @@ export interface BaseNodeMetaData {
 	tsrx_render_fragment?: boolean;
 	/** A merged text run produced by normalize_children - renders through the text path. */
 	tsrx_text?: boolean;
+	/**
+	 * On a `yield*` the compiler added for a generated closure it made a
+	 * generator: that generator, whose authored `yield`s the `yield*` stands for.
+	 */
+	generated_delegation?: AST.FunctionExpression;
 	/** Control-flow node renders as the sole child of its parent (controlled anchor). */
 	is_controlled?: boolean;
 	/** Control-flow node is the root of a render body - anchors on `__anchor`. */
@@ -2431,9 +2436,10 @@ export interface SourceMappingHarness {
 	 */
 	rejectsComponentAwait: boolean;
 	/**
-	 * Does the platform report a `yield` in a template (TSRX2034)? Solid and Vue
-	 * do, because their JSX compilers evaluate template expressions in effects.
-	 * Default: `false`.
+	 * Does the platform report some `yield`s in a template (TSRX2034)? Solid and
+	 * Vue do, where their JSX compilers evaluate the value in an effect, a
+	 * getter or a callback. The shared tests then leave those shapes to the
+	 * target's own tests. Default: `false`.
 	 */
 	rejectsTemplateYield?: boolean;
 }

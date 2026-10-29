@@ -52,11 +52,6 @@ export interface JsxTransformContext {
 	needs_vapor_for: boolean;
 	stylesheets: AST.CSS.StyleSheet[];
 	type_only_style_anchors: AST.Statement[];
-	/**
-	 * Start offsets of the `yield`s reported as TSRX2034. The shared check for a
-	 * `yield` in a generated callback skips these, so each is reported once.
-	 */
-	rejected_yields: Set<number>;
 	helper_state: JsxHelperState | null;
 	available_bindings: Map<string, AST.Identifier>;
 	inside_element_child?: boolean;
@@ -317,6 +312,18 @@ export interface JsxPlatformHooks {
 		source: string,
 	) => void;
 	/**
+	 * The `yield`s in the final output that the target's own JSX compiler moves
+	 * out of their generator, into an effect, getter or callback, where they no
+	 * longer parse. Each is reported as TSRX2034. Only a `yield` whose nearest
+	 * enclosing function is a generator belongs here. A returned `yield*` that
+	 * delegates to a generator made from a generated closure stands for the
+	 * authored `yield`s inside it.
+	 */
+	findDeferredTemplateYields?: (
+		program: AST.Program,
+		ctx: JsxTransformContext,
+	) => AST.YieldExpression[];
+	/**
 	 * Factory-managed state extra fields. Returns a record merged into the
 	 * initial `transform_context`. Lets solid seed its `needs_show` /
 	 * `needs_for` / etc. flags without forking the factory.
@@ -508,16 +515,6 @@ export interface JsxPlatform {
 		 * `<Suspense fallback={...}>` wrapper.
 		 */
 		unsupportedTryPendingMessage?: string;
-		/**
-		 * When `true`, each `yield` in a template, outside a nested function, is
-		 * reported as TSRX2034. For a target whose JSX compiler evaluates
-		 * template expressions in reactive effects (Solid, Vue), where a `yield`
-		 * no longer runs in its generator and the compiled output fails to
-		 * parse.
-		 *
-		 * Default: `false`.
-		 */
-		templateYieldUnsupported?: boolean;
 	};
 
 	/**

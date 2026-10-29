@@ -188,3 +188,18 @@ jobs:
           pnpm regenerate-textmate
           pnpm copy-tree-sitter-queries
           git diff --exit-code
+
+      - name: Load the Tree-sitter grammar in ast-grep
+        run: |
+          pnpm --filter @tsrx/tree-sitter build:library
+          cat > "$RUNNER_TEMP/sgconfig.yml" <<EOF
+          customLanguages:
+            tsrx:
+              libraryPath: $GITHUB_WORKSPACE/grammars/tree-sitter/tsrx.so
+              extensions: [tsrx]
+          EOF
+          # `ast-grep run` exits with 1 when nothing matches.
+          npx --yes --package @ast-grep/cli@0.50.0 ast-grep run -c "$RUNNER_TEMP/sgconfig.yml" \
+            --custom-languages allow -l tsrx \
+            -p '@if ($COND) { $$$THEN } @else { $$$ELSE }' \
+            packages/tsrx/tests/fixtures/scoped-styles

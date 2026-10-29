@@ -2470,6 +2470,9 @@ function references_scope_bindings(node, scope_bindings, referenced_bindings) {
  * Hoisting prevents React from recreating the element on every render, allowing
  * the reconciler to skip diffing when it sees the same element identity.
  *
+ * A static element that an expression container renders is hoisted too,
+ * wherever the container sits in the rendered JSX (#81).
+ *
  * @param {ESTreeJSX.JSXRenderChild[]} render_nodes
  * @param {TransformContext} transform_context
  */
@@ -2478,35 +2481,144 @@ function hoist_static_render_nodes(render_nodes, transform_context) {
 
 	for (let i = 0; i < render_nodes.length; i++) {
 		const node = render_nodes[i];
-		if (node.type !== 'JSXElement') continue;
-		if (!is_hoist_safe_jsx_node(node)) continue;
-		if (is_bare_component_invocation(node)) {
-			// `<Helper />` with no attributes and no children is just an
-			// invocation reference. Hoisting it would produce
-			// `const App__staticN = <Helper />` aliases that bloat the output
-			// without enabling React's element-identity fast path (the helper
-			// isn't memoized, so the parent re-invokes it every render either
-			// way). Inline the reference at the call site instead.
-			continue;
+		const id = hoist_static_jsx(node, transform_context);
+		if (id) {
+			render_nodes[i] = to_jsx_expression_container(id, node);
+		} else {
+			hoist_static_jsx_in_containers(node, transform_context);
 		}
-		if (
-			transform_context.platform.hooks?.canHoistStaticNode &&
-			!transform_context.platform.hooks.canHoistStaticNode(node, transform_context)
-		) {
-			continue;
-		}
-		if (references_scope_bindings(node, transform_context.available_bindings)) continue;
-		if (reads_unhoistable_tag(node, transform_context.hoistable_tags())) continue;
-
-		const name = create_helper_name(transform_context.helper_state, 'static');
-		const id = create_generated_identifier(name);
-
-		transform_context.helper_state.statics.push(
-			b.const(id, lower_static_script_bodies(node, transform_context)),
-		);
-
-		render_nodes[i] = to_jsx_expression_container(clone_identifier(id), node);
 	}
+}
+
+/**
+ * Moves `node` to a module-level static when it is a static element, and
+ * returns an identifier that reads the static.
+ *
+ * @param {AST.Node} node
+ * @param {TransformContext} transform_context
+ * @returns {AST.Identifier | null}
+ */
+function hoist_static_jsx(node, transform_context) {
+	const helper_state = transform_context.helper_state;
+	if (!helper_state || node.type !== 'JSXElement') return null;
+	if (!is_hoist_safe_jsx_node(node)) return null;
+	if (is_bare_component_invocation(node)) {
+		// `<Helper />` with no attributes and no children is just an
+		// invocation reference. Hoisting it would produce
+		// `const App__staticN = <Helper />` aliases that bloat the output
+		// without enabling React's element-identity fast path (the helper
+		// isn't memoized, so the parent re-invokes it every render either
+		// way). Inline the reference at the call site instead.
+		return null;
+	}
+	if (
+		transform_context.platform.hooks?.canHoistStaticNode &&
+		!transform_context.platform.hooks.canHoistStaticNode(node, transform_context)
+	) {
+		return null;
+	}
+	if (references_scope_bindings(node, transform_context.available_bindings)) return null;
+	if (reads_unhoistable_tag(node, transform_context.hoistable_tags())) return null;
+
+	const id = create_generated_identifier(create_helper_name(helper_state, 'static'));
+	helper_state.statics.push(b.const(id, lower_static_script_bodies(node, transform_context)));
+	return clone_identifier(id);
+}
+
+/**
+ * Hoists the static elements that expression containers in `node` render: a
+ * container in an element's or a fragment's children or in an attribute
+ * value, through `?:`, `&&`, `||` and `??` branches and nested containers.
+ * Neither a bare child of a dynamic element nor JSX inside a function or any
+ * other expression is hoisted, and neither is an element with a `key`.
+ *
+ * @param {AST.Node} node
+ * @param {TransformContext} transform_context
+ */
+function hoist_static_jsx_in_containers(node, transform_context) {
+	if (node.type === 'JSXElement') {
+		for (const attribute of node.openingElement.attributes) {
+			if (
+				attribute.type === 'JSXAttribute' &&
+				attribute.value?.type === 'JSXExpressionContainer' &&
+				!(
+					attribute.name.type === 'JSXIdentifier' &&
+					(attribute.name.name === 'key' || attribute.name.name === 'ref')
+				)
+			) {
+				hoist_static_jsx_in_expression(attribute.value, 'expression', transform_context);
+			}
+		}
+		for (const child of node.children) hoist_static_jsx_in_containers(child, transform_context);
+	} else if (node.type === 'JSXFragment') {
+		for (const child of node.children) hoist_static_jsx_in_containers(child, transform_context);
+	} else if (node.type === 'JSXExpressionContainer') {
+		hoist_static_jsx_in_expression(node, 'expression', transform_context);
+	}
+}
+
+/**
+ * Hoists `parent[key]` when it is a static element, or the static elements it
+ * renders through branches and containers. A fragment keeps its children: each
+ * static child is hoisted on its own, as in a component's top-level fragment,
+ * so the children React sees keep their shape.
+ *
+ * @param {Record<string, any>} parent
+ * @param {string} key
+ * @param {TransformContext} transform_context
+ */
+function hoist_static_jsx_in_expression(parent, key, transform_context) {
+	/** @type {AST.Node} */
+	const expression = parent[key];
+	switch (expression.type) {
+		case 'JSXElement': {
+			const id = has_key_attribute(expression)
+				? null
+				: hoist_static_jsx(expression, transform_context);
+			if (id) {
+				parent[key] = id;
+			} else {
+				hoist_static_jsx_in_containers(expression, transform_context);
+			}
+			break;
+		}
+		case 'JSXFragment':
+			expression.children.forEach((child, index) => {
+				const id =
+					child.type === 'JSXElement' && !has_key_attribute(child)
+						? hoist_static_jsx(child, transform_context)
+						: null;
+				if (id) {
+					expression.children[index] = to_jsx_expression_container(id, child);
+				} else {
+					hoist_static_jsx_in_containers(child, transform_context);
+				}
+			});
+			break;
+		case 'ConditionalExpression':
+			hoist_static_jsx_in_expression(expression, 'consequent', transform_context);
+			hoist_static_jsx_in_expression(expression, 'alternate', transform_context);
+			break;
+		case 'LogicalExpression':
+			hoist_static_jsx_in_expression(expression, 'right', transform_context);
+			break;
+		case 'ParenthesizedExpression':
+			hoist_static_jsx_in_expression(expression, 'expression', transform_context);
+			break;
+	}
+}
+
+/**
+ * @param {AST.TSRXJSXElement} element
+ * @returns {boolean}
+ */
+function has_key_attribute(element) {
+	return element.openingElement.attributes.some(
+		(attribute) =>
+			attribute.type === 'JSXAttribute' &&
+			attribute.name.type === 'JSXIdentifier' &&
+			attribute.name.name === 'key',
+	);
 }
 
 /**

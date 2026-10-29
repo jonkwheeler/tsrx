@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { DIAGNOSTIC_CODES, TS_ERRORS, TSRX_ERRORS } from '../../src/diagnostics.js';
@@ -4612,6 +4613,165 @@ export function App() @{
 		])('keeps the body of a raw script in %s of static JSX (#845)', (_case, source) => {
 			const { code } = compile(source, 'App.tsrx');
 			expect(code).toContain(`'{"a":1}'`);
+		});
+
+		describe('in expression containers (#81)', () => {
+			/** @param {string} code */
+			const static_count = (code) => code.match(/^const App__static\d+ = /gm)?.length ?? 0;
+
+			it('hoists a static element in a container like the bare one beside it', () => {
+				const { code } = compile(
+					'export function App() {\n\treturn <>{<b>a</b>}<b>b</b></>;\n}\n' +
+						'export const result = () => {\n' +
+						'\tconst [first, second] = [App(), App()];\n' +
+						'\treturn [first.props.children.length, ...first.props.children.map((child: unknown, i: number) => child === second.props.children[i])];\n' +
+						'};',
+					'App.tsrx',
+				);
+				if (hoistsStaticJsx) {
+					expect(code).toContain('const App__static1 = <b>a</b>;');
+					expect(code).toContain('const App__static2 = <b>b</b>;');
+					expect(code).toContain('return <>{App__static1}{App__static2}</>;');
+					expect(run_result(code)).toEqual([2, true, true]);
+				} else {
+					expect(code).not.toContain('__static');
+					expect(run_result(code)).toEqual([2, false, false]);
+				}
+			});
+
+			it('hoists through children, attribute values, branches, nested containers and fragments', () => {
+				const { code } = compile(
+					`function Card(props: { header: unknown; n: number; children?: unknown }) {
+	return null;
+}
+export function App(props: { on: boolean; n: number; label?: string }) {
+	return (
+		<div title={String(props.n)}>
+			{<b>child</b>}
+			<Card header={<h1>header</h1>} n={props.n}>
+				{<i>card child</i>}
+			</Card>
+			{props.on ? <span>on</span> : <span>off</span>}
+			{props.on && <em>and</em>}
+			{props.label ?? <s>fallback</s>}
+			{<p title={String(props.n)}>{<u>nested</u>}</p>}
+			{<><a>one</a><a>two</a></>}
+		</div>
+	);
+}
+const strip = (node: any): any =>
+	node && typeof node === 'object'
+		? { type: typeof node.type === 'function' ? node.type.name : node.type, props: Object.fromEntries(Object.entries(node.props).map(([k, v]) => [k, Array.isArray(v) ? v.map(strip) : strip(v)])) }
+		: node;
+export const result = () => [App({ on: true, n: 1 }), App({ on: false, n: 2, label: 'x' })].map(strip);`,
+					'App.tsrx',
+				);
+				if (hoistsStaticJsx) {
+					expect(static_count(code)).toBe(10);
+					expect(code).toContain(
+						'return <div title={String(props.n)}>{App__static1}<Card header={App__static2} n={props.n}>{App__static3}</Card>{props.on ? App__static4 : App__static5}{props.on && App__static6}{props.label ?? App__static7}{<p title={String(props.n)}>{App__static8}</p>}{<>{App__static9}{App__static10}</>}</div>;',
+					);
+				} else {
+					expect(code).not.toContain('__static');
+				}
+				/** @param {string} type @param {Record<string, unknown>} [props] */
+				const el = (type, props = {}) => ({ type, props });
+				/** @param {boolean} on @param {number} n @param {unknown} fallback */
+				const tree = (on, n, fallback) =>
+					el('div', {
+						title: String(n),
+						children: [
+							el('b', { children: ['child'] }),
+							el('Card', {
+								header: el('h1', { children: ['header'] }),
+								n,
+								children: [el('i', { children: ['card child'] })],
+							}),
+							el('span', { children: [on ? 'on' : 'off'] }),
+							on && el('em', { children: ['and'] }),
+							fallback,
+							el('p', { title: String(n), children: [el('u', { children: ['nested'] })] }),
+							el('Fragment', {
+								children: [el('a', { children: ['one'] }), el('a', { children: ['two'] })],
+							}),
+						],
+					});
+				expect(run_result(code)).toEqual([
+					tree(true, 1, el('s', { children: ['fallback'] })),
+					tree(false, 2, 'x'),
+				]);
+			});
+
+			it('hoists a static element in a nested container of a component body', () => {
+				const { code } = compile(
+					`export function App(props: { n: number }) @{
+	const label = String(props.n);
+	<section title={label}>
+		{<div title={label}>{<span>nested</span>}</div>}
+	</section>
+}`,
+					'App.tsrx',
+				);
+				if (hoistsStaticJsx) {
+					expect(code).toContain('const App__static1 = <span>nested</span>;');
+					expect(code).toContain(
+						'return <section title={label}>{<div title={label}>{App__static1}</div>}</section>;',
+					);
+				} else {
+					expect(code).not.toContain('__static');
+				}
+			});
+
+			it('hoists each of two static containers on its own instead of merging them', () => {
+				const { code } = compile(
+					'export function App() {\n\treturn <>{<b>a</b>}{<b>b</b>}</>;\n}',
+					'App.tsrx',
+				);
+				if (hoistsStaticJsx) {
+					expect(static_count(code)).toBe(2);
+					expect(code).toContain('return <>{App__static1}{App__static2}</>;');
+				} else {
+					expect(code).not.toContain('__static');
+				}
+			});
+
+			it('leaves keyed elements, binding reads, bare children and other expressions in place', () => {
+				const { code } = compile(
+					`function Card(props: { n?: number }) {
+	return null;
+}
+function Helper() {
+	return null;
+}
+export function App(props: { on: boolean; n: number; items: string[] }) {
+	return (
+		<div title={String(props.n)}>
+			<p>bare child</p>
+			{<b key="k">keyed</b>}
+			{props.on ? <i key="on">on</i> : <i key="off">off</i>}
+			{<b>{props.n}</b>}
+			{<Card n={props.n} />}
+			{<Helper />}
+			{props.items.map((item) => <li>row</li>)}
+			{[<u key="a">a</u>]}
+		</div>
+	);
+}`,
+					'App.tsrx',
+				);
+				expect(code).not.toContain('__static');
+			});
+
+			it('hoists the statics of the shared runtime fixture', () => {
+				const source = readFileSync(
+					new URL('./runtime/static-containers-components.tsrx', import.meta.url),
+					'utf8',
+				);
+				const { code } = compile(source, 'StaticContainers.tsrx');
+				expect(code.match(/^const StaticContainers__static\d+ = /gm)?.length ?? 0).toBe(
+					hoistsStaticJsx ? 10 : 0,
+				);
+			});
 		});
 	});
 

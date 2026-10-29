@@ -4362,10 +4362,12 @@ export function App() @{
 		 * and returns what its `result` export returns. An import is a string
 		 * that names it when it is capitalized, and otherwise a function that
 		 * returns its argument; a default import is a module of the same kind.
+		 * `modules` replaces the modules it names.
 		 * @param {string} code
+		 * @param {Record<string, object>} [modules]
 		 * @returns {unknown}
 		 */
-		function run_result(code) {
+		function run_result(code, modules = {}) {
 			const { outputText } = ts.transpileModule(code, {
 				fileName: 'App.tsx',
 				compilerOptions: {
@@ -4386,6 +4388,7 @@ export function App() @{
 			 * @returns {object}
 			 */
 			const require = (specifier) =>
+				modules[specifier] ??
 				new Proxy(
 					{},
 					{
@@ -4717,6 +4720,81 @@ export const result = () => [App({ on: true, n: 1 }), App({ on: false, n: 2, lab
 					expect(code).toContain(
 						'return <section title={label}>{<div title={label}>{App__static1}</div>}</section>;',
 					);
+				} else {
+					expect(code).not.toContain('__static');
+				}
+			});
+
+			it('hoists only host elements in a conditional container', () => {
+				// A static reads its tags when the module loads; a component the
+				// render may never reach can be uninitialized then (a cyclic import)
+				const { code } = compile(
+					`import * as ui from './ui';
+function Icon(props: { size: number }) {
+	return null;
+}
+export function App(props: { on: boolean; n: number; label?: string }) {
+	return <div title={String(props.n)}>
+		{props.on && <ui.Button x="x" />}
+		{props.on ? <Icon size={1} /> : <span>off</span>}
+		{props.label ?? <b><Icon size={2} /></b>}
+		{props.on || <i>host</i>}
+		{props.on && <p title={String(props.n)}>{<Icon size={3} />}{<em>nested host</em>}</p>}
+	</div>;
+}`,
+					'App.tsrx',
+				);
+				if (hoistsStaticJsx) {
+					expect(code.match(/^const App__static\d+ = .*$/gm)).toEqual([
+						'const App__static1 = <span>off</span>;',
+						'const App__static2 = <i>host</i>;',
+						'const App__static3 = <em>nested host</em>;',
+					]);
+					expect(code).toContain('{props.on && <ui.Button x="x" />}');
+					expect(code).toContain('{props.on ? <Icon size={1} /> : App__static1}');
+					expect(code).toContain('{props.label ?? <b><Icon size={2} /></b>}');
+					expect(code).toContain('{<Icon size={3} />}{App__static3}');
+				} else {
+					expect(code).not.toContain('__static');
+				}
+			});
+
+			it('does not read a component in a conditional container when the module loads', () => {
+				const { code } = compile(
+					"import * as ui from './ui';\n" +
+						'export function App(props: { on: boolean }) {\n' +
+						'\treturn <>{props.on && <ui.Button x="x" />}</>;\n' +
+						'}\n' +
+						'export const result = () => App({ on: false }).props.children;',
+					'App.tsrx',
+				);
+				const ui = {
+					get Button() {
+						throw new Error('ui.Button read');
+					},
+				};
+				expect(run_result(code, { './ui': ui })).toEqual([false]);
+			});
+
+			it('hoists a component in an unconditional container, as it does a bare one', () => {
+				const { code } = compile(
+					`import * as ui from './ui';
+function Icon(props: { size: number }) {
+	return null;
+}
+export function App(props: { n: number }) {
+	return <div title={String(props.n)}>
+		{<ui.Button x="x" />}
+		<ui.Button x={<Icon size={1} />} y={String(props.n)} />
+	</div>;
+}`,
+					'App.tsrx',
+				);
+				if (hoistsStaticJsx) {
+					expect(code.match(/^const App__static\d+ = .*$/gm)).toEqual([
+						'const App__static1 = <ui.Button x="x" />;',
+						'const App__static2 = <Icon size={1} />;',
+					]);
 				} else {
 					expect(code).not.toContain('__static');
 				}

@@ -2482,11 +2482,9 @@ function hoist_static_render_nodes(render_nodes, transform_context) {
 	for (let i = 0; i < render_nodes.length; i++) {
 		const node = render_nodes[i];
 		const id = hoist_static_jsx(node, transform_context);
-		if (id) {
-			render_nodes[i] = to_jsx_expression_container(id, node);
-		} else {
-			hoist_static_jsx_in_containers(node, transform_context);
-		}
+		render_nodes[i] = id
+			? to_jsx_expression_container(id, node)
+			: hoist_static_jsx_in_containers(node, false, transform_context);
 	}
 }
 
@@ -2526,86 +2524,161 @@ function hoist_static_jsx(node, transform_context) {
 }
 
 /**
- * Hoists the static elements that expression containers in `node` render: a
- * container in an element's or a fragment's children or in an attribute
- * value, through `?:`, `&&`, `||` and `??` branches and nested containers.
- * Neither a bare child of a dynamic element nor JSX inside a function or any
- * other expression is hoisted, and neither is an element with a `key`.
+ * Hoists an element that an expression container renders, unless it has a
+ * `key`. When a branch decides whether it renders (`conditional`), only host
+ * elements are hoisted: a static reads its tags when the module loads, and a
+ * component or member tag that the render may never reach (`<ui.Button>` in
+ * `{false && …}`) can be uninitialized there, as in a cyclic import.
  *
  * @param {AST.Node} node
+ * @param {boolean} conditional
  * @param {TransformContext} transform_context
+ * @returns {AST.Identifier | null}
  */
-function hoist_static_jsx_in_containers(node, transform_context) {
-	if (node.type === 'JSXElement') {
-		for (const attribute of node.openingElement.attributes) {
+function hoist_contained_static_jsx(node, conditional, transform_context) {
+	if (node.type !== 'JSXElement' || has_key_attribute(node)) return null;
+	if (conditional && reads_tag_binding(node)) return null;
+	return hoist_static_jsx(node, transform_context);
+}
+
+/**
+ * Returns `node` with the static elements that its expression containers
+ * render hoisted: a container in an element's or a fragment's children or in
+ * an attribute value, through `?:`, `&&`, `||` and `??` branches and nested
+ * containers. A bare child of a dynamic element stays in place, and the walk
+ * doesn't enter a function or any other expression, so `{items.map(() =>
+ * <li />)}` keeps its JSX. (A function whose returned JSX is lowered as render
+ * output, such as a render helper in the component body, gets its own pass.)
+ * Each node on the way to a hoisted element is copied rather than changed,
+ * since the parsed tree that editor features read can hold the same nodes.
+ *
+ * @template {AST.Node} T
+ * @param {T} node
+ * @param {boolean} conditional whether a branch above decides if `node` renders
+ * @param {TransformContext} transform_context
+ * @returns {T}
+ */
+function hoist_static_jsx_in_containers(node, conditional, transform_context) {
+	/** @type {AST.Node} */
+	const current = node;
+	if (current.type === 'JSXElement') {
+		const { openingElement } = current;
+		const attributes = map_changed(openingElement.attributes, (attribute) => {
 			if (
-				attribute.type === 'JSXAttribute' &&
-				attribute.value?.type === 'JSXExpressionContainer' &&
-				!(
-					attribute.name.type === 'JSXIdentifier' &&
-					(attribute.name.name === 'key' || attribute.name.name === 'ref')
-				)
+				attribute.type !== 'JSXAttribute' ||
+				attribute.value?.type !== 'JSXExpressionContainer' ||
+				(attribute.name.type === 'JSXIdentifier' &&
+					(attribute.name.name === 'key' || attribute.name.name === 'ref'))
 			) {
-				hoist_static_jsx_in_expression(attribute.value, 'expression', transform_context);
+				return attribute;
 			}
+			const value = hoist_static_jsx_in_containers(attribute.value, conditional, transform_context);
+			return value === attribute.value ? attribute : { ...attribute, value };
+		});
+		const children = map_changed(current.children, (child) =>
+			hoist_static_jsx_in_containers(child, conditional, transform_context),
+		);
+		if (attributes === openingElement.attributes && children === current.children) return node;
+		return /** @type {T} */ ({
+			...current,
+			openingElement:
+				attributes === openingElement.attributes
+					? openingElement
+					: { ...openingElement, attributes },
+			children,
+		});
+	}
+	if (current.type === 'JSXFragment') {
+		const children = map_changed(current.children, (child) =>
+			hoist_static_jsx_in_containers(child, conditional, transform_context),
+		);
+		return children === current.children ? node : /** @type {T} */ ({ ...current, children });
+	}
+	if (
+		current.type === 'JSXExpressionContainer' &&
+		current.expression.type !== 'JSXEmptyExpression'
+	) {
+		const expression = hoist_static_jsx_in_expression(
+			current.expression,
+			conditional,
+			transform_context,
+		);
+		return expression === current.expression ? node : /** @type {T} */ ({ ...current, expression });
+	}
+	return node;
+}
+
+/**
+ * Returns `expression`, a container's value, as a static's identifier when it
+ * is a static element, or with the static elements it renders through branches
+ * and containers hoisted. A fragment keeps its children: each static child is
+ * hoisted on its own, as in a component's top-level fragment, so the children
+ * React sees keep their shape.
+ *
+ * @param {AST.Expression} expression
+ * @param {boolean} conditional
+ * @param {TransformContext} transform_context
+ * @returns {AST.Expression}
+ */
+function hoist_static_jsx_in_expression(expression, conditional, transform_context) {
+	switch (expression.type) {
+		case 'JSXElement':
+			return (
+				hoist_contained_static_jsx(expression, conditional, transform_context) ??
+				hoist_static_jsx_in_containers(expression, conditional, transform_context)
+			);
+		case 'JSXFragment': {
+			const children = map_changed(expression.children, (child) => {
+				const id = hoist_contained_static_jsx(child, conditional, transform_context);
+				return id
+					? to_jsx_expression_container(id, child)
+					: hoist_static_jsx_in_containers(child, conditional, transform_context);
+			});
+			return children === expression.children ? expression : { ...expression, children };
 		}
-		for (const child of node.children) hoist_static_jsx_in_containers(child, transform_context);
-	} else if (node.type === 'JSXFragment') {
-		for (const child of node.children) hoist_static_jsx_in_containers(child, transform_context);
-	} else if (node.type === 'JSXExpressionContainer') {
-		hoist_static_jsx_in_expression(node, 'expression', transform_context);
+		case 'ConditionalExpression': {
+			const consequent = hoist_static_jsx_in_expression(
+				expression.consequent,
+				true,
+				transform_context,
+			);
+			const alternate = hoist_static_jsx_in_expression(
+				expression.alternate,
+				true,
+				transform_context,
+			);
+			return consequent === expression.consequent && alternate === expression.alternate
+				? expression
+				: { ...expression, consequent, alternate };
+		}
+		case 'LogicalExpression': {
+			const right = hoist_static_jsx_in_expression(expression.right, true, transform_context);
+			return right === expression.right ? expression : { ...expression, right };
+		}
+		case 'ParenthesizedExpression': {
+			const inner = hoist_static_jsx_in_expression(
+				expression.expression,
+				conditional,
+				transform_context,
+			);
+			return inner === expression.expression ? expression : { ...expression, expression: inner };
+		}
+		default:
+			return expression;
 	}
 }
 
 /**
- * Hoists `parent[key]` when it is a static element, or the static elements it
- * renders through branches and containers. A fragment keeps its children: each
- * static child is hoisted on its own, as in a component's top-level fragment,
- * so the children React sees keep their shape.
+ * `items` mapped through `map`, or `items` itself when no item changed.
  *
- * @param {Record<string, any>} parent
- * @param {string} key
- * @param {TransformContext} transform_context
+ * @template T
+ * @param {T[]} items
+ * @param {(item: T) => T} map
+ * @returns {T[]}
  */
-function hoist_static_jsx_in_expression(parent, key, transform_context) {
-	/** @type {AST.Node} */
-	const expression = parent[key];
-	switch (expression.type) {
-		case 'JSXElement': {
-			const id = has_key_attribute(expression)
-				? null
-				: hoist_static_jsx(expression, transform_context);
-			if (id) {
-				parent[key] = id;
-			} else {
-				hoist_static_jsx_in_containers(expression, transform_context);
-			}
-			break;
-		}
-		case 'JSXFragment':
-			expression.children.forEach((child, index) => {
-				const id =
-					child.type === 'JSXElement' && !has_key_attribute(child)
-						? hoist_static_jsx(child, transform_context)
-						: null;
-				if (id) {
-					expression.children[index] = to_jsx_expression_container(id, child);
-				} else {
-					hoist_static_jsx_in_containers(child, transform_context);
-				}
-			});
-			break;
-		case 'ConditionalExpression':
-			hoist_static_jsx_in_expression(expression, 'consequent', transform_context);
-			hoist_static_jsx_in_expression(expression, 'alternate', transform_context);
-			break;
-		case 'LogicalExpression':
-			hoist_static_jsx_in_expression(expression, 'right', transform_context);
-			break;
-		case 'ParenthesizedExpression':
-			hoist_static_jsx_in_expression(expression, 'expression', transform_context);
-			break;
-	}
+function map_changed(items, map) {
+	const mapped = items.map(map);
+	return mapped.some((item, index) => item !== items[index]) ? mapped : items;
 }
 
 /**
@@ -2619,6 +2692,18 @@ function has_key_attribute(element) {
 			attribute.name.type === 'JSXIdentifier' &&
 			attribute.name.name === 'key',
 	);
+}
+
+/**
+ * Whether `node` has a tag that reads a binding: a component, or a member tag
+ * such as `<ui.Button>`.
+ *
+ * @param {AST.Node} node
+ * @returns {boolean}
+ */
+function reads_tag_binding(node) {
+	if (node.type === 'JSXOpeningElement' && !is_intrinsic_tag(node.name)) return true;
+	return child_nodes(node).some(reads_tag_binding);
 }
 
 /**

@@ -3,6 +3,9 @@ import noReturnInComponent from './rules/no-return-in-component.js';
 import controlFlowJsx from './rules/control-flow-jsx.js';
 import validForOfKey from './rules/valid-for-of-key.js';
 import requireStatementContainerBody from './rules/require-statement-container-body.js';
+import noUnusedVars from './rules/no-unused-vars.js';
+import noAwaitInLoop from './rules/no-await-in-loop.js';
+import noUnreachable from './rules/no-unreachable.js';
 
 const plugin = {
 	meta: {
@@ -14,6 +17,9 @@ const plugin = {
 		'control-flow-jsx': controlFlowJsx,
 		'valid-for-of-key': validForOfKey,
 		'require-statement-container-body': requireStatementContainerBody,
+		'no-unused-vars': noUnusedVars,
+		'no-await-in-loop': noAwaitInLoop,
+		'no-unreachable': noUnreachable,
 	},
 	configs: {} as any,
 };
@@ -38,6 +44,8 @@ try {
 	tsParser = null;
 }
 
+const CORE_RULE_REPLACEMENTS = ['no-unused-vars', 'no-await-in-loop', 'no-unreachable'];
+
 // Helper to create config objects
 function createConfig(name: string, files: string[], parser: any, isTsrx: boolean) {
 	const rules: Record<string, string> = {
@@ -47,6 +55,13 @@ function createConfig(name: string, files: string[], parser: any, isTsrx: boolea
 
 	if (isTsrx) {
 		rules['tsrx/require-statement-container-body'] = 'error';
+		// The TSRX versions of these core rules understand TSRX syntax. A config
+		// can't read the severity another config gives the core rule, so each is
+		// an error.
+		for (const name of CORE_RULE_REPLACEMENTS) {
+			rules[name] = 'off';
+			rules[`tsrx/${name}`] = 'error';
+		}
 	}
 
 	const config: any = {

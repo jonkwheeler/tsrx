@@ -10917,8 +10917,48 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'abstract function'],
 			],
 			throws: [TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, '2:1'],
-			valid: '{\n\tdeclare function f(): void;\n}',
+			valid: 'declare function f(): void;',
 			pick: block_statement,
+			pickValid: first,
+		},
+		// `declare` on a declaration in a block (#1264).
+		{
+			source: 'function f() {\n\tdeclare const x: number;\n}',
+			errors: [[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'declare const']],
+			throws: [TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, '2:1'],
+			valid: 'declare const x: number;',
+			pick: function_statement,
+			pickValid: first,
+		},
+		{
+			source: '{\n\tdeclare let x: number;\n}',
+			errors: [[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'declare let']],
+			throws: [TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, '2:1'],
+			valid: 'declare let x: number;',
+			pick: block_statement,
+			pickValid: first,
+		},
+		{
+			source: 'if (a) declare const x: number;',
+			errors: [[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'declare const']],
+			throws: [TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, '1:7'],
+		},
+		{
+			source:
+				'function f() {\n\tdeclare function g(): void;\n\tdeclare class C {}\n\tdeclare enum E {}\n\tdeclare type T = 1;\n\tdeclare interface I {}\n}',
+			errors: [
+				[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'declare function'],
+				[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'declare class'],
+				[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'declare enum'],
+				[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'declare type'],
+				[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'declare interface'],
+			],
+			throws: [TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, '2:1'],
+			valid:
+				'declare function g(): void;\ndeclare class C {}\ndeclare enum E {}\ndeclare type T = 1;\ndeclare interface I {}',
+			pick: (program) =>
+				as_type(/** @type {AST.Node} */ (first(program)), 'FunctionDeclaration').body.body,
+			pickValid: (program) => program.body,
 		},
 		{
 			// Not in a list: the body of an `if` or a label.
@@ -11457,10 +11497,10 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		{
 			source: 'function f(public [a]: number[]) {}',
 			errors: [
-				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 				[TS_ERRORS.PATTERN_PARAMETER_PROPERTY, 'public'],
+				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 			],
-			throws: [TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, '1:11'],
+			throws: [TS_ERRORS.PATTERN_PARAMETER_PROPERTY, '1:11'],
 			pick: first_parameter,
 			match: { type: 'TSParameterProperty', parameter: { type: 'ArrayPattern' } },
 		},
@@ -11493,10 +11533,10 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		{
 			source: 'function f(public [a] = [1]) {}',
 			errors: [
-				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 				[TS_ERRORS.PATTERN_PARAMETER_PROPERTY, 'public'],
+				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 			],
-			throws: [TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, '1:11'],
+			throws: [TS_ERRORS.PATTERN_PARAMETER_PROPERTY, '1:11'],
 			pick: first_parameter,
 			match: {
 				type: 'TSParameterProperty',
@@ -11549,10 +11589,10 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 		{
 			source: 'type T = { m?(public [a]: number[]): void };',
 			errors: [
-				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 				[TS_ERRORS.PATTERN_PARAMETER_PROPERTY, 'public'],
+				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public'],
 			],
-			throws: [TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, '1:14'],
+			throws: [TS_ERRORS.PATTERN_PARAMETER_PROPERTY, '1:14'],
 			pick: (program) =>
 				as_type(as_type(type_alias_type(program), 'TSTypeLiteral').members[0], 'TSMethodSignature')
 					.parameters,
@@ -11583,6 +11623,64 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			pick: (program) => as_type(type_alias_type(program), 'TSFunctionType').parameters,
 			match: [{ type: 'RestElement' }, { type: 'Identifier', name: 'b' }],
 		},
+		// A name bound twice in a signature, which has no body for `checkParams`
+		// (#1264).
+		{
+			source: 'declare function f(a, a): void;',
+			errors: [
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'a, a'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'a)'],
+			],
+			throws: [TS_ERRORS.ARGUMENT_NAME_CLASH, '1:19'],
+		},
+		{
+			source: 'function f<T>(a: T, a: T): void;\nfunction f() {}',
+			errors: [
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'a: T,'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'a: T)'],
+			],
+			throws: [TS_ERRORS.ARGUMENT_NAME_CLASH, '1:14'],
+		},
+		{
+			source:
+				'abstract class A {\n\tabstract m(a, a): void;\n}\ndeclare class C {\n\tconstructor([b], { b });\n}',
+			errors: [
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'a, a'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'a)'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'b]'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'b }'],
+			],
+			throws: [TS_ERRORS.ARGUMENT_NAME_CLASH, '2:12'],
+		},
+		{
+			source:
+				'interface I {\n\tm(a, a): void;\n\t(b, b): void;\n\tnew (c, ...c): I;\n}\ntype F = (d?, d?) => void;\ntype G = new (e, e) => object;\nlet o: { m(f, f): void };',
+			errors: [
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'a, a'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'a)'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'b, b'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'b)'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'c, ...'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'c)'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'd?,'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'd?)'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'e, e'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'e)'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'f, f'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'f)'],
+			],
+			throws: [TS_ERRORS.ARGUMENT_NAME_CLASH, '2:3'],
+		},
+		{
+			// With a parameter property, by position.
+			source: 'interface I {\n\tm(public a, a): void;\n}',
+			errors: [
+				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public a'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'a, a'],
+				[TS_ERRORS.ARGUMENT_NAME_CLASH, 'a)'],
+			],
+			throws: [TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, '2:3'],
+		},
 		// A parameter property modifier on an arrow function's parameter (#663).
 		{
 			source: 'const k = (public x: number) => x;',
@@ -11605,8 +11703,8 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			source: 'const n = <T,>(a: T, private readonly b?: T, protected [c]: T[] = []) => a;',
 			errors: [
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'private readonly'],
-				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'protected'],
 				[TS_ERRORS.PATTERN_PARAMETER_PROPERTY, 'protected'],
+				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'protected'],
 			],
 			throws: [TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, '1:21'],
 			pick: arrow_parameters,
@@ -11642,8 +11740,8 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				'const g = (\n\ta: number,\n\treadonly b = 1,\n\tpublic { c }: { c: number },\n): number => a;',
 			errors: [
 				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'readonly b'],
-				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public {'],
 				[TS_ERRORS.PATTERN_PARAMETER_PROPERTY, 'public {'],
+				[TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, 'public {'],
 			],
 			throws: [TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR, '3:1'],
 			pick: declarator_init,
@@ -12295,14 +12393,15 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			],
 			['@dec export { a };', TS_ERRORS.UNEXPECTED_LEADING_DECORATOR, '@dec'],
 			['@dec function f() {\n\t@inner x;\n}', TS_ERRORS.UNEXPECTED_LEADING_DECORATOR, '@dec'],
+			// TS1187 for a binding pattern first, at the same position (#1264).
 			[
 				'let f: (override { a }: { a: number }, b: string) => void;',
-				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				TS_ERRORS.PATTERN_PARAMETER_PROPERTY,
 				'override',
 			],
 			[
 				'const f = async (a, readonly [b]: number[]) => a;',
-				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				TS_ERRORS.PATTERN_PARAMETER_PROPERTY,
 				'readonly',
 			],
 			[
@@ -12385,7 +12484,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			],
 			[
 				'const g = async <T,>(public [a]: T[]) => a;',
-				TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR,
+				TS_ERRORS.PATTERN_PARAMETER_PROPERTY,
 				'public [a]',
 			],
 			['@a export @b function f() {}', TS_ERRORS.UNEXPECTED_LEADING_DECORATOR, '@a'],
@@ -12580,6 +12679,128 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				errors.map(({ code, pos }) => [code, pos]),
 				source,
 			).toEqual(collected.map(([code, at]) => [code, source.indexOf(at)]));
+		}
+	});
+
+	it('throws first the error a collecting parse records first (#1264)', () => {
+		// The errors in a parameter list come by position. A strict parse reads a
+		// generic arrow function's parameters past a mistake that acorn-typescript
+		// would take for a sign that it isn't one. A syntax error after them keeps
+		// the checker errors before it.
+		const unexpected = code_of(TS_ERRORS.UNEXPECTED_TOKEN);
+		const parameter_property = code_of(TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR);
+		const rest_property = code_of(TS_ERRORS.REST_PARAMETER_PROPERTY);
+		const rest_comma = code_of(TS_ERRORS.REST_ELEMENT_TRAILING_COMMA);
+		const rest_not_last = code_of(TS_ERRORS.REST_PARAMETER_NOT_LAST);
+		const rest_pattern_not_last = code_of(TS_ERRORS.REST_ELEMENT_NOT_LAST);
+		const clash = code_of(TS_ERRORS.ARGUMENT_NAME_CLASH);
+		const reserved = code_of(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER);
+		const uninitialized = code_of(TS_ERRORS.DECLARATION_NOT_INITIALIZED);
+		/** @type {Array<[filename: string, source: string, collected: Array<[code: string | undefined, at: string]>, thrown?: [code: string | undefined, at: string]]>} */
+		const cases = [
+			[
+				'a.ts',
+				'class A { m(public x, ...z,) {} }',
+				[
+					[parameter_property, 'public x'],
+					[rest_comma, ',)'],
+				],
+			],
+			[
+				'a.ts',
+				'class A { m(public x) { +; } }',
+				[[parameter_property, 'public x']],
+				[unexpected, '; }'],
+			],
+			[
+				'a.ts',
+				'class A { m(x, public ...x) {} }',
+				[
+					[clash, 'x, public'],
+					[rest_property, 'public ...x'],
+					[parameter_property, 'public ...x'],
+					[clash, 'x) {}'],
+				],
+			],
+			[
+				'a.ts',
+				'declare class C { constructor(public a, a); }',
+				[
+					[parameter_property, 'public a'],
+					[clash, 'a, a'],
+					[clash, 'a); }'],
+				],
+			],
+			[
+				'a.ts',
+				'class A { constructor(x, public ...x) {} }',
+				[
+					[clash, 'x, public'],
+					[rest_property, 'public ...x'],
+					[clash, 'x) {}'],
+				],
+			],
+			[
+				'a.mts',
+				'const f = <T>(x: T) => { const z; return x +; };',
+				[[uninitialized, 'z;']],
+				[unexpected, '; };'],
+			],
+			['a.ts', 'const f = <T,>(...a, b) => a;', [[rest_not_last, '...a']]],
+			['a.mts', 'const f = <T>(...a, b) => a;', [[rest_not_last, '...a']]],
+			['a.ts', 'const f = async <T,>(...a,) => a;', [[rest_comma, ',)']]],
+			['a.ts', 'const f = async <T,>([...a, b]) => a;', [[rest_pattern_not_last, 'a, b]']]],
+			[
+				'a.ts',
+				'const f = async <T,>(public x, ...a, b) => a;',
+				[
+					[parameter_property, 'public x'],
+					[rest_not_last, '...a'],
+				],
+			],
+			[
+				'a.mts',
+				'const f = <A>(x = <B>(...b: B[],) => b) => x;',
+				[
+					[reserved, 'A>'],
+					[reserved, 'B>'],
+					[rest_comma, ',)'],
+				],
+			],
+			[
+				'a.mts',
+				'const f = <T>(x, public x: T) => { const q = ; };',
+				[
+					[clash, 'x, public'],
+					[parameter_property, 'public x'],
+					[clash, 'x: T'],
+				],
+				[unexpected, '; };'],
+			],
+		];
+		for (const [filename, source, collected, thrown_at] of cases) {
+			const [code, at] = collected[0] ?? /** @type {[string, string]} */ (thrown_at);
+			expect(() => parseModule(source, filename), source).toThrow(
+				expect.objectContaining({ code, pos: source.indexOf(at) }),
+			);
+			/** @type {CompileError[]} */
+			const errors = [];
+			const parse = () => parseModule(source, filename, { collect: true, errors });
+			if (thrown_at) {
+				expect(parse, source).toThrow(
+					expect.objectContaining({ code: thrown_at[0], pos: source.indexOf(thrown_at[1]) }),
+				);
+			} else {
+				parse();
+			}
+			expect(
+				errors.map(({ code, pos }) => [code, pos]),
+				source,
+			).toEqual(collected.map(([code, at]) => [code, source.indexOf(at)]));
+		}
+		// Calls, which acorn-typescript tries as generic async arrow functions first.
+		for (const source of ['async <T>(...a, b);', 'async<number>(...a,);', 'async<T>([...a, 1]);']) {
+			expect(() => parseModule(source, 'a.ts'), source).not.toThrow();
 		}
 	});
 

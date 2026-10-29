@@ -1501,14 +1501,74 @@ export function TSRXPlugin(config) {
 				}
 				this.exprAllowed = true;
 				this.context = enclosing_context;
-				const previous_reading_header = this.#readingJSXControlFlowHeader;
-				this.#readingJSXControlFlowHeader = true;
-				try {
-					this.next();
-				} finally {
-					this.#readingJSXControlFlowHeader = previous_reading_header;
+				if (this.#readsTemplateTextAfterBlock()) {
+					this.#readEmptyTemplateTextToken();
+				} else {
+					const previous_reading_header = this.#readingJSXControlFlowHeader;
+					this.#readingJSXControlFlowHeader = true;
+					try {
+						this.next();
+					} finally {
+						this.#readingJSXControlFlowHeader = previous_reading_header;
+					}
 				}
 				return this.finishNode(node, 'BlockStatement');
+			}
+
+			/**
+			 * Whether template text that starts with a `//` touching a block comment
+			 * comes right after the current token, a directive's closing `}`
+			 * (`}/* c *\/// text`). That `//` is text, not a comment, so the token
+			 * after it can't be read as code: it may not be one (`'s`, `1st`).
+			 */
+			#readsTemplateTextAfterBlock() {
+				const after = this.end;
+				let index = after;
+				while (index < this.input.length) {
+					if (is_html_whitespace(this.input.charCodeAt(index))) {
+						index++;
+					} else if (this.input.startsWith('/*', index)) {
+						const close = this.input.indexOf('*/', index + 2);
+						if (close === -1) return false;
+						index = close + 2;
+					} else {
+						break;
+					}
+				}
+				if (!this.input.startsWith('//', index) || this.#isTemplateLineCommentStart(index, after)) {
+					return false;
+				}
+				const pos = this.pos;
+				const reading_header = this.#readingJSXControlFlowHeader;
+				this.pos = after;
+				this.#readingJSXControlFlowHeader = false;
+				try {
+					return this.#shouldReadTemplateRawTextToken(true, true);
+				} finally {
+					this.pos = pos;
+					this.#readingJSXControlFlowHeader = reading_header;
+				}
+			}
+
+			/**
+			 * Read past the current token as `next()` does, to an empty text token
+			 * at its end, which `#parseTemplateRawText` then reads as the start of a
+			 * text run.
+			 */
+			#readEmptyTemplateTextToken() {
+				// acorn makes an `onToken` array a function that pushes to it.
+				const on_token = /** @type {((token: acorn.Token) => void) | undefined} */ (
+					this.options.onToken
+				);
+				on_token?.(new /** @type {any} */ (acorn.Token)(this));
+				this.lastTokEnd = this.end;
+				this.lastTokStart = this.start;
+				this.lastTokEndLoc = this.endLoc;
+				this.lastTokStartLoc = this.startLoc;
+				this.pos = this.end;
+				this.start = this.pos;
+				this.startLoc = this.curPosition();
+				this.finishToken(tstt.jsxText, '');
 			}
 
 			/**
@@ -1904,12 +1964,16 @@ export function TSRXPlugin(config) {
 			 * Add the whitespace and comments from `start` to `end`, which the
 			 * tokenizer skipped as code, as the text and comments they are between
 			 * children (see `#addTemplateText`). The tokenizer has already recorded the
-			 * comments.
+			 * comments. With `record`, a `//` that touches a block comment is text, as
+			 * in a text run (`/* c *\/// c`, see `#isTemplateLineCommentStart`), and the
+			 * comments are recorded again (the parser keeps one copy of each), since
+			 * the tokenizer read some as part of that `//`.
 			 * @param {any[]} body
 			 * @param {number} start
 			 * @param {number} end
+			 * @param {boolean} [record]
 			 */
-			#addSkippedTemplateText(body, start, end) {
+			#addSkippedTemplateText(body, start, end, record = false) {
 				/** @type {Array<[number, number]>} */
 				const pieces = [];
 				/** @type {TemplateTextComment[]} */
@@ -1922,18 +1986,28 @@ export function TSRXPlugin(config) {
 						index++;
 						continue;
 					}
+					if (record && !block && !this.#isTemplateLineCommentStart(index, start)) {
+						index += 2;
+						continue;
+					}
 					const close = block ? this.input.indexOf('*/', index + 2) : -1;
 					let comment_end = block ? (close === -1 ? end : close + 2) : index + 2;
 					while (!block && comment_end < end && !this.#isNewlineCharCode(comment_end)) {
 						comment_end++;
 					}
+					const value = this.input.slice(index + 2, block ? comment_end - 2 : comment_end);
+					if (record && this.options.onComment) {
+						this.options.onComment(
+							block,
+							value,
+							index,
+							comment_end,
+							this.#positionAt(index),
+							this.#positionAt(comment_end),
+						);
+					}
 					pieces.push([piece_start, index]);
-					comments.push({
-						type: block ? 'Block' : 'Line',
-						value: this.input.slice(index + 2, block ? comment_end - 2 : comment_end),
-						start: index,
-						end: comment_end,
-					});
+					comments.push({ type: block ? 'Block' : 'Line', value, start: index, end: comment_end });
 					index = piece_start = comment_end;
 				}
 				pieces.push([piece_start, end]);
@@ -1966,11 +2040,28 @@ export function TSRXPlugin(config) {
 				}
 				const next = this.input.charCodeAt(this.start);
 				// The tokenizer read a `//` that touches a block comment as a comment,
-				// where it is text (`/* c */// c`, see `#isTemplateLineCommentStart`).
-				const skipped_text =
-					this.type === tt.braceR ? [] : this.#skippedTemplateLineCommentText(start);
+				// where it is text (`/* c */// c`, see `#isTemplateLineCommentStart`),
+				// and the comment ran to the end of its line, tags and all. Read the span
+				// again as text and comments from where the previous child ends, as
+				// without the skipped code. A `}` popped a context when it was read, so
+				// the span before one can't be read again: there a text line that holds
+				// only text is added as it is (an unclosed tag in a container).
+				const skipped_text = this.#skippedTemplateLineCommentText(start);
+				const reread = skipped_text.length > 0 && this.type !== tt.braceR;
+				const add_text =
+					skipped_text.length > 0 &&
+					this.type === tt.braceR &&
+					skipped_text.every(([text_start, text_end]) =>
+						this.#isPlainTemplateText(text_start, text_end),
+					);
+				if ((reread || add_text) && this.#textComments) {
+					// The tokenizer's comments that are text are dropped after the parse
+					// (`drop_text_comments`), and the span's comments are recorded again.
+					this.parseEffects?.willAppend(this.#textComments);
+					this.#textComments.push(...skipped_text);
+				}
 				const starts_text =
-					skipped_text.length > 0 ||
+					reread ||
 					this.type === tstt.jsxText ||
 					(this.type !== tt.eof &&
 						this.type !== tt.braceR &&
@@ -1980,16 +2071,9 @@ export function TSRXPlugin(config) {
 						!this.#atCodeBlockStart() &&
 						!this.#isJSXControlFlowDirectiveStart());
 				if (starts_text) {
-					if (skipped_text.length > 0) {
-						// Read the run again from where the previous child ends, as text and
-						// comments, as without the skipped code. `#parseTemplateRawText`
-						// records its comments again (the parser keeps one of each), and the
-						// tokenizer's comments that are text are dropped after the parse.
-						const records = this.#textComments;
-						if (records) {
-							this.parseEffects?.willAppend(records);
-							records.push(...skipped_text);
-						}
+					if (reread) {
+						// Drop the contexts the token after the span pushed, and have
+						// `#parseTemplateRawText` record every comment of the run again.
 						this.#truncateContext(this.context.length - this.#currentTokenContextCount());
 						this.type = tstt.jsxText;
 						this.end = start;
@@ -1999,8 +2083,30 @@ export function TSRXPlugin(config) {
 					this.start = start;
 					this.startLoc = new acorn.Position(loc.line, loc.column);
 				} else {
-					this.#addSkippedTemplateText(body, start, this.start);
+					this.#addSkippedTemplateText(body, start, this.start, add_text);
 				}
+			}
+
+			/**
+			 * Whether the source from `start` to `end` holds only text: no tag,
+			 * container, code block or directive starts in it.
+			 * @param {number} start
+			 * @param {number} end
+			 */
+			#isPlainTemplateText(start, end) {
+				for (let index = start; index < end; index++) {
+					const ch = this.input.charCodeAt(index);
+					if (
+						(ch === CharCode.lessThan && can_start_tag_after_lt(this.input, index)) ||
+						ch === CharCode.openBrace ||
+						ch === CharCode.closeBrace ||
+						this.#isCodeBlockStart(index) ||
+						this.#isJSXControlFlowDirectiveAt(index)
+					) {
+						return false;
+					}
+				}
+				return true;
 			}
 
 			/**
@@ -3367,7 +3473,11 @@ export function TSRXPlugin(config) {
 				}
 
 				this.exitScope();
-				this.next();
+				if (this.#readsTemplateTextAfterBlock()) {
+					this.#readEmptyTemplateTextToken();
+				} else {
+					this.next();
+				}
 				this.labels.pop();
 				return this.#finishJSXControlFlowExpression(
 					this.finishNode(node, 'SwitchStatement'),

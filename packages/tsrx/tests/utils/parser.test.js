@@ -13557,6 +13557,10 @@ describe('comments between template children', () => {
 			'%s<b />/* c */// c\n\t\ttext\n\t',
 			'%s<b />/* c */// c\n\t\t{x}\n\t',
 			'%s<b />\n\t\t/* c */\n\t\t// d\n\t',
+			// The next line isn't code: it must not be read as a token.
+			'%s/* c */// c\n\t\t1st prize\n\t',
+			"%s/* c */// c\n\t\t's fine\n\t",
+			'%s/* c */// c\n\t\t"open\n\t',
 		];
 		/** @type {Array<(children: string) => string>} */
 		const positions = [
@@ -13564,29 +13568,39 @@ describe('comments between template children', () => {
 			(content) => `function App() @{\n\t<main>{ok && <p>${content}</p>}</main>\n}`,
 			(content) => `const e = <p>${content}</p>;`,
 		];
-		for (const position of positions) {
-			for (const child of children) {
-				for (const options of modes) {
-					/**
-					 * The children of the `<p>`, and the source of each comment.
-					 * @param {string} value
-					 */
-					const outline = (value) => {
-						const source = position(child.replace('%s', value));
-						/** @type {AST.CommentWithLocation[]} */
-						const comments = [];
-						const element = paragraph(source, { ...options, collect: true, comments });
-						return {
-							children: read(element).map((part) =>
-								/^JSX\w+Expression$/.test(part) ? '<z>' : part,
-							),
-							comments: comments.map((comment) => source.slice(comment.start, comment.end)),
-						};
+		/** @type {Array<[string, (children: string) => string]>} */
+		const cases = positions.flatMap((position) =>
+			children.map(
+				(child) => /** @type {[string, (children: string) => string]} */ ([child, position]),
+			),
+		);
+		// An unclosed `<p>` in a container, whose next line is the container's `}`.
+		for (const child of [
+			'%s/* c */// c\n',
+			'%s<b />/* c */// c\n',
+			'%s<b />/* a */// b /* c */\n',
+		]) {
+			cases.push([child, (content) => `const e = <main>{ok && <p>${content}}</main>;`]);
+		}
+		for (const [child, position] of cases) {
+			for (const options of modes) {
+				/**
+				 * The children of the `<p>`, and the source of each comment.
+				 * @param {string} value
+				 */
+				const outline = (value) => {
+					const source = position(child.replace('%s', value));
+					/** @type {AST.CommentWithLocation[]} */
+					const comments = [];
+					const element = paragraph(source, { ...options, collect: true, comments });
+					return {
+						children: read(element).map((part) => (/^JSX\w+Expression$/.test(part) ? '<z>' : part)),
+						comments: comments.map((comment) => source.slice(comment.start, comment.end)),
 					};
-					const expected = outline('<z />');
-					for (const directive of directives) {
-						expect(outline(directive), `${directive} in ${position(child)}`).toEqual(expected);
-					}
+				};
+				const expected = outline('<z />');
+				for (const directive of directives) {
+					expect(outline(directive), `${directive} in ${position(child)}`).toEqual(expected);
 				}
 			}
 		}

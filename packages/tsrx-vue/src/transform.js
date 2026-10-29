@@ -806,6 +806,16 @@ function initializer_reads_declared(declaration, passed) {
 			node.id
 		) {
 			declared.add(node.id.name);
+		} else if (
+			// An enum, a namespace or an `import x = …` alias compiles to a binding
+			// it sets when it runs; an ambient or type-only one has no code.
+			(node.type === 'TSEnumDeclaration' ||
+				node.type === 'TSModuleDeclaration' ||
+				(node.type === 'TSImportEqualsDeclaration' && node.importKind !== 'type')) &&
+			!('declare' in node && node.declare) &&
+			node.id.type === 'Identifier'
+		) {
+			declared.add(node.id.name);
 		}
 		collect_function_var_names(statement, declared);
 		collect_assigned_names(statement, declared);
@@ -833,24 +843,64 @@ function collect_assigned_names(value, names) {
 	}
 	const node = /** @type {AST.Node} */ (value);
 	if (typeof node.type !== 'string') return;
-	/** @type {AST.Node | null} */
-	let target = null;
-	if (node.type === 'AssignmentExpression') target = node.left;
-	else if (node.type === 'UpdateExpression') target = node.argument;
-	else if (
+	if (node.type === 'AssignmentExpression') collect_assigned_target(node.left, names);
+	else if (node.type === 'UpdateExpression') collect_assigned_target(node.argument, names);
+	else if (node.type === 'UnaryExpression' && node.operator === 'delete') {
+		collect_assigned_target(node.argument, names);
+	} else if (
 		(node.type === 'ForInStatement' || node.type === 'ForOfStatement') &&
 		node.left.type !== 'VariableDeclaration'
 	) {
-		target = node.left;
-	}
-	if (target) {
-		while (target.type === 'MemberExpression') target = target.object;
-		collect_pattern_names(target, names);
+		collect_assigned_target(node.left, names);
 	}
 	const record = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (node));
 	for (const key of Object.keys(record)) {
 		if (key === 'metadata' || key === 'loc' || key === 'start' || key === 'end') continue;
 		collect_assigned_names(record[key], names);
+	}
+}
+
+/**
+ * The bindings an assignment target writes or mutates: each name in a
+ * pattern, and the object a member target belongs to, seen through
+ * parentheses, optional chains and TypeScript wrappers such as
+ * `(cfg as any).size` and `cfg!.size`.
+ *
+ * @param {AST.Node | null | undefined} target
+ * @param {Set<string>} names
+ * @returns {void}
+ */
+function collect_assigned_target(target, names) {
+	if (!target) return;
+	switch (target.type) {
+		case 'Identifier':
+			names.add(target.name);
+			return;
+		case 'MemberExpression':
+			collect_assigned_target(/** @type {AST.Node} */ (target.object), names);
+			return;
+		case 'RestElement':
+			collect_assigned_target(target.argument, names);
+			return;
+		case 'AssignmentPattern':
+			collect_assigned_target(target.left, names);
+			return;
+		case 'ArrayPattern':
+			for (const element of target.elements) collect_assigned_target(element, names);
+			return;
+		case 'ObjectPattern':
+			for (const property of target.properties) {
+				collect_assigned_target(property.type === 'Property' ? property.value : property, names);
+			}
+			return;
+	}
+	if (
+		(target.type === 'ParenthesizedExpression' ||
+			target.type === 'ChainExpression' ||
+			RUNTIME_TS_NODE_TYPES.has(target.type)) &&
+		'expression' in target
+	) {
+		collect_assigned_target(/** @type {AST.Node} */ (target.expression), names);
 	}
 }
 
@@ -1587,7 +1637,9 @@ function collect_function_var_names(node, names) {
 		node.type === 'FunctionExpression' ||
 		node.type === 'ArrowFunctionExpression' ||
 		node.type === 'ClassDeclaration' ||
-		node.type === 'ClassExpression'
+		node.type === 'ClassExpression' ||
+		// A namespace's `var`s are its own.
+		node.type === 'TSModuleDeclaration'
 	) {
 		return;
 	}

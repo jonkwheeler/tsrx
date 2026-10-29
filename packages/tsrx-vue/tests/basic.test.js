@@ -246,6 +246,51 @@ describe('@tsrx/vue basic', () => {
 		);
 	});
 
+	it('reports a mutation through a parenthesized TypeScript wrapper in the editor too', () => {
+		const { errors } = compile_to_volar_mappings(
+			`const cfg = { size: 1 };
+const registry = { card: Card };
+(cfg as any).size = 2;
+export function Card({ s = cfg }: { s?: { size: number } }) @{
+	<div>{s.size}</div>
+}`,
+			'App.tsrx',
+		);
+		expect(errors.map((error) => error.code)).toEqual(['TSRX2028']);
+	});
+
+	it("moves a component past a namespace's own var", () => {
+		const { code } = compile(
+			`const X = 'outer';
+export const registry = { inner: Inner };
+namespace Types { var X = 1; }
+export function Inner({ x = X }: { x?: string }) @{
+	<span>{x}</span>
+}`,
+			'App.tsrx',
+		);
+
+		expect(code.indexOf('export const Inner = defineVaporComponent')).toBeLessThan(
+			code.indexOf('export const registry'),
+		);
+	});
+
+	it('moves a component past an ambient enum or namespace its prop default reads', () => {
+		const { code } = compile(
+			`export const registry = { inner: Inner };
+declare enum Size { S }
+declare namespace Defaults { const label: string; }
+export function Inner({ size = Size, ns = Defaults }: { size?: unknown; ns?: unknown }) @{
+	<span>{String(size)}{String(ns)}</span>
+}`,
+			'App.tsrx',
+		);
+
+		expect(code.indexOf('export const Inner = defineVaporComponent')).toBeLessThan(
+			code.indexOf('export const registry'),
+		);
+	});
+
 	it('reports a read above a component whose prop default reads a binding it would move past', () => {
 		for (const [source, read_line] of [
 			[
@@ -301,6 +346,89 @@ const registry = { card: Card };
 cfg.size = 2;
 export function Card({ s = cfg }: { s?: { size: number } }) @{
 	<div>{s.size}</div>
+}`,
+				2,
+			],
+			// Mutated through a TypeScript wrapper.
+			[
+				`const cfg = { size: 1 };
+const registry = { card: Card };
+(cfg as any).size = 2;
+export function Card({ s = cfg }: { s?: { size: number } }) @{
+	<div>{s.size}</div>
+}`,
+				2,
+			],
+			[
+				`let cfg: { size: number } | null = { size: 1 };
+const registry = { card: Card };
+cfg!.size = 2;
+export function Card({ s = cfg }: { s?: { size: number } | null }) @{
+	<div>{s?.size}</div>
+}`,
+				2,
+			],
+			// Mutated through a pattern, `delete` or a parenthesized chain.
+			[
+				`const cfg = { size: 1 };
+const registry = { card: Card };
+[cfg.size] = [2];
+export function Card({ s = cfg }: { s?: { size: number } }) @{
+	<div>{s.size}</div>
+}`,
+				2,
+			],
+			[
+				`const cfg = { size: 1 };
+const registry = { card: Card };
+({ size: (cfg as any).size } = { size: 2 });
+export function Card({ s = cfg }: { s?: { size: number } }) @{
+	<div>{s.size}</div>
+}`,
+				2,
+			],
+			[
+				`const cfg: { size?: number } = { size: 1 };
+const registry = { card: Card };
+delete cfg.size;
+export function Card({ s = cfg }: { s?: { size?: number } }) @{
+	<div>{s.size}</div>
+}`,
+				2,
+			],
+			[
+				`const cfg = { nested: { size: 1 } };
+const registry = { card: Card };
+(cfg?.nested).size = 2;
+export function Card({ s = cfg }: { s?: { nested: { size: number } } }) @{
+	<div>{s.nested.size}</div>
+}`,
+				2,
+			],
+			// An enum, a namespace or an `import x = …` alias compiles to a
+			// binding set when it runs.
+			[
+				`export const registry = { inner: Inner };
+enum Size { S = 1 }
+export function Inner({ size = Size }: { size?: unknown }) @{
+	<span>{String(size)}</span>
+}`,
+				1,
+			],
+			[
+				`export const registry = { inner: Inner };
+namespace Defaults { export const label = 'p'; }
+export function Inner({ ns = Defaults }: { ns?: unknown }) @{
+	<span>{String(ns)}</span>
+}`,
+				1,
+			],
+			[
+				`namespace Defaults { export const label = 'p'; }
+export const registry = { inner: Inner };
+import Label = Defaults.label;
+export function Inner({ label = Label }: { label?: string }) @{
+	<span>{label}</span>
 }`,
 				2,
 			],

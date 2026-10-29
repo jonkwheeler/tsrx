@@ -1,13 +1,42 @@
-/**
- * `react/jsx-curly-brace-presence` for TSRX text.
+/*!
+ * `tsrx/jsx-curly-brace-presence` is copied from eslint-plugin-react 7.37.5,
+ * `lib/rules/jsx-curly-brace-presence.js`:
  *
- * Copied from eslint-plugin-react 7.37.5 (`lib/rules/jsx-curly-brace-presence.js`,
- * MIT license, Copyright © 2014 Yannick Croissant), with the same options and
+ * @fileoverview Enforce curly braces or disallow unnecessary curly brace in JSX
+ * @author Jacky Ho
+ * @author Simon Lydell
+ *
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2014 Yannick Croissant
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+/**
+ * `react/jsx-curly-brace-presence` for TSRX text, with the same options and
  * messages. Apart from types and calling ESLint's API directly, the only
- * changes, marked `TSRX:`, keep the braces around a string child that TSRX text
- * reads differently than JSX text does: a directive (`@if (`, `@for (`, ...), a
- * `//` or `/*` comment, or the CSS of a `<style>` element. Keep the rest in step
- * with eslint-plugin-react when upgrading.
+ * changes, marked `TSRX:`, keep the braces around a child that TSRX would read
+ * differently once unwrapped: text that starts a directive (`@if (`) or a
+ * comment (`//`), joins a comment or a directive's clause beside it, or turns a
+ * `<style>` into a scoped style block. Keep the rest in step with
+ * eslint-plugin-react when upgrading.
  */
 import type { Rule } from 'eslint';
 
@@ -144,18 +173,7 @@ function isLiteralWithTrailingWhiteSpaces(node: AnyNode) {
 	);
 }
 
-/**
- * TSRX: a comment in text. `/*` starts one anywhere, and `//` after
- * whitespace, at the start of a line, or right after a tag, `{…}` or block.
- */
-const regex_comment_start = /\/\*|(?:^|\s)\/\//;
-
-/**
- * TSRX: a directive in text. `@if`, `@switch` and `@for` start one before a
- * `(`, and `@for` also before `await (`.
- */
-const regex_directive_start = /@(?:(?:if|switch|for)\s*\(|for\s+await\s*\()/;
-
+/** TSRX: the directives whose clause (`@else`, `catch (e)`) text could continue. */
 const DIRECTIVE_TYPES = new Set([
 	'JSXIfExpression',
 	'JSXForExpression',
@@ -173,34 +191,117 @@ function is_in_raw_text_element(node: AnyNode) {
 	return name?.type === 'JSXIdentifier' && (name.name === 'style' || name.name === 'script');
 }
 
+/** TSRX: whether `child` is text of whitespace only. */
+const is_blank_text = (child: AnyNode | undefined) =>
+	child?.type === 'JSXText' && child.value.trim() === '';
+
 /**
- * TSRX: whether `text`, written as text in place of the child `node`, would
- * read as TSRX syntax. The new text joins the text beside it, so the check
- * reads that run of text and the children on either side of it.
+ * TSRX: whether unwrapping the child `node` into `replacement` could read as
+ * TSRX syntax: text with `@`, `/`, `*` or `&` once joined with the text beside
+ * it, a comment right after the braces, a directive just before (whose clause
+ * the text could continue), or a `<style>` or `<script>` around it. Anything
+ * else reads as the same text in TSRX as in JSX.
  */
-function reads_as_tsrx_syntax(
-	node: AnyNode,
-	text: string,
-	sourceCode: Rule.RuleContext['sourceCode'],
-) {
+function may_read_as_tsrx_syntax(node: AnyNode, replacement: string, sourceCode: AnyNode) {
 	if (is_in_raw_text_element(node)) return true;
 	const children: AnyNode[] = node.parent.children;
 	const index = children.indexOf(node);
-	const before = children[index - 1]?.type === 'JSXText' ? children[index - 1] : null;
-	const after = children[index + 1]?.type === 'JSXText' ? children[index + 1] : null;
-	const run =
-		(before ? sourceCode.getText(before as Rule.Node) : '') +
-		text +
-		(after ? sourceCode.getText(after as Rule.Node) : '');
-	const previous = children[index - (before ? 2 : 1)];
-	const next = children[index + (after ? 2 : 1)];
+	const text_of = (child: AnyNode | undefined) =>
+		child?.type === 'JSXText' ? sourceCode.getText(child) : '';
+	const run = text_of(children[index - 1]) + replacement + text_of(children[index + 1]);
+	let previous = index - 1;
+	while (is_blank_text(children[previous])) previous--;
 	return (
-		regex_comment_start.test(run) ||
-		regex_directive_start.test(run) ||
-		// `@try` starts a directive before a `{`, which a `{…}` after the run supplies.
-		(next?.type === 'JSXExpressionContainer' && /@try\s*$/.test(run)) ||
-		// `@else`, `@empty`, `@pending` and `@catch` continue a directive's block.
-		(DIRECTIVE_TYPES.has(previous?.type) && /^\s*@(?:else|empty|pending|catch)(?![\w$])/.test(run))
+		/[@/*&]/.test(run) ||
+		sourceCode.text[node.range[1]] === '/' ||
+		DIRECTIVE_TYPES.has(children[previous]?.type)
+	);
+}
+
+/**
+ * TSRX: whether unwrapping the child `node` into `replacement`, which parses as
+ * a `type` child, keeps the element around it as it was. The check parses the
+ * element, cut down to the children between `node`'s neighbors, before and
+ * after the edit, with the parser of the file. The element must keep its type
+ * and its comments and diagnostics, and its children must come out the same,
+ * with the new text joined to the text beside it. Without a parser that can
+ * tell, the braces stay.
+ */
+function unwraps_to_the_same_children(
+	context: Rule.RuleContext,
+	node: AnyNode,
+	replacement: string,
+	type: string,
+) {
+	const parser = (context.languageOptions as AnyNode)?.parser;
+	if (typeof parser?.parseForESLint !== 'function') return false;
+	const text = context.sourceCode.text;
+	const element = node.parent;
+	const children: AnyNode[] = element.children;
+	const index = children.indexOf(node);
+	// The first child of a `<style>` decides what it is, so it keeps them all.
+	let first = is_in_raw_text_element(node) ? -1 : index - 1;
+	while (is_blank_text(children[first])) first--;
+	let last = index + 1;
+	while (is_blank_text(children[last])) last++;
+	const opening = element.openingElement ?? element.openingFragment;
+	const closing = element.closingElement ?? element.closingFragment;
+	const start = first >= 0 ? children[first].range[0] : opening.range[1];
+	const end = last < children.length ? children[last].range[1] : closing.range[0];
+	const prefix = 'export const tsrx = (\n' + text.slice(...opening.range);
+	const suffix = text.slice(...closing.range) + '\n);\n';
+	const offset = prefix.length - start;
+
+	const parse = (code: string) => {
+		try {
+			const result = parser.parseForESLint(code, {
+				...context.languageOptions.parserOptions,
+				filePath: context.filename,
+			});
+			const root = result.ast.body[0]?.declaration?.declarations?.[0]?.init;
+			if (!root?.children) return null;
+			return {
+				root,
+				comments: result.ast.comments?.length ?? 0,
+				diagnostics: result.services?.tsrxDiagnostics?.length ?? 0,
+			};
+		} catch {
+			return null;
+		}
+	};
+	// Each child's type, with adjacent text joined.
+	const shape = (nodes: AnyNode[]) => {
+		const out: Array<{ type: string; value?: string }> = [];
+		for (const child of nodes) {
+			const previous_child = out.at(-1);
+			if (child.type === 'JSXText' && previous_child?.type === 'JSXText') {
+				previous_child.value += child.value;
+			} else {
+				out.push({ type: child.type, value: child.type === 'JSXText' ? child.value : undefined });
+			}
+		}
+		return JSON.stringify(out);
+	};
+
+	const before = parse(prefix + text.slice(start, end) + suffix);
+	const after = parse(
+		prefix +
+			text.slice(start, node.range[0]) +
+			replacement +
+			text.slice(node.range[1], end) +
+			suffix,
+	);
+	if (!before || !after) return false;
+	const expected = before.root.children.map((child: AnyNode) =>
+		child.range[0] === node.range[0] + offset
+			? { type, value: type === 'JSXText' ? replacement : undefined }
+			: child,
+	);
+	return (
+		after.root.type === before.root.type &&
+		after.comments === before.comments &&
+		after.diagnostics === before.diagnostics &&
+		shape(after.root.children) === shape(expected)
 	);
 }
 
@@ -334,8 +435,11 @@ const rule: Rule.RuleModule = {
 				return;
 			}
 
-			// TSRX: braces that keep text from reading as TSRX syntax are necessary.
-			const isTsrxChild = JSXExpressionNode.parent.type !== 'JSXAttribute';
+			// TSRX: braces that keep a child from reading as TSRX syntax are necessary.
+			const keepsTsrxBraces = (replacement: string, type: string) =>
+				JSXExpressionNode.parent.type !== 'JSXAttribute' &&
+				may_read_as_tsrx_syntax(JSXExpressionNode, replacement, sourceCode) &&
+				!unwraps_to_the_same_children(context, JSXExpressionNode, replacement, type);
 
 			if (
 				(expressionType === 'Literal' || expressionType === 'JSXText') &&
@@ -348,9 +452,7 @@ const rule: Rule.RuleModule = {
 					!containsQuoteCharacters(expression.value) ||
 					typeof expression.value === 'string')
 			) {
-				if (isTsrxChild && reads_as_tsrx_syntax(JSXExpressionNode, expression.value, sourceCode)) {
-					return;
-				}
+				if (keepsTsrxBraces(expression.value, 'JSXText')) return;
 				reportUnnecessaryCurly(JSXExpressionNode);
 			} else if (
 				expressionType === 'TemplateLiteral' &&
@@ -360,15 +462,10 @@ const rule: Rule.RuleModule = {
 				!needToEscapeCharacterForJSX(expression.quasis[0].value.raw, JSXExpressionNode) &&
 				!containsQuoteCharacters(expression.quasis[0].value.cooked)
 			) {
-				if (
-					isTsrxChild &&
-					reads_as_tsrx_syntax(JSXExpressionNode, expression.quasis[0].value.cooked, sourceCode)
-				) {
-					return;
-				}
+				if (keepsTsrxBraces(expression.quasis[0].value.cooked, 'JSXText')) return;
 				reportUnnecessaryCurly(JSXExpressionNode);
 			} else if (isJSX(expression)) {
-				if (isTsrxChild && is_in_raw_text_element(JSXExpressionNode)) return;
+				if (keepsTsrxBraces(getText(expression), expression.type)) return;
 				reportUnnecessaryCurly(JSXExpressionNode);
 			}
 		}

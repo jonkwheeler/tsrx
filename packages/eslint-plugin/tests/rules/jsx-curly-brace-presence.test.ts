@@ -33,6 +33,12 @@ const tsrx_syntax_children = [
 	"<p>@if (ok) {<b />} {'@else'}</p>",
 	"<p>@for (const item of items) {<b />}{'@empty'}</p>",
 	"<p>@try {<b />} @pending {<i />} {'@catch (e)'}</p>",
+	"<p>@if (ok) {<b />} /* c */ {'@else'} {1}</p>",
+	// TSRX also reads a clause written without its `@` and reports it.
+	"<p>@if (ok) {<b />} {'else if'}</p>",
+	"<p>@try {<b />} @pending {<i />} {'catch (e)'}</p>",
+	// A comment may come between a directive's keyword and its `(`.
+	"<p>{'@for// c'}\n\t\t(const item of items) {1}\n\t</p>",
 	"<code>{'//'}</code>",
 	"<code>{'// note'}</code>",
 	"<div>\n\t\t{'// something'}\n\t</div>",
@@ -41,13 +47,20 @@ const tsrx_syntax_children = [
 	'<code>{`/* note */`}</code>',
 	'<code>{`// note`}</code>',
 	'<code>{`@if (ok)`}</code>',
-	// The new text would join the text beside it: `a //b` and `@if (x)`.
+	// The new text would join the text or comment beside it: `a //b`, `@if (x)`,
+	// `Total// TODO` (text, where `// TODO` was a comment) and `a //* c */`.
 	"<p>a /{'/b'}</p>",
 	"<p>{'@i'}f (x)</p>",
 	"<p>{'@if'} (x)</p>",
+	"<p>\n\t\t{'Total'}// TODO\n\t</p>",
+	"<p>{'a /'}/* c */</p>",
+	"<p>{'a /'}// c\n\t</p>",
+	// `&amp;` would read as `&`.
+	"<p>{'&'}amp;</p>",
 	// The first child of a `<style>` decides whether it is a scoped style block.
 	"<style>{'.card'}</style>",
 	'<style>{`.card`}</style>',
+	'<style>{<b />}</style>',
 ];
 
 const valid: RuleTester.ValidTestCase[] = [
@@ -116,6 +129,24 @@ const invalid: RuleTester.InvalidTestCase[] = [
 	{
 		code: component("<p>{'a//b'}</p>"),
 		output: component('<p>a//b</p>'),
+		errors: [{ messageId: 'unnecessaryCurly' }],
+	},
+	{
+		// A no-break space isn't whitespace to TSRX, so `//` touches the text.
+		code: component("<p>{'a\u00a0//b'}</p>"),
+		output: component('<p>a\u00a0//b</p>'),
+		errors: [{ messageId: 'unnecessaryCurly' }],
+	},
+	{
+		// `@empty` continues only a `@for`, and `else` alone is text.
+		code: component("<p>\n\t\t@if (ok) {1}\n\t\t{'@empty'}\n\t\t@if (ok) {<b />} {'else'}\n\t</p>"),
+		output: component('<p>\n\t\t@if (ok) {1}\n\t\t@empty\n\t\t@if (ok) {<b />} else\n\t</p>'),
+		errors: [{ messageId: 'unnecessaryCurly' }, { messageId: 'unnecessaryCurly' }],
+	},
+	{
+		// After `{css}`, the `<style>` stays an ordinary element.
+		code: component("<style>{css}x{'plain'}</style>"),
+		output: component('<style>{css}xplain</style>'),
 		errors: [{ messageId: 'unnecessaryCurly' }],
 	},
 	{

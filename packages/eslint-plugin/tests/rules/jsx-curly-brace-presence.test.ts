@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Linter, RuleTester } from 'eslint';
-import rule from '../../src/rules/jsx-curly-brace-presence.js';
+import rule, { STATEMENT_PARSE_LIMIT } from '../../src/rules/jsx-curly-brace-presence.js';
 import * as parser from '@tsrx/eslint-parser';
 
 const ruleTester = new RuleTester({
@@ -296,5 +296,46 @@ describe('jsx-curly-brace-presence --fix', () => {
 		expect(lint(component("<p>{'user@example.com'}</p>"), parse_only).output).toBe(
 			component('<p>user@example.com</p>'),
 		);
+	});
+
+	const config = {
+		files: ['**/*.tsrx'],
+		languageOptions: { parser },
+		plugins: { tsrx: { rules: { 'jsx-curly-brace-presence': rule } } },
+		rules: { 'tsrx/jsx-curly-brace-presence': 'error' },
+	} as const;
+
+	it('finishes in one --fix run', () => {
+		const strings = (count: number) => Array.from({ length: count }, (_, i) => `{'a${i}'}`);
+		let nested = "{'a'}";
+		for (let i = 0; i < 15; i++) nested = `{'a'}<li>${nested}</li>`;
+		for (const template of [
+			`<div>${strings(93).join(' ')}</div>`,
+			`<div>${strings(200).join('x')}</div>`,
+			`<div>${nested}</div>`,
+		]) {
+			const { output, messages } = new Linter().verifyAndFix(
+				component(template),
+				config,
+				'App.tsrx',
+			);
+			expect(messages).toEqual([]);
+			expect(output).toBe(component(template.replace(/\{'([^']*)'\}/g, '$1')));
+		}
+	});
+
+	it('checks a bounded number of children in expression containers', () => {
+		// Each child here needs its top-level statement parsed. Past the limit,
+		// the rest keep their braces.
+		const children = Array.from(
+			{ length: STATEMENT_PARSE_LIMIT + 5 },
+			(_, i) => ` x{'a@b${i}'}<i />`,
+		).join('');
+		const messages = new Linter().verify(
+			`export function A({ ok }) {\n\treturn <div>{ok && <section>${children}</section>}</div>;\n}`,
+			config,
+			'App.tsrx',
+		);
+		expect(messages).toHaveLength(STATEMENT_PARSE_LIMIT);
 	});
 });

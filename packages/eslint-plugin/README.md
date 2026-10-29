@@ -73,8 +73,10 @@ after `tsrx.configs.react`.
   comment such as `{'// note'}`, text that would join a comment or a directive
   clause beside it, or the first child of a `<style>`. To tell, it parses the
   element around a child whose text could be TSRX syntax, before and after the
-  unwrap, with the file's parser. Each fix spans the child's neighbors, so fixes
-  that would touch the same text go in separate passes. See
+  unwrap, with the file's parser. Inside an expression container it parses the
+  top-level statement, for at most 50 children per file, and keeps the braces past
+  that. Each fix spans the text beside the child, so fixes that would touch the
+  same text go in separate passes of one `--fix` run. See
   [With eslint-plugin-react](#with-eslint-plugin-react).
 - `tsrx/no-return-in-component` is a deprecated no-op retained for compatibility.
 

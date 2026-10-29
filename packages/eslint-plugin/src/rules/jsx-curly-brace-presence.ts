@@ -282,13 +282,16 @@ function count_comments(comments: AnyNode[] | undefined, range: [number, number]
  *
  * - usually only a cut of it, from the nearest child before `node` that isn't
  *   text to the nearest one after, in a bare tag of its own;
- * - the whole file when the element sits in an expression container or an
- *   attribute, a context the cut can't reproduce.
+ * - the top-level statement around the element when it sits in an expression
+ *   container or an attribute, a context the cut can't reproduce. Parsed on
+ *   its own, a top-level statement reads as it does in the file. A file gets
+ *   `STATEMENT_PARSE_LIMIT` of these, and past them the braces stay.
  *
  * Without a parser, and for the first child of a `<style>`, the braces stay.
  */
 function unwraps_to_the_same_children(
 	context: Rule.RuleContext,
+	state: CheckState,
 	node: AnyNode,
 	replacement: string,
 	type: string,
@@ -325,16 +328,32 @@ function unwraps_to_the_same_children(
 	};
 
 	if (is_in_expression(element)) {
-		const after = read(text.slice(0, node.range[0]) + replacement + text.slice(node.range[1]));
-		const found = after && find_element(after.ast.body, element.range[0]);
-		if (!after || !found) return false;
+		if (state.statement_parses >= STATEMENT_PARSE_LIMIT) return false;
+		state.statement_parses++;
+		let statement = element;
+		while (statement.parent && statement.parent.type !== 'Program') statement = statement.parent;
+		const [statement_start, statement_end] = statement.range;
+		let before = state.statements.get(statement);
+		if (before === undefined) {
+			before = read(text.slice(statement_start, statement_end));
+			state.statements.set(statement, before);
+		}
+		const after = read(
+			text.slice(statement_start, node.range[0]) +
+				replacement +
+				text.slice(node.range[1], statement_end),
+		);
+		const element_start = element.range[0] - statement_start;
+		const before_element = before && find_element(before.ast.body, element_start);
+		const after_element = after && find_element(after.ast.body, element_start);
+		if (!before_element || !after_element) return false;
 		return (
-			found.type === element.type &&
-			count_comments(after.ast.comments, found.range) ===
-				count_comments(context.sourceCode.getAllComments(), element.range) &&
-			after.diagnostics ===
-				((context.sourceCode.parserServices as AnyNode)?.tsrxDiagnostics?.length ?? 0) &&
-			children_shape(found.children) === expected(children, node.range[0])
+			after_element.type === before_element.type &&
+			count_comments(after!.ast.comments, after_element.range) ===
+				count_comments(before!.ast.comments, before_element.range) &&
+			after!.diagnostics === before!.diagnostics &&
+			children_shape(after_element.children) ===
+				expected(before_element.children, node.range[0] - statement_start)
 		);
 	}
 
@@ -388,6 +407,41 @@ function neighborhood(node: AnyNode): [number, number] {
 			: (element.openingElement ?? element.openingFragment).range[1],
 		last < children.length
 			? children[last].range[1]
+			: (element.closingElement ?? element.closingFragment).range[0],
+	];
+}
+
+/**
+ * TSRX: how many children in expression containers one file may check by
+ * parsing their top-level statement, at about one parse each. No file in the
+ * repo checks any.
+ */
+export const STATEMENT_PARSE_LIMIT = 50;
+
+/** TSRX: what the checks of one file share. */
+interface CheckState {
+	statement_parses: number;
+	/** Each top-level statement's parse before any edit. */
+	statements: Map<AnyNode, { ast: AnyNode; diagnostics: number } | null>;
+}
+
+/**
+ * TSRX: the source range from the end of the nearest child before `node` that
+ * isn't text to the start of the nearest one after, or to the start or end of
+ * the element's children.
+ */
+function between_neighbors(node: AnyNode): [number, number] {
+	const element = node.parent;
+	const children: AnyNode[] = element.children;
+	const index = children.indexOf(node);
+	const first = non_text_sibling(children, index, -1);
+	const last = non_text_sibling(children, index, 1);
+	return [
+		first >= 0
+			? children[first].range[1]
+			: (element.openingElement ?? element.openingFragment).range[1],
+		last < children.length
+			? children[last].range[0]
 			: (element.closingElement ?? element.closingFragment).range[0],
 	];
 }
@@ -453,6 +507,8 @@ const rule: Rule.RuleModule = {
 	create(context) {
 		const sourceCode = context.sourceCode;
 		const getText = (node: AnyNode) => sourceCode.getText(node as Rule.Node);
+		// TSRX: what the checks of this file share.
+		const state: CheckState = { statement_parses: 0, statements: new Map() };
 		const ruleOptions = context.options[0];
 		const userConfig =
 			typeof ruleOptions === 'string'
@@ -496,11 +552,12 @@ const rule: Rule.RuleModule = {
 						}
 					}
 
-					// TSRX: a child's fix also spans its neighbors, up to the nearest child
-					// on each side that isn't text. Fixes that would touch the same text
-					// then go in separate passes, each checked against the code it edits.
+					// TSRX: a child's fix also spans the text beside it, up to the nearest
+					// child on each side that isn't text. Fixes that would touch the same
+					// text then go in separate passes, each checked against the code it
+					// edits.
 					if (JSXExpressionNode.parent.type !== 'JSXAttribute') {
-						const [start, end] = neighborhood(JSXExpressionNode);
+						const [start, end] = between_neighbors(JSXExpressionNode);
 						const [node_start, node_end] = JSXExpressionNode.range;
 						return fixer.replaceTextRange(
 							[start, end],
@@ -561,7 +618,7 @@ const rule: Rule.RuleModule = {
 			const keepsTsrxBraces = (replacement: string, type: string) =>
 				JSXExpressionNode.parent.type !== 'JSXAttribute' &&
 				may_read_as_tsrx_syntax(JSXExpressionNode, replacement, sourceCode) &&
-				!unwraps_to_the_same_children(context, JSXExpressionNode, replacement, type);
+				!unwraps_to_the_same_children(context, state, JSXExpressionNode, replacement, type);
 
 			if (
 				(expressionType === 'Literal' || expressionType === 'JSXText') &&

@@ -15180,6 +15180,7 @@ describe('TypeScript-coded errors that had no source (#964)', () => {
 		for (const source of [
 			'type F = (this: number = 1) => void;',
 			'function f(this: number = 1) {}',
+			'function f(this: number /*=*/ = 1) {}',
 		]) {
 			const comma = code_of(TS_ERRORS.TOKEN_EXPECTED);
 			const at = source.indexOf('= 1');

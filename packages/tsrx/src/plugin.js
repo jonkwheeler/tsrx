@@ -5731,9 +5731,10 @@ export function TSRXPlugin(config) {
 					node.left.type === 'Identifier' &&
 					node.left.name === 'this'
 				) {
+					// The `=`, past any comment before it.
 					const after = /** @type {AST.Node} */ (node.left.typeAnnotation ?? node.left);
 					this.raise(
-						this.input.indexOf('=', /** @type {number} */ (after.end)),
+						skip_space_and_comments_from(this.input, /** @type {number} */ (after.end)),
 						TS_ERRORS.TOKEN_EXPECTED(','),
 					);
 				}

@@ -43,20 +43,18 @@ interface TryState {
 	block?: boolean;
 	handler?: boolean;
 	finalizer?: boolean;
-	/** Whether something that can throw runs in the `try` block, or in the `try` statement. */
+	/**
+	 * Whether something that can throw runs in the `try` block, which leads to
+	 * the `catch` block, or something that leaves early (a `return` too) runs
+	 * in the `try` statement, which leads to the `finally` block.
+	 */
 	block_throws: boolean;
 	throws: boolean;
 	in_block: boolean;
 }
 
-/** The expressions code path analysis counts as able to throw. */
-const THROWING_TYPES = [
-	'CallExpression',
-	'NewExpression',
-	'MemberExpression',
-	'ImportExpression',
-	'Identifier',
-];
+/** The expressions code path analysis counts as able to throw, with identifier references. */
+const THROWING_TYPES = ['CallExpression', 'NewExpression', 'MemberExpression', 'ImportExpression'];
 
 /**
  * Core `no-unreachable`, with the arms of a `@switch` as alternatives.
@@ -196,12 +194,13 @@ const rule: Rule.RuleModule = {
 			};
 		}
 
-		// Something that can throw, or a `return`, runs here.
-		const may_throw = () => {
+		// Something that can throw runs here, or with `throws_to_catch` false, a
+		// `return`, which reaches a `finally` block but no `catch` block.
+		const may_throw = (throws_to_catch = true) => {
 			if (!try_stack.length || !any_reachable()) return;
 			for (const state of try_stack) {
 				state.throws = true;
-				if (state.in_block) state.block_throws = true;
+				if (throws_to_catch && state.in_block) state.block_throws = true;
 			}
 		};
 
@@ -244,15 +243,22 @@ const rule: Rule.RuleModule = {
 					if (target) continued.add(target);
 					exit();
 				},
+				// A `continue` leads to the test of a `do` loop, after its body.
+				'DoWhileStatement > .test'(node: any) {
+					if (continued.has(node.parent) && !any_reachable()) revive();
+				},
 				'ThrowStatement:exit'() {
 					may_throw();
 					exit();
 				},
 				'ReturnStatement:exit'() {
-					may_throw();
+					may_throw(false);
 					exit();
 				},
-				...Object.fromEntries(THROWING_TYPES.map((type) => [`${type}:exit`, may_throw])),
+				...Object.fromEntries(THROWING_TYPES.map((type) => [`${type}:exit`, () => may_throw()])),
+				'Identifier:exit'(node: any) {
+					if (is_reference(node)) may_throw();
+				},
 				TryStatement(node: unknown) {
 					if (!in_revived_path()) return;
 					const state = { block_throws: false, throws: false, in_block: true };
@@ -332,6 +338,38 @@ function jump_target(node: any, is_break: boolean): object | null {
 		}
 	}
 	return null;
+}
+
+/** Whether an identifier is a reference, as code path analysis decides. */
+function is_reference(node: any): boolean {
+	const parent = node.parent;
+	switch (parent.type) {
+		case 'LabeledStatement':
+		case 'BreakStatement':
+		case 'ContinueStatement':
+		case 'ArrayPattern':
+		case 'RestElement':
+		case 'ImportSpecifier':
+		case 'ImportDefaultSpecifier':
+		case 'ImportNamespaceSpecifier':
+		case 'CatchClause':
+			return false;
+		case 'FunctionDeclaration':
+		case 'FunctionExpression':
+		case 'ArrowFunctionExpression':
+		case 'ClassDeclaration':
+		case 'ClassExpression':
+		case 'VariableDeclarator':
+			return parent.id !== node;
+		case 'Property':
+		case 'PropertyDefinition':
+		case 'MethodDefinition':
+			return parent.key !== node || parent.computed || parent.shorthand;
+		case 'AssignmentPattern':
+			return parent.key !== node;
+		default:
+			return true;
+	}
 }
 
 /** Whether a loop's test is missing or a truthy literal, as code path analysis checks. */

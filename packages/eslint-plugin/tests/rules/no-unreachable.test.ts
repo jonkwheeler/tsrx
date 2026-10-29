@@ -114,6 +114,23 @@ ruleTester.run('no-unreachable', rule, {
 		// A plain `try` the core rule's code paths cover: its `catch` is
 		// reachable only through the `try` block.
 		`function f() { try { a(); } catch { b(); } c(); }`,
+		// A `continue` leads to the test of a `do` loop, which can throw.
+		component(`@switch (n) {
+	@case 1: { throw new Error('one'); }
+	@default: {
+		try {
+			for (;;) {
+				do {
+					continue;
+				} while (log(n));
+			}
+		} catch (error) {
+			log(error);
+		}
+		const value = n;
+		<b>{value}</b>
+	}
+}`),
 	],
 	invalid: [
 		{
@@ -216,6 +233,31 @@ ruleTester.run('no-unreachable', rule, {
 				{ messageId: 'unreachableCode', line: 9 },
 				{ messageId: 'unreachableCode', line: 12 },
 				{ messageId: 'unreachableCode', line: 17 },
+			],
+		},
+		// A `return` reaches no `catch`, and declaring a variable can't throw.
+		{
+			code: component(`@switch (n) {
+	@case 1: { throw new Error('one'); }
+	@case 2: {
+		try {
+			return;
+		} catch (error) {
+			log(error);
+		}
+	}
+	@default: {
+		try {
+			let local;
+			for (;;) {}
+		} catch (error) {
+			log(error);
+		}
+	}
+}`),
+			errors: [
+				{ messageId: 'unreachableCode', line: 8 },
+				{ messageId: 'unreachableCode', line: 16 },
 			],
 		},
 		// A `catch` the `try` block can't reach, as in the core rule.

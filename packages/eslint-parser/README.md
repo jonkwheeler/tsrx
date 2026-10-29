@@ -107,8 +107,8 @@ The parser will successfully parse this and allow ESLint rules (like those from
 Some core ESLint rules miss part of what TSRX syntax does, and the parser can't
 change that without misdescribing the source to other rules.
 [`@tsrx/eslint-plugin`](https://www.npmjs.com/package/@tsrx/eslint-plugin) has
-TSRX versions of these rules, and its recommended configuration uses
-`tsrx/no-unused-vars` and `tsrx/no-unreachable` for `.tsrx` files:
+TSRX versions of these rules. Its `js` configuration, for `js.configs.recommended`
+users, uses `tsrx/no-unused-vars` and `tsrx/no-unreachable` for `.tsrx` files:
 
 - `no-unused-vars` reports an unused `@for` index, but its "Remove unused
   variable" suggestion deletes only the name, and `index )` doesn't parse.

@@ -44,10 +44,6 @@ try {
 	tsParser = null;
 }
 
-// The core rules `js.configs.recommended` turns on that have a TSRX version.
-// `tsrx/no-await-in-loop` stays opt-in, as `no-await-in-loop` is.
-const CORE_RULE_REPLACEMENTS = ['no-unused-vars', 'no-unreachable'];
-
 // Helper to create config objects
 function createConfig(name: string, files: string[], parser: any, isTsrx: boolean) {
 	const rules: Record<string, string> = {
@@ -57,13 +53,6 @@ function createConfig(name: string, files: string[], parser: any, isTsrx: boolea
 
 	if (isTsrx) {
 		rules['tsrx/require-statement-container-body'] = 'error';
-		// The TSRX versions of these core rules understand TSRX syntax. A config
-		// can't read the severity another config gives the core rule, so each is
-		// an error.
-		for (const name of CORE_RULE_REPLACEMENTS) {
-			rules[name] = 'off';
-			rules[`tsrx/${name}`] = 'error';
-		}
 	}
 
 	const config: any = {
@@ -106,6 +95,25 @@ plugin.configs.strict = [
 	{
 		name: 'tsrx/ignores',
 		ignores: ['**/*.d.ts', '**/node_modules/**', '**/dist/**', '**/build/**'],
+	},
+];
+
+// For `js.configs.recommended` users, listed after it: the TSRX versions of the
+// core rules it turns on. A config can't read the severity another gives the
+// core rule, so each is an error, as `js.configs.recommended` has it.
+plugin.configs.js = [
+	{
+		name: 'tsrx/js-tsrx-files',
+		files: ['**/*.tsrx'],
+		plugins: {
+			tsrx: plugin,
+		},
+		rules: {
+			'no-unused-vars': 'off',
+			'tsrx/no-unused-vars': 'error',
+			'no-unreachable': 'off',
+			'tsrx/no-unreachable': 'error',
+		},
 	},
 ];
 

@@ -15,10 +15,18 @@ pnpm add --save-dev eslint @tsrx/eslint-parser @tsrx/eslint-plugin
 
 ```js
 // eslint.config.js
+import js from '@eslint/js';
 import tsrx from '@tsrx/eslint-plugin';
 
-export default [...tsrx.configs.recommended];
+export default [
+  js.configs.recommended,
+  ...tsrx.configs.recommended,
+  ...tsrx.configs.js,
+];
 ```
+
+Leave out `tsrx.configs.js` if you don't use `js.configs.recommended`. See
+[With `js.configs.recommended`](#with-jsconfigsrecommended).
 
 The recommended configuration:
 
@@ -49,25 +57,32 @@ export default [...tsrx.configs.strict];
   `await` in a `@for` key, which runs once per item, as the body does.
 - `tsrx/no-unreachable` is ESLint's `no-unreachable`, with the arms of a `@switch`
   as alternatives. After an arm that throws, it doesn't report the other arms or
-  the code after the `@switch`. It still reports unreachable code inside an arm.
+  the code after the `@switch`. It still reports unreachable code inside an arm:
+  there it follows `throw`, `return`, `break`, `continue`, `try` and endless loops
+  itself, since code path analysis has already given up on the arm. In rare
+  nestings, such as a `try` inside a `try` whose `finally` never ends, it can miss
+  unreachable code in such an arm.
 
-### Core Rules in the Configurations
+### With `js.configs.recommended`
 
-`js.configs.recommended` turns on `no-unused-vars` and `no-unreachable`. For
-`.tsrx` files, `recommended` and `strict` turn those two off and turn on
+`js.configs.recommended` turns on `no-unused-vars` and `no-unreachable`. The `js`
+configuration turns those two off for `.tsrx` files and turns on
 `tsrx/no-unused-vars` and `tsrx/no-unreachable` at `error`. Every other report and
 suggestion is the core rule's. A configuration can't read the severity or options
 another one gives the core rule, so:
 
-- list `tsrx.configs.recommended` after `js.configs.recommended`, or after any
-  other configuration that turns these core rules on. Otherwise both versions run
-  on `.tsrx` files and report the same problems twice;
-- give `tsrx/no-unused-vars` the options you give `no-unused-vars`;
-- set a `tsrx/` rule to `warn` or `off` to change its severity.
+- list `tsrx.configs.js` after `js.configs.recommended`, and after any other
+  configuration that turns these core rules on. Listed before them, it leaves both
+  versions on for `.tsrx` files, and each problem is reported twice;
+- on its own, without `js.configs.recommended`, it turns the two TSRX rules on;
+- give `tsrx/no-unused-vars` the options you give `no-unused-vars`, and set a
+  `tsrx/` rule to `warn` or `off` to change its severity;
+- name the TSRX rule in `eslint-disable` comments in `.tsrx` files:
+  `// eslint-disable-next-line tsrx/no-unused-vars`.
 
-Neither configuration turns on `tsrx/no-await-in-loop`, since
-`js.configs.recommended` leaves `no-await-in-loop` off. If you turn on
-`no-await-in-loop`, use `tsrx/no-await-in-loop` for `.tsrx` files instead:
+`js.configs.recommended` leaves `no-await-in-loop` off, so no configuration turns
+on `tsrx/no-await-in-loop`. If you turn on `no-await-in-loop`, use
+`tsrx/no-await-in-loop` for `.tsrx` files instead:
 
 ```js
 import js from '@eslint/js';
@@ -76,6 +91,7 @@ import tsrx from '@tsrx/eslint-plugin';
 export default [
   js.configs.recommended,
   ...tsrx.configs.recommended,
+  ...tsrx.configs.js,
   { rules: { 'no-await-in-loop': 'error' } },
   {
     files: ['**/*.tsrx'],

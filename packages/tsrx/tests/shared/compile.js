@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { DIAGNOSTIC_CODES, TS_ERRORS, TSRX_ERRORS } from '../../src/diagnostics.js';
+import { parseModule } from '../../src/index.js';
 import { error_with } from './errors.js';
 import { runSharedScopedStyleTests } from './scoped-styles.js';
 import { runSharedScopedStyleConformanceTests } from './scoped-styles-conformance.js';
@@ -23,6 +24,21 @@ function count_substring(haystack, needle) {
 function diagnostic_codes(result) {
 	return result.errors.map((error) => error.code);
 }
+
+/**
+ * Markup a loose compile recovers and reports (#978): its label, the source,
+ * and the error.
+ * @type {Array<[label: string, source: string, error: { code: string }]>}
+ */
+const BROKEN_MARKUP = [
+	['an unclosed tag', 'function App() @{\n\t<div>hi\n}', TSRX_ERRORS.UNCLOSED_TAG],
+	[
+		'a mismatched closing tag',
+		'function App() @{\n\t<div><span></div>\n}',
+		TSRX_ERRORS.MISMATCHED_CLOSING_TAG,
+	],
+	['an unclosed returned tag', 'function App() {\n\treturn <div>;\n}', TSRX_ERRORS.UNCLOSED_TAG],
+];
 
 /**
  * Parse generated target output as TSX and return syntax diagnostics. Target
@@ -202,6 +218,22 @@ export function App() @{
 			expect(mapping).toBeDefined();
 			const generated = /** @type {NonNullable<typeof mapping>} */ (mapping).generatedOffsets[0];
 			expect(code.slice(generated, generated + 'getTag'.length)).toBe('getTag');
+		});
+	});
+
+	describe(`[${name}] unclosed and mismatched tags in the editor (#978)`, () => {
+		// The editor's compile is loose: it recovers the markup, so the editor
+		// keeps working, and reports the mistake where a collecting parse does.
+		it.each(BROKEN_MARKUP)('reports %s', (_label, source, error) => {
+			const { errors } = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+			/** @type {Array<{ code?: string, pos?: number, end?: number }>} */
+			const collected = [];
+			parseModule(source, 'App.tsrx', { collect: true, errors: /** @type {any} */ (collected) });
+
+			expect(errors.map((reported) => [reported.code, reported.pos, reported.end])).toEqual(
+				collected.map((reported) => [reported.code, reported.pos, reported.end]),
+			);
+			expect(errors.map((reported) => reported.code)).toEqual([error.code]);
 		});
 	});
 
@@ -2862,17 +2894,22 @@ export function App() @{
 			expect(diagnostic_codes(result)).toContain(TSRX_ERRORS.UNCLOSED_TAG.code);
 		});
 
-		it('keeps loose unclosed tag recovery silent', () => {
-			const result = compile(
-				`function App() @{
-					<div>hi
-				}`,
-				'App.tsrx',
-				{ loose: true },
-			);
+		// A loose compile, the editor's, recovers the markup and reports the
+		// mistake, as a collecting compile does (#978).
+		it.each(BROKEN_MARKUP)(
+			'reports %s in a loose compile, as when collecting',
+			(_label, source, error) => {
+				const loose = compile(source, 'App.tsrx', { loose: true });
+				const collected = compile(source, 'App.tsrx', { collect: true });
 
-			expect(result.errors).toEqual([]);
-		});
+				/** @param {{ errors: Array<{ code?: string, pos?: number, end?: number }> }} result */
+				const reported = (result) =>
+					result.errors.map((error) => [error.code, error.pos, error.end]);
+				expect(diagnostic_codes(loose)).toEqual([error.code]);
+				expect(reported(loose)).toEqual(reported(collected));
+				expect(virtual_parse_diagnostics(loose.code), loose.code).toEqual([]);
+			},
+		);
 
 		it('accepts adjacent JSX text and expression children', () => {
 			const { code } = compile(

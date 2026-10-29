@@ -2,6 +2,7 @@
 /** @import {TextDocument} from 'vscode-languageserver-textdocument' */
 
 import { TS_ERRORS } from '@tsrx/core';
+import { DIAGNOSTIC_SOURCE } from '@tsrx/core/diagnostics';
 import { describe, expect, it } from 'vitest';
 import { createCompileErrorDiagnosticPlugin } from '../src/compileErrorDiagnosticPlugin.js';
 import { createTypeScriptDiagnosticFilterPlugin } from '../src/typescriptDiagnosticPlugin.js';
@@ -275,5 +276,24 @@ export {};`,
 		expect(reported(document, diagnostics, 'TS1186')).toEqual([
 			{ source: 'TSRX', text: '=', offset: 27 },
 		]);
+	});
+});
+
+// The editor's compile is loose: it recovers unclosed and mismatched markup,
+// so the rest of the file keeps working, and reports it as a collecting
+// compile does (#978).
+describe('compile error diagnostic plugin — unclosed and mismatched tags', () => {
+	it.each([
+		['UnclosedTag', 'export function C() @{\n\t<div>\n}\n', 'TSRX1001'],
+		['MismatchedTag', 'export function C() @{\n\t<div><span></div>\n}\n', 'TSRX1002'],
+		['UnclosedReturnedTag', 'export function C() {\n\treturn <div>;\n}\n', 'TSRX1001'],
+	])('reports %s', async (name, source, code) => {
+		const { diagnostics } = await editor_diagnostics_for(name, source);
+
+		expect(
+			diagnostics
+				.filter((diagnostic) => diagnostic.source === DIAGNOSTIC_SOURCE)
+				.map((diagnostic) => diagnostic.code),
+		).toEqual([code]);
 	});
 });

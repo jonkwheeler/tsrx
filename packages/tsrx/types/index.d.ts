@@ -112,7 +112,8 @@ export interface CompileOptions {
 	collect?: boolean;
 	/**
 	 * Enables editor-oriented parser recovery such as incomplete markup.
-	 * Also collects non-fatal errors as `collect`.
+	 * Also collects non-fatal errors as `collect` does, including the unclosed
+	 * or mismatched tags it recovers (TSRX1001, TSRX1002).
 	 */
 	loose?: boolean;
 }

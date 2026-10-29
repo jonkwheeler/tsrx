@@ -526,3 +526,23 @@ it('reports errors on a bare this in .tsrx files', () => {
 		`layout.tsrx(4,${line.lastIndexOf('this') + 1}): error TS17009: 'super' must be called before accessing 'this' in the constructor of a derived class.`,
 	);
 });
+
+// The editor's loose compile, which tsrx-tsc runs, reports unclosed and
+// mismatched tags as a collecting compile does (#978).
+it.each([
+	['an unclosed tag', '\t<div>{title}\n', "Unclosed tag '<div>'"],
+	[
+		'a mismatched closing tag',
+		'\t<div><span>{title}</div>\n',
+		"Expected closing tag to match opening tag. Expected '</span>' but found '</div>'",
+	],
+])('reports %s in a .tsrx file', (_label, body, message) => {
+	fs.writeFileSync(
+		path.join(workspace, 'layout.tsrx'),
+		`export default function MainLayout({ title }: { title: string }) @{\n${body}}\n`,
+	);
+	const result = run_cli('native');
+	expect(result.output).toContain(
+		`[tsrx-tsc] ${path.join(fs.realpathSync(workspace), 'layout.tsrx')}: ${message}`,
+	);
+});

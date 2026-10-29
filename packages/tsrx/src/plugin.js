@@ -6958,11 +6958,13 @@ export function TSRXPlugin(config) {
 			/**
 			 * Report the modifiers of `declaration` as TypeScript's checker does, after
 			 * it's parsed, as TypeScript reports syntax errors in it first. A strict
-			 * parse throws the error TypeScript reports (`#modifierError`). A
-			 * collecting parse records it, and for each modifier the tree leaves out
-			 * the error TypeScript reports for that one once the first is fixed
-			 * (`dropped_modifier_error`), so that the formatter refuses the code
-			 * instead of printing it without the modifier.
+			 * parse throws the error TypeScript reports (`#modifierError`), and a
+			 * collecting parse records it, and nothing more, as TypeScript reports one
+			 * error for a declaration's modifiers (#961). For each modifier the tree
+			 * leaves out, the declaration's metadata keeps the error TypeScript
+			 * reports for that one once the first is fixed (`dropped_modifier_error`),
+			 * so that the formatter refuses the code instead of printing it without
+			 * the modifier.
 			 *
 			 * An exported global augmentation is TS2668 first, at the first modifier,
 			 * as `parseExportDeclaration` reports it without modifiers. A statement
@@ -7000,6 +7002,8 @@ export function TSRXPlugin(config) {
 				}
 				if (found) this.#raiseCheckerError(found.start, found.error);
 				if (!this.#collect) return;
+				/** @type {CompileError[]} */
+				const dropped = [];
 				/** @type {Set<string>} */
 				const kept = new Set();
 				for (const modifier of modifiers) {
@@ -7021,11 +7025,15 @@ export function TSRXPlugin(config) {
 					const duplicate = modifiers.some(
 						(other) => other.start < modifier.start && other.value === value,
 					);
-					this.#recordCheckerLevelError(
+					this.#report_recoverable_error_range(
 						modifier.start,
 						modifier.start + 1,
 						dropped_modifier_error(value, kind, context.block, duplicate),
+						dropped,
 					);
+				}
+				if (dropped.length > 0) {
+					declaration.metadata = { ...declaration.metadata, dropped_modifiers: dropped };
 				}
 			}
 

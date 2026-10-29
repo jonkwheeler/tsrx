@@ -10909,13 +10909,9 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			pick: block_statement,
 		},
 		{
-			// At the first modifier, then `abstract`'s own error, which the tree
-			// leaves out, for the formatter to refuse.
+			// At the first modifier only, as TypeScript reports it (#961).
 			source: '{\n\tdeclare abstract function f(): void;\n}',
-			errors: [
-				[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'declare abstract'],
-				[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'abstract function'],
-			],
+			errors: [[TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, 'declare abstract']],
 			throws: [TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE, '2:1'],
 			valid: 'declare function f(): void;',
 			pick: block_statement,

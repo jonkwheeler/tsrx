@@ -56,6 +56,23 @@ const PROBES = [
 		'a dynamic @for iterable',
 		template('<ul>\n\t\t@for (const x of yield bag.items) { <li>{x}</li> }\n\t</ul>'),
 	],
+	[
+		'an element assigned to a variable',
+		`export function* f(t: any) {\n\tlet el;\n\tel = <input title={yield t} />;\n\treturn el;\n}`,
+	],
+	['an attribute named like an event, but not one', returning('<details open={yield bag.open} />')],
+	// vite-plugin-solid hands babel the TypeScript as written, so a wrapper
+	// hides the element or value from the compiler's checks.
+	['a returned element behind `as`', returning('(<input title={yield t} />) as any')],
+	['a returned element behind `satisfies`', returning('(<input title={yield t} />) satisfies any')],
+	['a returned element behind `!`', returning('(<input title={yield t} />)!')],
+	[
+		'a declared element behind `as`',
+		`export function* f(t: any) {\n\tconst el = (<input title={yield t} />) as any;\n\treturn el;\n}`,
+	],
+	['a class object behind `as`', returning('<div class={{ active: yield t } as any} />')],
+	['a component ref behind `as`', returning('<Comp ref={(yield t).field as any} />')],
+	['a component with a ref call', returning('<Comp title={yield t} ref={bag.make()} />')],
 	// Exempt: the compiler evaluates the value in place.
 	['a static attribute value', returning('<input title={yield t} />')],
 	['a literal attribute value', returning("<input title={yield 'title'} />")],
@@ -67,9 +84,20 @@ const PROBES = [
 	['a static child', returning('<p>{yield t}</p>')],
 	['an element nested in the returned one', returning('<div><input title={yield t} /></div>')],
 	[
-		'an assigned element',
+		'an element declared as a whole',
 		`export function* f(t: any) {\n\tconst el = <input title={yield t} />;\n\treturn el;\n}`,
 	],
+	[
+		'an attribute starting with `on`, which Solid treats as an event',
+		returning('<input one={yield bag.x} />'),
+	],
+	[
+		'an element in a fragment in the returned one',
+		returning('<div><><input title={yield t} /></></div>'),
+	],
+	['an array ref behind `as`', returning('<div ref={[yield t] as any} />')],
+	['a component ref the compiler drops', returning('<Comp ref={(yield t)?.field} />')],
+	['a component array ref', returning('<Comp ref={[yield t] as any} />')],
 	['a static component prop', returning('<Comp title={yield t} />')],
 	['a lone static component child', returning('<Comp>{yield t}</Comp>')],
 	['a component in a ternary arm', returning('t ? <Comp title={yield t} /> : null')],

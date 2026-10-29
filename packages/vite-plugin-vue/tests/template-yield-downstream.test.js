@@ -43,6 +43,7 @@ const PROBES = [
 		"a host spread beside a ref (#246's shape)",
 		returning("t ? <input {...{}} ref={() => {}} title={yield 'title'} /> : null"),
 	],
+	['a returned element behind `as`', returning('(<input title={yield t} />) as any')],
 	// Exempt: TSRX keeps the value out of the template.
 	['a host spread', returning('<input {...(yield t)} />')],
 	[
@@ -62,6 +63,8 @@ const PROBES = [
 async function builds(code) {
 	try {
 		const compiled = vapor(code, { filename: 'probe.tsx' }).code;
+		// The compiler returns no code for a source it can't read.
+		if (!compiled) return false;
 		const { code: js } = await transformWithOxc(compiled, 'probe.ts');
 		parse(js, { ecmaVersion: 'latest', sourceType: 'module' });
 		return true;

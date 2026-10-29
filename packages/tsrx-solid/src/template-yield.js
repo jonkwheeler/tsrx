@@ -18,8 +18,11 @@ const AST_METADATA_KEYS = new Set(['loc', 'start', 'end', 'metadata']);
  * - evaluates `class` and `style` in an effect unless the value is an object
  *   literal, an array `ref` in an arrow, and event handlers and other refs in
  *   place;
- * - applies an assignable component `ref` in a callback, and passes on or
- *   drops any other;
+ * - applies an assignable component `ref` in a callback, creates a component
+ *   whose `ref` is a call in an immediately called arrow, and passes on or
+ *   drops any other `ref`;
+ * - reads TypeScript as written, so an element or value behind `as`,
+ *   `satisfies` or `!` is just an expression to it;
  * - passes component children in a getter when there are several, or one is
  *   an element or a dynamic value.
  *
@@ -57,7 +60,7 @@ export function find_deferred_template_yields(program) {
 			if (context.generator && context.deferred) found.push(node);
 		} else if (node.type === 'ReturnStatement' || node.type === 'VariableDeclarator') {
 			const value = node.type === 'ReturnStatement' ? node.argument : node.init;
-			const element = unwrap(value);
+			const element = strip(value, []);
 			if (element?.type === 'JSXElement') {
 				for_each_child(node, (child) =>
 					child === value ? visit_element(element, context, true) : visit(child, context),
@@ -137,6 +140,20 @@ export function find_deferred_template_yields(program) {
 	 * @param {Context} context
 	 */
 	const visit_component = (element, context) => {
+		// A ref call is evaluated first, in an immediately called arrow around
+		// the whole component.
+		if (
+			element.openingElement.attributes.some(
+				(attribute) =>
+					attribute.type === 'JSXAttribute' &&
+					attribute_name(attribute.name) === 'ref' &&
+					attribute.value?.type === 'JSXExpressionContainer' &&
+					strip(attribute.value.expression, COMPONENT_REF_WRAPPERS)?.type === 'CallExpression',
+			)
+		) {
+			context = { ...context, deferred: true };
+		}
+
 		for (const attribute of element.openingElement.attributes) {
 			if (attribute.type === 'JSXSpreadAttribute') {
 				visit_value(attribute.argument, context, is_dynamic(attribute.argument, false, namespaces));
@@ -150,11 +167,13 @@ export function find_deferred_template_yields(program) {
 			}
 			const expression = /** @type {AST.Expression} */ (value.expression);
 			if (attribute_name(attribute.name) === 'ref') {
-				// An assignable ref is applied in a callback, an array is passed
-				// on, and any other value is dropped.
-				const ref = unwrap(expression)?.type;
+				// An assignable ref is applied in a callback, an array is passed on,
+				// a call is evaluated as above, and any other value is dropped.
+				const ref = strip(expression, COMPONENT_REF_WRAPPERS)?.type;
 				if (ref === 'MemberExpression') visit_value(expression, context, true);
-				else if (ref === 'ArrayExpression') visit_value(expression, context, false);
+				else if (ref === 'ArrayExpression' || ref === 'CallExpression') {
+					visit_value(expression, context, false);
+				}
 				continue;
 			}
 			visit_value(expression, context, is_dynamic(expression, true, namespaces));
@@ -221,8 +240,8 @@ export function find_deferred_template_yields(program) {
  * @returns {boolean}
  */
 function is_host_attribute_deferred(name, value, namespaces) {
-	const expression = unwrap(value);
-	if (name === 'ref') return expression?.type === 'ArrayExpression';
+	if (name === 'ref') return strip(value, HOST_REF_WRAPPERS)?.type === 'ArrayExpression';
+	const expression = strip(value, []);
 	if (name.startsWith('on')) return false;
 	if (name === 'class' || name === 'className' || name === 'style') {
 		return expression?.type !== 'ObjectExpression' || is_dynamic(value, false, namespaces);
@@ -241,7 +260,7 @@ function is_host_attribute_deferred(name, value, namespaces) {
  * @returns {boolean}
  */
 function is_dynamic(node, tags, namespaces) {
-	const expression = unwrap(node);
+	const expression = strip(node, []);
 	if (!expression || isFunctionNode(expression)) return false;
 	if (
 		expression.type === 'MemberExpression' &&
@@ -322,21 +341,27 @@ function attribute_name(name) {
 }
 
 /**
- * The expression inside parentheses and TypeScript-only wrappers, which the
- * compiler never sees.
+ * vite-plugin-solid hands babel the TypeScript as written, so a TypeScript
+ * wrapper hides the expression inside from dom-expressions, except where it
+ * strips one itself: `as` and `!` on a host ref, and `satisfies` too on a
+ * component ref.
+ */
+const HOST_REF_WRAPPERS = ['TSAsExpression', 'TSNonNullExpression'];
+const COMPONENT_REF_WRAPPERS = [...HOST_REF_WRAPPERS, 'TSSatisfiesExpression'];
+
+/**
+ * The expression inside parentheses, which babel doesn't keep as a node, and
+ * inside the given TypeScript wrappers.
  *
  * @param {AST.Node | null | undefined} node
+ * @param {string[]} wrappers
  * @returns {AST.Node | null | undefined}
  */
-function unwrap(node) {
+function strip(node, wrappers) {
 	let current = node;
 	while (
 		current &&
-		(current.type === 'ParenthesizedExpression' ||
-			current.type === 'TSAsExpression' ||
-			current.type === 'TSSatisfiesExpression' ||
-			current.type === 'TSNonNullExpression' ||
-			current.type === 'TSTypeAssertion')
+		(current.type === 'ParenthesizedExpression' || wrappers.includes(current.type))
 	) {
 		current = /** @type {{ expression: AST.Node }} */ (/** @type {unknown} */ (current)).expression;
 	}

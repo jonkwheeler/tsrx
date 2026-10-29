@@ -27,17 +27,23 @@ function diagnostic_codes(result) {
 
 /**
  * Markup a loose compile recovers and reports (#978): its label, the source,
- * and the error.
- * @type {Array<[label: string, source: string, error: { code: string }]>}
+ * the error, and the closing tag the editor's code adds.
+ * @type {Array<[label: string, source: string, error: { code: string }, closing: string]>}
  */
 const BROKEN_MARKUP = [
-	['an unclosed tag', 'function App() @{\n\t<div>hi\n}', TSRX_ERRORS.UNCLOSED_TAG],
+	['an unclosed tag', 'function App() @{\n\t<div>hi\n}', TSRX_ERRORS.UNCLOSED_TAG, '</div>'],
 	[
 		'a mismatched closing tag',
 		'function App() @{\n\t<div><span></div>\n}',
 		TSRX_ERRORS.MISMATCHED_CLOSING_TAG,
+		'</span>',
 	],
-	['an unclosed returned tag', 'function App() {\n\treturn <div>;\n}', TSRX_ERRORS.UNCLOSED_TAG],
+	[
+		'an unclosed returned tag',
+		'function App() {\n\treturn <div>;\n}',
+		TSRX_ERRORS.UNCLOSED_TAG,
+		'</div>',
+	],
 ];
 
 /**
@@ -235,6 +241,36 @@ export function App() @{
 			);
 			expect(errors.map((reported) => reported.code)).toEqual([error.code]);
 		});
+
+		// The missing closing tag is added with no mapping of its own, so the code
+		// is valid TSX and TypeScript reports nothing more. A verification span of
+		// the parent's closing tag can cover it.
+		it.each(BROKEN_MARKUP)(
+			'adds the closing tag of %s with no mapping',
+			(_label, source, _error, closing) => {
+				const { code, mappings } = compile_to_volar_mappings(source, 'App.tsrx', { loose: true });
+
+				expect(virtual_parse_diagnostics(code), code).toEqual([]);
+				const start = code.indexOf(closing);
+				expect(start, code).toBeGreaterThan(-1);
+				expect(code.indexOf(closing, start + 1), code).toBe(-1);
+				const end = start + closing.length;
+				expect(
+					mappings.filter(
+						(mapping) =>
+							mapping.generatedOffsets.some(
+								(offset, index) =>
+									offset < end &&
+									offset + (mapping.generatedLengths?.[index] ?? mapping.lengths[index]) > start,
+							) &&
+							(mapping.data.completion ||
+								mapping.data.semantic ||
+								mapping.data.navigation ||
+								mapping.data.structure),
+					),
+				).toEqual([]);
+			},
+		);
 	});
 
 	describe(`[${name}] platform flag virtual types`, () => {

@@ -60,6 +60,22 @@ function install_transpiler_stub() {
 }
 
 /**
+ * Stands in for `Bun.resolveSync()`, which Bun.plugin() registration uses to
+ * find the `vue` a module imports: `<dir>/node_modules/<specifier>/index.js`.
+ */
+function install_resolve_stub() {
+	Object.defineProperty(globalThis, 'Bun', {
+		value: {
+			...Reflect.get(globalThis, 'Bun'),
+			resolveSync: (/** @type {string} */ specifier, /** @type {string} */ from) =>
+				path.join(from, 'node_modules', specifier, 'index.js'),
+		},
+		writable: true,
+		configurable: true,
+	});
+}
+
+/**
  * @param {import('../types/index.js').TsrxVueBunPluginOptions} [options]
  * @param {{ target?: import('bun').Target, root?: string, entrypoints?: string[], files?: Record<string, string> } | null} [config]
  * @param {Hooks} [hooks] hooks shared with other instances in the same build
@@ -307,8 +323,10 @@ describe('@tsrx/bun-plugin-vue', () => {
 		}
 	});
 
-	// Bun.plugin() registration doesn't call onResolve hooks.
-	it('points helper imports at the importing module under Bun.plugin() registration', async () => {
+	// Bun.plugin() registration doesn't call onResolve hooks, and another
+	// plugin's loose `include` must not see a `.tsrx` path.
+	it("points helper imports at the module's vue under Bun.plugin() registration", async () => {
+		install_resolve_stub();
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-helpers-'));
 		try {
 			const file_path = path.join(dir, 'Named.tsrx');
@@ -324,21 +342,24 @@ describe('@tsrx/bun-plugin-vue', () => {
 				path: file_path,
 				namespace: 'file',
 			});
-			const helper_path = `${file_path}?vue-jsx-vapor=%2Fvue-jsx-vapor%2Fprops`;
+			const vue_path = path.join(dir, 'node_modules/vue/index.js');
+			const helper_path = `${vue_path}?vue-jsx-vapor=%2Fvue-jsx-vapor%2Fprops`;
 			expect(transformed.contents).toContain(`from ${JSON.stringify(helper_path)};`);
 			expect(transformed.contents).not.toContain('"/vue-jsx-vapor/props"');
-			expect(
-				await runtime_dispatch(hooks.onLoad, { path: helper_path, namespace: 'file' }),
-			).toEqual({
+			const helper = await runtime_dispatch(hooks.onLoad, { path: helper_path, namespace: 'file' });
+			expect(helper).toEqual({
 				contents: expect.stringContaining('export function useFullProps()'),
 				loader: 'js',
 			});
+			expect(helper.contents).toContain(`import * as Vue from ${JSON.stringify(vue_path)};`);
+			expect(helper.contents).not.toContain('"vue"');
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
 	});
 
 	it('compiles defineStyle stylesheets as helper modules', async () => {
+		install_resolve_stub();
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-define-style-'));
 		try {
 			const file_path = path.join(dir, 'Box.tsrx');
@@ -447,6 +468,7 @@ describe('@tsrx/bun-plugin-vue', () => {
 
 	// Bun.plugin() registration calls only the first matching onLoad hook.
 	it("serves another instance's helper modules under Bun.plugin() registration", async () => {
+		install_resolve_stub();
 		const dir = await mkdtemp(path.join(os.tmpdir(), 'tsrx-bun-plugin-vue-helpers-'));
 		try {
 			const file_path = path.join(dir, 'Rich.tsrx');
@@ -464,7 +486,7 @@ describe('@tsrx/bun-plugin-vue', () => {
 				path: file_path,
 				namespace: 'file',
 			});
-			const helper_path = `${file_path}?vue-jsx-vapor=%2Fvue-jsx-vapor%2Fmacros%2Fuse-model`;
+			const helper_path = `${path.join(dir, 'node_modules/vue/index.js')}?vue-jsx-vapor=%2Fvue-jsx-vapor%2Fmacros%2Fuse-model`;
 			expect(transformed.contents).toContain(JSON.stringify(helper_path));
 			expect(
 				await runtime_dispatch(hooks.onLoad, { path: helper_path, namespace: 'file' }),

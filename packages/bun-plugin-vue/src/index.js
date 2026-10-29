@@ -28,6 +28,7 @@ const VAPOR_HELPER_ID_PATTERN = /^\/vue-jsx-vapor\//;
 const VAPOR_HELPER_IMPORT_PATTERN = /\b(from\s*|import\s*)"(\/vue-jsx-vapor\/[^"]+)"/g;
 const VAPOR_HELPER_QUERY = '?vue-jsx-vapor=';
 const VAPOR_HELPER_PATH_PATTERN = /\?vue-jsx-vapor=([^?&]+)$/;
+const VUE_IMPORT_PATTERN = /\b(from\s*|import\s*)(["'])vue\2/g;
 // A `defineStyle` stylesheet's language: `lang.css`, `lang.module.scss`, ...
 const VAPOR_STYLESHEET_LANG_PATTERN = /&lang\.(?:module\.)?(\w+)$/;
 const DEFAULT_VAPOR_OPTIONS = {
@@ -359,8 +360,11 @@ export function tsrxVue(options = {}) {
 
 			// Bun.build() resolves the helper modules a build's compiled modules import
 			// to one path each, in the directory Bun builds from, where they resolve
-			// `vue`. Bun.plugin() never calls onResolve hooks, so there `load_tsrx`
-			// points each helper import at the importing module instead.
+			// `vue`. Bun.plugin() never calls onResolve hooks, and resolves only paths
+			// to files, so there `load_tsrx` points each helper import at the file
+			// `vue` resolves to from the importing module, and the helper imports
+			// that file as `vue`. That path has no `.tsrx` in it for another plugin's
+			// `include` to see.
 			if (build.config) {
 				const anchor = path.join(base, 'vue-jsx-vapor');
 				build.onResolve({ filter: VAPOR_HELPER_ID_PATTERN }, (args) => {
@@ -389,9 +393,14 @@ export function tsrxVue(options = {}) {
 						: { contents: code, loader: stylesheet_lang ? 'css' : 'js' };
 				}
 				// Bun calls this hook for every instance's helper modules.
+				const vue = JSON.stringify(args.path.slice(0, args.path.indexOf(VAPOR_HELPER_QUERY)));
 				for (const loader of runtime.loaders) {
 					const code = await loader.load_vapor_helper?.(id);
-					if (code !== undefined) return { contents: code, loader: 'js' };
+					if (code === undefined) continue;
+					return {
+						contents: code.replace(VUE_IMPORT_PATTERN, (_, keyword) => keyword + vue),
+						loader: 'js',
+					};
 				}
 				throw new Error(`@tsrx/bun-plugin-vue: unknown vue-jsx-vapor helper module ${id}`);
 			});
@@ -421,10 +430,12 @@ export function tsrxVue(options = {}) {
 
 				let transformed = await vue_jsx_vapor.transform(output, file_path);
 				if (runtime) {
-					transformed = transformed.replace(
-						VAPOR_HELPER_IMPORT_PATTERN,
-						(_, keyword, id) => keyword + JSON.stringify(to_vapor_helper_path(file_path, id)),
-					);
+					/** @type {string | undefined} */
+					let vue;
+					transformed = transformed.replace(VAPOR_HELPER_IMPORT_PATTERN, (_, keyword, id) => {
+						vue ??= Bun.resolveSync('vue', path.dirname(file_path));
+						return keyword + JSON.stringify(to_vapor_helper_path(vue, id));
+					});
 				}
 
 				if (transpiler) {

@@ -270,3 +270,40 @@ test('renders the model', () => {
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+// An earlier plugin's loose `include` sees every path with `.tsrx` in it, so
+// helper modules must not be served from a `.tsrx` file's path.
+test("leaves helper modules out of another plugin's loose include in a bun:test preload", async () => {
+	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
+	try {
+		await write_vue_project(dir, {
+			'Rich.tsrx': `export function Rich() @{
+	const count = defineModel<number>('count');
+	<p class="rich">{count.value}</p>
+}
+`,
+			'preload.mjs': `import { tsrxReact } from ${JSON.stringify(join(import.meta.dir, '../../bun-plugin-react/src/index.js'))};
+import { tsrxVue } from ${JSON.stringify(join(import.meta.dir, '../src/index.js'))};
+Bun.plugin(tsrxReact({ include: /\\.tsrx/, exclude: /Rich\\.tsrx$/ }));
+Bun.plugin(tsrxVue({ include: /Rich\\.tsrx$/ }));
+`,
+			'render.js': RENDER_GREETINGS,
+			'rich.test.js': `import { expect, test } from 'bun:test';
+import { render } from './render.js';
+import { createVaporApp } from 'vue';
+import { Rich } from './Rich.tsrx';
+test('renders the model', () => {
+	expect(render(createVaporApp, Rich, { count: 3 })).toBe('<p class="rich">3</p>');
+});
+`,
+		});
+		const child = Bun.spawnSync({
+			cmd: [process.execPath, 'test', '--preload', './preload.mjs', './rich.test.js'],
+			cwd: dir,
+		});
+		expect(child.stderr.toString()).toContain(' 1 pass');
+		expect(child.exitCode).toBe(0);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});

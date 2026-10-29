@@ -102,13 +102,48 @@ export function collect_folding_ranges(text, file_name) {
 		return low;
 	};
 	/**
-	 * The line of the token before `offset`, where a block opened on a line of its own
-	 * still folds from the line that opens it.
+	 * The start of each comment, by the offset where it ends, and its end by its start.
+	 * @type {Map<number, number>}
+	 */
+	const comment_starts = new Map();
+	/** @type {Map<number, number>} */
+	const comment_ends = new Map();
+	/**
+	 * The offset of the first `character` from `offset` on, outside comments, or -1.
+	 * @param {string} character
+	 * @param {number} offset
+	 */
+	const find_after = (character, offset) => {
+		let index = offset;
+		while (index < text.length) {
+			const comment_end = comment_ends.get(index);
+			if (comment_end !== undefined) {
+				index = comment_end;
+			} else if (text[index] === character) {
+				return index;
+			} else {
+				index++;
+			}
+		}
+		return -1;
+	};
+	/**
+	 * The line of the token before `offset`, past blanks and comments, where a block opened on
+	 * a line of its own still folds from the line that opens it.
 	 * @param {number} offset
 	 */
 	const previous_token_line = (offset) => {
 		let index = offset - 1;
-		while (index > 0 && /\s/.test(text[index])) index--;
+		while (index > 0) {
+			const comment_start = comment_starts.get(index + 1);
+			if (comment_start !== undefined) {
+				index = comment_start - 1;
+			} else if (/\s/.test(text[index])) {
+				index--;
+			} else {
+				break;
+			}
+		}
 		return line_of(Math.max(index, 0));
 	};
 
@@ -140,6 +175,10 @@ export function collect_folding_ranges(text, file_name) {
 	} catch {
 		return merge_folding_ranges(fallback_folding_ranges(text));
 	}
+	for (const comment of comments) {
+		comment_starts.set(comment.end, comment.start);
+		comment_ends.set(comment.start, comment.end);
+	}
 
 	/**
 	 * @param {any} node
@@ -169,10 +208,10 @@ export function collect_folding_ranges(text, file_name) {
 			case 'SwitchStatement':
 			case 'JSXSwitchExpression':
 				// From the line of the `)` before the case block's `{`.
-				fold(previous_token_line(text.indexOf('{', node.discriminant.end)), node.end);
+				fold(previous_token_line(find_after('{', node.discriminant.end)), node.end);
 				break;
 			case 'StaticBlock':
-				fold(line_of(text.indexOf('{', node.start)), node.end);
+				fold(line_of(find_after('{', node.start)), node.end);
 				break;
 			case 'SwitchCase':
 				// A `case x:` folds its statements; an `@case x: { ... }` body is a block.
@@ -187,18 +226,20 @@ export function collect_folding_ranges(text, file_name) {
 			case 'TSTypeLiteral':
 			case 'TSTupleType':
 				fold(
-					parent?.type === 'ArrayExpression' ||
-						parent?.type === 'CallExpression' ||
-						parent?.type === 'NewExpression'
+					parent?.type === 'ArrayExpression' || parent?.type === 'CallExpression'
 						? line_of(node.start)
 						: previous_token_line(node.start),
 					node.end,
 				);
 				break;
 			case 'CallExpression':
-			case 'NewExpression':
+				// From the end of the token before the `(`, as TypeScript folds calls; it folds no
+				// `new` arguments.
 				if (node.arguments.length > 0) {
-					fold(line_of(text.indexOf('(', node.typeArguments?.end ?? node.callee.end)), node.end);
+					fold(
+						previous_token_line(find_after('(', node.typeArguments?.end ?? node.callee.end)),
+						node.end,
+					);
 				}
 				break;
 			case 'ArrowFunctionExpression':
@@ -290,7 +331,7 @@ export function collect_folding_ranges(text, file_name) {
 	 */
 	const fold_braces = (elements) => {
 		if (elements.length === 0) return;
-		const close = text.indexOf('}', elements.at(-1).end);
+		const close = find_after('}', elements.at(-1).end);
 		if (close !== -1) fold(previous_token_line(elements[0].start), close + 1);
 	};
 

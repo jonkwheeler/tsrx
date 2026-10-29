@@ -245,6 +245,91 @@ export function App(props: { value: number }) @{
 		]);
 	});
 
+	it('folds a block from the line that opens it, past comments before its brace', () => {
+		const text = `function f()
+// comment
+{
+	return 1;
+}
+if (x)
+/* block */
+{
+	call();
+}
+const o =
+	// note
+	{
+		a: 1,
+	};
+class K
+	// c
+{
+	m() {}
+}
+const p = (
+	{
+		a: 1,
+	}
+);
+`;
+		expect(folds(text)).toEqual([
+			'1-4 | function f()',
+			'6-9 | if (x)',
+			'11-14 | const o =',
+			'16-19 | class K',
+			// As in TypeScript, the object folds from the `(` line, where the parentheses' fold
+			// reaches further.
+			'21-24 | const p = (',
+		]);
+	});
+
+	it('reads past brackets inside comments when it looks for a brace or parenthesis', () => {
+		const text = `import {
+	a,
+	b /* } */,
+} from './m';
+switch (a)
+/* { inside */
+{
+	case 1:
+		f();
+}
+call
+/* ( */
+(
+	1,
+);
+class C {
+	static /* { */ {
+		g();
+	}
+}
+`;
+		expect(folds(text)).toEqual([
+			'1-3 | import {',
+			'5-9 | switch (a)',
+			'8-9 | case 1:',
+			// TypeScript folds a call from the end of the token before its `(`.
+			'11-14 | call',
+			'16-19 | class C {',
+			'17-18 | static /* { */ {',
+		]);
+	});
+
+	it('folds the arguments of a call but not of `new`, as TypeScript does', () => {
+		const text = `const x = new Foo(
+	1,
+	2,
+);
+const y = new Bar(
+	{
+		a: 1,
+	},
+);
+`;
+		expect(folds(text)).toEqual(['5-7 | const y = new Bar(']);
+	});
+
 	it('folds regions and runs of line comments with any line ending', () => {
 		const text = '// #region a\n// one\n// two\nconst x = {\n\ta: 1,\n};\n// #endregion\n';
 		expect(folds(text)).toEqual([

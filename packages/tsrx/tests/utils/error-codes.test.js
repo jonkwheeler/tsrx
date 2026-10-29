@@ -644,9 +644,13 @@ let E;`,
 		const typescript_codes = new Set(
 			[...diagnostics.matchAll(/'(TS\d+)'/g)].map(([, code]) => code),
 		);
-		for (const code of [...Object.values(DIAGNOSTIC_CODES), ...typescript_codes]) {
+		const codes = [...Object.values(DIAGNOSTIC_CODES), ...typescript_codes];
+		for (const code of codes) {
 			expect(specification, code).toMatch(new RegExp(`['"]${code}  `));
 		}
+		// And it lists no other code (#964).
+		const listed = [...specification.matchAll(/['"]((?:TSRX|TS)\d+) {2}/g)].map(([, code]) => code);
+		expect(listed.filter((code) => !codes.includes(code))).toEqual([]);
 	});
 
 	it('are exported without the compiler as @tsrx/core/diagnostics', async () => {

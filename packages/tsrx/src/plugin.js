@@ -785,6 +785,14 @@ const deferred_parameter_errors = new WeakMap();
 const parameter_lists_with_clashes = new WeakSet();
 
 /**
+ * The errors held in the parameter list of an ambient function or method, which
+ * `parseFunctionBody` reports with the TS2371 of each default (see
+ * `parseBindingList`).
+ * @type {WeakMap<unknown[], CompileError[]>}
+ */
+const ambient_parameter_errors = new WeakMap();
+
+/**
  * The errors a strict parse recorded in a generic async arrow function's
  * parameters, which it reports once the arrow function is read (see
  * `parseBindingList` and `parseFunctionBody`).
@@ -4922,6 +4930,21 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
+			 * acorn takes a function declaration in a function's body for a `var`,
+			 * which may share its name with another function, a `var` or a
+			 * parameter. TypeScript's binder reports those, as in a module (TS2300,
+			 * or TS2393 for two functions, which TSRX reports as TS2300 in a module
+			 * too). Read a function declaration in a function's scope as acorn reads
+			 * one at a module's top level, as a lexical one, in a `{ … }` body and a
+			 * `@{ … }` body alike (#964).
+			 * @type {Parse.Parser['treatFunctionsAsVarInScope']}
+			 */
+			treatFunctionsAsVarInScope(scope) {
+				if (this.inModule && scope.flags & SCOPE_FUNCTION) return false;
+				return super.treatFunctionsAsVarInScope(scope);
+			}
+
+			/**
 			 * The error TypeScript reports for declaring `name` with `bindingType`
 			 * here, where acorn finds it declared already, when its code isn't
 			 * acorn's TS2300: TS2567 when an enum is either declaration, TS2492 for a
@@ -5385,6 +5408,15 @@ export function TSRXPlugin(config) {
 					allowModifiers = !this.#collect && this.#readingGenericArrowParameters;
 				}
 				const outer_hold = this.#hold.held;
+				// A signature's, or an ambient function's, which has no body: their
+				// errors come with the TS2371 of a default, which is found after the
+				// list (see `#checkSignatureParameter` and `parseFunctionBody`), so hold
+				// them all from the start (#964).
+				const signature_like =
+					list &&
+					(kind === 'signature' ||
+						(this.isAmbientContext && (kind === 'function' || kind === 'method')));
+				if (list && signature_like) this.#hold.held = list.held;
 				/** @type {AST.Pattern[]} */
 				let params;
 				/** @type {CompileError[] | null} */
@@ -5475,6 +5507,12 @@ export function TSRXPlugin(config) {
 					// A signature's duplicate names too, which `checkParams` doesn't
 					// check, once the signature is read (see `tsFillSignature`) (#1264).
 					this.#signatureErrors.push(...list.held, ...this.#parameterClashErrors(params, true));
+				} else if (list && signature_like) {
+					// With the TS2371 of each default, from `parseFunctionBody` (#964).
+					ambient_parameter_errors.set(params, [
+						...list.held,
+						...this.#parameterClashErrors(params),
+					]);
 				} else if (list && (list.held.length > 0 || kind === 'signature')) {
 					this.#reportParameterList(params, list.held, kind === 'signature');
 				}
@@ -5679,6 +5717,27 @@ export function TSRXPlugin(config) {
 					raised_errors.add(errors[errors.length - 1]);
 				}
 				return errors;
+			}
+
+			/**
+			 * A `this` parameter takes no default: TypeScript's parser reads none
+			 * after it, and expects a `,` at the `=` (#964).
+			 * @type {Parse.Parser['parseMaybeDefault']}
+			 */
+			parseMaybeDefault(startPos, startLoc, left) {
+				const node = super.parseMaybeDefault(startPos, startLoc, left);
+				if (
+					node.type === 'AssignmentPattern' &&
+					node.left.type === 'Identifier' &&
+					node.left.name === 'this'
+				) {
+					const after = /** @type {AST.Node} */ (node.left.typeAnnotation ?? node.left);
+					this.raise(
+						this.input.indexOf('=', /** @type {number} */ (after.end)),
+						TS_ERRORS.TOKEN_EXPECTED(','),
+					);
+				}
+				return node;
 			}
 
 			/**
@@ -10758,12 +10817,17 @@ export function TSRXPlugin(config) {
 						this.#reportRestParameterMistakes(/** @type {AST.ArrowFunctionExpression} */ (node));
 						this.#reportOptionalPatternParameters(node);
 					} else if (is_code_block || !this.#isBodilessSignature(args[0])) {
+						const held = ambient_parameter_errors.get(node.params);
+						if (held?.length) this.#releaseErrors(held);
 						this.#reportOptionalPatternParameters(node);
 					} else {
 						// A signature without a body: `checkParams` doesn't check its
 						// duplicate names (#1264), and a parameter's default is TS2371, as
 						// in a function type (#964).
-						const initializers = this.#signatureInitializerErrors(node.params);
+						const initializers = [
+							...(ambient_parameter_errors.get(node.params) ?? []),
+							...this.#signatureInitializerErrors(node.params),
+						];
 						if (!parameter_lists_with_clashes.has(node.params)) {
 							this.#reportParameterList(node.params, initializers);
 						} else if (initializers.length > 0) {

@@ -11995,13 +11995,14 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			throws: [TS_ERRORS.REST_PARAMETER_INITIALIZER, '2:15'],
 		},
 		{
-			// TypeScript reports TS2371 too, at the parameter.
+			// TypeScript reports TS2371 too, at the parameter, which comes first
+			// (#964).
 			source: 'type H = (...a = []) => void;',
 			errors: [
-				[TS_ERRORS.REST_PARAMETER_INITIALIZER, 'a ='],
 				[TS_ERRORS.SIGNATURE_PARAMETER_INITIALIZER, '...a = []'],
+				[TS_ERRORS.REST_PARAMETER_INITIALIZER, 'a ='],
 			],
-			throws: [TS_ERRORS.REST_PARAMETER_INITIALIZER, '1:13'],
+			throws: [TS_ERRORS.SIGNATURE_PARAMETER_INITIALIZER, '1:10'],
 			pick: (program) => as_type(type_alias_type(program), 'TSFunctionType').parameters,
 			match: [
 				{
@@ -12016,12 +12017,12 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 	new (...b: string[] = []): I;
 }`,
 			errors: [
-				[TS_ERRORS.REST_PARAMETER_INITIALIZER, 'a ='],
 				[TS_ERRORS.SIGNATURE_PARAMETER_INITIALIZER, '...a = []'],
-				[TS_ERRORS.REST_PARAMETER_INITIALIZER, 'b:'],
+				[TS_ERRORS.REST_PARAMETER_INITIALIZER, 'a ='],
 				[TS_ERRORS.SIGNATURE_PARAMETER_INITIALIZER, '...b: string[] = []'],
+				[TS_ERRORS.REST_PARAMETER_INITIALIZER, 'b:'],
 			],
-			throws: [TS_ERRORS.REST_PARAMETER_INITIALIZER, '2:6'],
+			throws: [TS_ERRORS.SIGNATURE_PARAMETER_INITIALIZER, '2:3'],
 			pick: (program) =>
 				as_type(/** @type {AST.Node} */ (first(program)), 'TSInterfaceDeclaration').body.body,
 			match: [
@@ -15054,12 +15055,41 @@ describe('TypeScript-coded errors that had no source (#964)', () => {
 				thrown: null,
 			});
 		}
-		// A `var` or a function may share a parameter's name, as in a `{ … }` body.
-		for (const source of [
-			'export function C(props) @{\n\tvar props = 1;\n\t<p>{props}</p>\n}',
-			'export function C(props) @{\n\tfunction props() {}\n\t<p />\n}',
+		// A `var` may share a parameter's name, as in a `{ … }` body.
+		const shared = 'export function C(props) @{\n\tvar props = 1;\n\t<p>{props}</p>\n}';
+		expect(outcome(shared)).toEqual({ strict: null, collected: [], thrown: null });
+	});
+
+	it("reports a function that shares a name in a function's scope, as in a module", () => {
+		// TypeScript reports TS2300 at both names (TS2393 for two functions, which
+		// TSRX reports as TS2300 in a module too). TSRX reports the later, in a
+		// `{ … }` body and a `@{ … }` body alike.
+		const redeclared = code_of(UPSTREAM_ERRORS.REDECLARED);
+		for (const [source, at] of [
+			['export function C() @{\n\tfunction a() {}\n\tvar a = 1;\n\t<p />\n}', 'a = 1'],
+			['export function C() @{\n\tfunction a() {}\n\tfunction a() {}\n\t<p />\n}', 'a() {}\n\t<p'],
+			['function C() {\n\tvar a = 1;\n\tfunction a() {}\n}', 'a() {}\n}'],
+			['function C() {\n\tfunction a() {}\n\tfunction a() {}\n}', 'a() {}\n}'],
+			['function C(a) {\n\tfunction a() {}\n}', 'a() {}'],
+			['const f = () => {\n\tfunction a() {}\n\t{\n\t\tvar a;\n\t}\n};', 'a;'],
 		]) {
-			expect(outcome(source), source).toEqual({ strict: null, collected: [], thrown: null });
+			const pos = source.lastIndexOf(at);
+			expect(outcome(source), source).toEqual({
+				strict: [redeclared, pos],
+				collected: [[redeclared, pos]],
+				thrown: null,
+			});
+		}
+		// Overloads, and a function used before its declaration, share nothing.
+		for (const source of [
+			'function C() {\n\tfunction g(): void;\n\tfunction g() {}\n}',
+			'function C() {\n\tvar a;\n\tvar a;\n\treturn f;\n\tfunction f() {}\n}',
+		]) {
+			expect(outcome(source, 'a.ts'), source).toEqual({
+				strict: null,
+				collected: [],
+				thrown: null,
+			});
 		}
 	});
 
@@ -15114,7 +15144,50 @@ describe('TypeScript-coded errors that had no source (#964)', () => {
 				thrown: null,
 			});
 		}
-		// By position, and at one position by code, with the duplicate names.
+		// By position, and at one position by code, with the list's other errors.
+		const rest_initializer = code_of(TS_ERRORS.REST_PARAMETER_INITIALIZER);
+		for (const [source, positions] of [
+			['declare function f(a = 1, ...b = []): void;', [19, 26, 29]],
+			['type F = (a = 1, ...b = []) => void;', [10, 17, 20]],
+		]) {
+			const [first, second, third] = /** @type {number[]} */ (positions);
+			expect(
+				outcome(/** @type {string} */ (source), 'a.ts'),
+				/** @type {string} */ (source),
+			).toEqual({
+				strict: [initializer, first],
+				collected: [
+					[initializer, first],
+					[initializer, second],
+					[rest_initializer, third],
+				],
+				thrown: null,
+			});
+		}
+		const property = 'declare function f(public a = 1, a): void;';
+		expect(outcome(property, 'a.ts')).toEqual({
+			strict: [code_of(TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR), 19],
+			collected: [
+				[code_of(TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR), 19],
+				[initializer, 19],
+				[code_of(TS_ERRORS.ARGUMENT_NAME_CLASH), 26],
+				[code_of(TS_ERRORS.ARGUMENT_NAME_CLASH), 33],
+			],
+			thrown: null,
+		});
+		// A `this` parameter takes no default, as TypeScript's parser reads none.
+		for (const source of [
+			'type F = (this: number = 1) => void;',
+			'function f(this: number = 1) {}',
+		]) {
+			const comma = code_of(TS_ERRORS.TOKEN_EXPECTED);
+			const at = source.indexOf('= 1');
+			expect(outcome(source, 'a.ts'), source).toEqual({
+				strict: [comma, at],
+				collected: [],
+				thrown: [comma, at],
+			});
+		}
 		const source = 'declare function f(a = 1, a = 2): void;';
 		const clash = code_of(TS_ERRORS.ARGUMENT_NAME_CLASH);
 		expect(outcome(source, 'a.ts')).toEqual({

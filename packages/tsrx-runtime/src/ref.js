@@ -647,7 +647,7 @@ export function merge_spread_class(props, scope_class, key, alias, kind = 'text'
  *   joins as `[class, scope_class]`; any other value that is not a string is
  *   left out.
  *
- * A thenable class (Hono's server `css`) joins once it settles.
+ * On Hono's server, a promise class (its `css` helper's) joins once it settles.
  *
  * @param {unknown} value the authored class
  * @param {unknown} scope_class the element's scope hashes and applied classes
@@ -694,17 +694,13 @@ function join_class(value, scope_class, kind) {
 	if (kind === 'list' && typeof value !== 'string') {
 		return typeof value === 'object' ? [value, scope_class] : scope_class;
 	}
-	// A thenable class, such as the promise Hono's server `css` returns, joins
-	// the scope classes once it settles, and the runtime awaits the joined
-	// promise as it would the original. Any other value joins as text, as it
-	// would in the class attribute.
-	if (
-		(typeof value === 'object' || typeof value === 'function') &&
-		typeof (/** @type {{ then?: unknown }} */ (value).then) === 'function'
-	) {
-		return /** @type {PromiseLike<unknown>} */ (value).then((settled) =>
-			join_settled_class(settled, scope_class, kind),
-		);
+	// Hono's server renderer awaits a promise class, such as the one its `css`
+	// helper returns, so that one joins the scope classes once it settles.
+	// Anywhere else a class joins as text, as it would in the class attribute;
+	// Hono DOM's `css` promise then turns into its class name and inserts its
+	// rule.
+	if (kind === 'text-both' && value instanceof Promise) {
+		return value.then((settled) => join_settled_class(settled, scope_class, kind));
 	}
 	return `${value} ${scope_class}`;
 }

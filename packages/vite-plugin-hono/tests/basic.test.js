@@ -148,12 +148,15 @@ describe('@tsrx/vite-plugin-hono', () => {
 				`import { css, Style } from 'hono/css';
 
 				const red = () => css\`color: red;\`;
+				// Hono's server prints a thenable that is not a Promise as text.
+				const thenable = { then() {}, toString: () => 'from-thenable' };
 
 				export function Native() @{
 					<div>
 						<Style />
 						<span data-probe="attribute" class={red()} />
 						<span data-probe="spread" {...{ class: red() }} />
+						<span data-probe="thenable" class={thenable} />
 					</div>
 				}
 
@@ -167,6 +170,7 @@ describe('@tsrx/vite-plugin-hono', () => {
 						</style>
 						<span data-probe="attribute" class={red()} />
 						<span data-probe="spread" {...{ class: red() }} />
+						<span data-probe="thenable" class={thenable} />
 					</div>
 				}`,
 				source_id,
@@ -203,6 +207,9 @@ describe('@tsrx/vite-plugin-hono', () => {
 			const scoped = await render(Scoped);
 			for (const probe of ['attribute', 'spread']) {
 				expect(classes(native, probe)).toEqual([expect.stringMatching(/^css-\d+$/)]);
+			}
+			expect(classes(native, 'thenable')).toEqual(['from-thenable']);
+			for (const probe of ['attribute', 'spread', 'thenable']) {
 				expect(classes(scoped, probe)).toEqual([
 					...classes(native, probe),
 					expect.stringMatching(/^tsrx-[0-9a-f]+$/),

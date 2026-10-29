@@ -64,6 +64,8 @@ const vue_platform = {
 	validation: {
 		requireUseServerForAwait: true,
 		scanUseServerDirectiveForAwaitWithCustomValidator: false,
+		// vue-jsx-vapor evaluates template expressions in render effects.
+		templateYieldUnsupported: true,
 	},
 	hooks: {
 		initialState: () => ({

@@ -107,6 +107,8 @@ const solid_platform = {
 		// so directive scanning is redundant work. Keep the fallback flag
 		// above true as a safety net if the custom hook is removed.
 		scanUseServerDirectiveForAwaitWithCustomValidator: false,
+		// babel-preset-solid evaluates template expressions in effects.
+		templateYieldUnsupported: true,
 	},
 	hooks: {
 		initialState: () => ({

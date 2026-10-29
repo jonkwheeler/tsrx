@@ -2430,6 +2430,12 @@ export interface SourceMappingHarness {
 	 * test asserts the compiler throws rather than that it maps successfully.
 	 */
 	rejectsComponentAwait: boolean;
+	/**
+	 * Does the platform report a `yield` in a template (TSRX2034)? Solid and Vue
+	 * do, because their JSX compilers evaluate template expressions in effects.
+	 * Default: `false`.
+	 */
+	rejectsTemplateYield?: boolean;
 }
 
 /** The per-target entry point the shared editor-diagnostics tests run against. */

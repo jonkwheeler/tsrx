@@ -2,7 +2,7 @@ import { isCodeActionsEnabled, isDiagnosticsEnabled } from '@volar/language-core
 import { SourceMap } from '@volar/source-map';
 import ts from 'typescript';
 import { assert, describe, expect, it } from 'vitest';
-import { builders as b, identifier_to_jsx_name, parseModule } from '@tsrx/core';
+import { builders as b, DIAGNOSTIC_CODES, identifier_to_jsx_name, parseModule } from '@tsrx/core';
 import { assert_type } from './node-types.js';
 import {
 	build_line_offsets,
@@ -23,6 +23,7 @@ export function runSharedSourceMappingTests({
 	compile_to_volar_mappings,
 	name,
 	rejectsComponentAwait,
+	rejectsTemplateYield = false,
 }) {
 	describe(`[${name}] platform-specialized source mappings`, () => {
 		it('maps only the selected branch and keeps its authored block location', () => {
@@ -251,6 +252,27 @@ export function List({ items =${whitespace}EMPTY_ARRAY as string[] }: { items?: 
 }`,
 		};
 
+		if (rejectsTemplateYield) {
+			it.each([
+				...Object.entries(SOURCES),
+				[
+					'@for body',
+					`export function* makeList(items: string[]) {
+	return <ul>{@for (const item of items) { <li title={yield item} /> }}</ul>;
+}`,
+				],
+			])('reports the yield in the %s once, as a yield in a template (#259)', (_label, source) => {
+				const error = expect.objectContaining({
+					code: DIAGNOSTIC_CODES.TARGET_TEMPLATE_YIELD_UNSUPPORTED,
+					pos: source.indexOf('yield'),
+				});
+				expect(() => compile(source, 'App.tsrx')).toThrow(error);
+				expect(compile(source, 'App.tsrx', { collect: true }).errors).toEqual([error]);
+				expect(compile_to_volar_mappings(source, 'App.tsrx').errors).toEqual([error]);
+			});
+			return;
+		}
+
 		it.each(Object.keys(SOURCES))('keeps the yield inside a generator for the %s', (label) => {
 			const runtime = compile(SOURCES[label], 'App.tsrx').code;
 			const type_only = compile_to_volar_mappings(SOURCES[label], 'App.tsrx', { loose: true });
@@ -290,6 +312,111 @@ export function List({ items =${whitespace}EMPTY_ARRAY as string[] }: { items?: 
 			expect(result.errors.map((error) => [error.message, error.pos])).toEqual([
 				[expect.stringContaining('does not support `yield` here'), source.indexOf('yield')],
 			]);
+		});
+	});
+
+	describe(`[${name}] yield in a template (#259)`, () => {
+		/** @type {Record<string, string>} */
+		const SOURCES = {
+			'attribute value': `export function* field(bag: { title: string }) {
+	return <input title={yield bag.title} />;
+}`,
+			'attribute value, as yield*': `export function* field(bag: { titles: () => Generator<string, string> }) {
+	return <input title={yield* bag.titles()} />;
+}`,
+			child: `export function* field(bag: { text: string }) {
+	return <p>{yield bag.text}</p>;
+}`,
+			'child, as yield*': `export function* field(bag: { texts: () => Generator<string, string> }) {
+	return <p>{yield* bag.texts()}</p>;
+}`,
+			'spread attribute': `export function* field(bag: { attrs: object }) {
+	return <input {...(yield bag.attrs)} />;
+}`,
+			'component prop and spread': `export function* field(bag: { title: string; attrs: object }, Comp: any) {
+	return <Comp title={yield bag.title} {...(yield bag.attrs)} />;
+}`,
+			'attribute and child, in source order': `export function* field(bag: { title: string; text: string }) {
+	return <p title={yield bag.title}>{yield bag.text}</p>;
+}`,
+			'@{ … } output': `export function* field(bag: { title: string }) @{
+	<input title={yield bag.title} />
+}`,
+			'@if test': `export function* field(bag: { ok: boolean }) @{
+	<div>
+		@if (yield bag.ok) {
+			<p>yes</p>
+		}
+	</div>
+}`,
+			'@for iterable': `export function* field(bag: { items: string[] }) @{
+	<ul>
+		@for (const item of yield bag.items) {
+			<li>{item}</li>
+		}
+	</ul>
+}`,
+			'@if body with setup statements': `export function* field(bag: { ok: boolean; text: string }) @{
+	<div>
+		@if (bag.ok) {
+			const text = yield bag.text;
+			<p>{text}</p>
+		}
+	</div>
+}`,
+		};
+
+		/** @type {Record<string, string>} */
+		const ALLOWED = {
+			'a nested generator function': `export function* field(bag: { title: string }) {
+	return <input title={[...(function* () { yield bag.title; })()].join()} />;
+}`,
+			"the setup statements of the function's @{ … } body": `export function* field(bag: { title: string }) @{
+	const title = yield bag.title;
+	<input title={title} />
+}`,
+			'a statement before the element': `export function* field(bag: { title: string }) {
+	const title = yield bag.title;
+	return <input title={title} />;
+}`,
+		};
+
+		if (rejectsTemplateYield) {
+			it.each(Object.keys(SOURCES))('reports each yield in the %s once', (label) => {
+				const source = SOURCES[label];
+				const yields = [...source.matchAll(/\byield\b/g)].map((match) => match.index);
+				expect(() => compile(source, 'App.tsrx')).toThrow(
+					expect.objectContaining({
+						code: DIAGNOSTIC_CODES.TARGET_TEMPLATE_YIELD_UNSUPPORTED,
+						pos: yields[0],
+					}),
+				);
+				for (const { errors } of [
+					compile(source, 'App.tsrx', { collect: true }),
+					compile_to_volar_mappings(source, 'App.tsrx'),
+				]) {
+					expect(errors.map((error) => [error.code, error.pos])).toEqual(
+						yields.map((start) => [DIAGNOSTIC_CODES.TARGET_TEMPLATE_YIELD_UNSUPPORTED, start]),
+					);
+					expect(new Set(errors.map((error) => error.message)).size).toBe(1);
+				}
+			});
+		} else {
+			it.each(Object.keys(SOURCES))('accepts the yield in the %s', (label) => {
+				const source = SOURCES[label];
+				const result = compile(source, 'App.tsrx', { collect: true });
+				expect(result.errors).toEqual([]);
+				expect(compile_to_volar_mappings(source, 'App.tsrx').errors).toEqual([]);
+				expect(() =>
+					parseModule(result.code, 'App.tsx', { preserveParens: true, errors: [], comments: [] }),
+				).not.toThrow();
+			});
+		}
+
+		it.each(Object.keys(ALLOWED))('allows a yield in %s', (label) => {
+			const source = ALLOWED[label];
+			expect(compile(source, 'App.tsrx', { collect: true }).errors).toEqual([]);
+			expect(compile_to_volar_mappings(source, 'App.tsrx').errors).toEqual([]);
 		});
 	});
 

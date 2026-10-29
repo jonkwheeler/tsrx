@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'vite';
 import { tsrxSolid } from '../src/index.js';
 
 /**
@@ -60,6 +61,34 @@ describe('@tsrx/vite-plugin-solid routing', () => {
 		const virtual_id = join(root, 'tests', 'App.test.tsrx.tsx');
 		expect(await call_resolve_id(plugin, '/tests/App.test.tsrx.tsx')).toBe(virtual_id);
 		expect(await call_resolve_id(plugin, virtual_id)).toBe(virtual_id);
+	});
+
+	it('spells an anchored id the way Vite resolves the file, through a symlinked root', async () => {
+		const real_root = realpathSync(mkdtempSync(join(tmpdir(), 'tsrx-solid-real-')));
+		mkdirSync(join(real_root, 'tests'));
+		writeFileSync(join(real_root, 'tests', 'App.test.tsrx'), '');
+		const link_root = join(realpathSync(mkdtempSync(join(tmpdir(), 'tsrx-solid-link-'))), 'root');
+		symlinkSync(real_root, link_root, 'dir');
+		const server = await createServer({
+			root: link_root,
+			configFile: false,
+			logLevel: 'silent',
+			plugins: [tsrxSolid()],
+			server: { middlewareMode: true, hmr: false },
+			appType: 'custom',
+			optimizeDeps: { noDiscovery: true },
+		});
+		try {
+			const by_url = await server.pluginContainer.resolveId('/tests/App.test.tsrx.tsx');
+			const by_import = await server.pluginContainer.resolveId(
+				'./tests/App.test.tsrx',
+				join(link_root, 'main.ts'),
+			);
+			expect(by_url?.id).toBe(join(real_root, 'tests', 'App.test.tsrx.tsx'));
+			expect(by_url?.id).toBe(by_import?.id);
+		} finally {
+			await server.close();
+		}
 	});
 
 	it('forwards direct runtime imports to the compiler', async () => {

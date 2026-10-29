@@ -159,7 +159,7 @@ call(); // trailing
 			'31-32 | foo(',
 			'34-36 | const f = () =>',
 			'37-41 | const v = (',
-			'38-40 | <input',
+			'39-40 | a="1"',
 			'43-44 comment | // one',
 			'46-47 comment | /* one',
 		]);
@@ -192,6 +192,72 @@ call(); // trailing
 			'10-11 | @try {',
 			'12-13 | } @pending {',
 		]);
+	});
+
+	it('folds where TypeScript folds multi-line conditions, static blocks, attribute lists and import attributes', () => {
+		const text = `import data from './a.json' with {
+	type: 'json',
+};
+function pick(value: number) {
+	switch (
+		value
+	) {
+		case 1:
+			return data;
+	}
+}
+class Store {
+	static {
+		const x = 1;
+		pick(x);
+	}
+}
+export function App(props: { value: number }) @{
+	@switch (
+		props.value
+	) {
+		@case 1: {
+			<button
+				type="button"
+				onClick={() => {
+					pick(1);
+				}}
+			>
+				{'one'}
+			</button>
+		}
+	}
+}
+`;
+		expect(folds(text)).toEqual([
+			"1-2 | import data from './a.json' with {",
+			'4-10 | function pick(value: number) {',
+			'7-9 | ) {',
+			'8-9 | case 1:',
+			'12-16 | class Store {',
+			'13-15 | static {',
+			'18-32 | export function App(props: { value: number }) @{',
+			'21-31 | ) {',
+			'22-30 | @case 1: {',
+			'23-29 | <button',
+			'24-26 | type="button"',
+			'25-26 | onClick={() => {',
+		]);
+	});
+
+	it('folds regions and runs of line comments with any line ending', () => {
+		const text = '// #region a\n// one\n// two\nconst x = {\n\ta: 1,\n};\n// #endregion\n';
+		expect(folds(text)).toEqual([
+			'1-7 region | // #region a',
+			'2-3 comment | // one',
+			'4-5 | const x = {',
+		]);
+		for (const line_ending of ['\r\n', '\r']) {
+			expect(
+				collect_folding_ranges(text.replaceAll('\n', line_ending), '/project/App.tsrx'),
+				JSON.stringify(line_ending),
+			).toEqual(collect_folding_ranges(text, '/project/App.tsrx'));
+		}
 	});
 
 	it('follows indentation and region markers while the file does not parse', () => {

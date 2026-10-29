@@ -168,7 +168,11 @@ export function collect_folding_ranges(text, file_name) {
 				break;
 			case 'SwitchStatement':
 			case 'JSXSwitchExpression':
-				fold(line_of(node.discriminant.end), node.end);
+				// From the line of the `)` before the case block's `{`.
+				fold(previous_token_line(text.indexOf('{', node.discriminant.end)), node.end);
+				break;
+			case 'StaticBlock':
+				fold(line_of(text.indexOf('{', node.start)), node.end);
 				break;
 			case 'SwitchCase':
 				// A `case x:` folds its statements; an `@case x: { ... }` body is a block.
@@ -208,13 +212,29 @@ export function collect_folding_ranges(text, file_name) {
 				break;
 			case 'ImportDeclaration':
 			case 'ExportNamedDeclaration':
-				fold_specifier_list(node.specifiers);
+			case 'ExportAllDeclaration':
+				fold_braces(
+					(node.specifiers ?? []).filter(
+						(/** @type {any} */ specifier) =>
+							specifier.type === 'ImportSpecifier' || specifier.type === 'ExportSpecifier',
+					),
+				);
+				fold_braces(node.attributes ?? []);
+				break;
+			case 'JSXOpeningElement':
+				// A multi-line attribute list folds on its own, from its first attribute.
+				if (node.attributes.length > 0) {
+					fold(line_of(node.attributes[0].start), node.attributes.at(-1).end);
+				}
+				break;
+			case 'JSXElement':
+			case 'JSXStyleElement':
+				// A self-closing element folds only its attributes.
+				if (node.closingElement) fold(line_of(node.start), node.end);
 				break;
 			case 'TemplateLiteral':
 			case 'ParenthesizedExpression':
-			case 'JSXElement':
 			case 'JSXFragment':
-			case 'JSXStyleElement':
 				fold(line_of(node.start), node.end);
 				break;
 		}
@@ -264,20 +284,24 @@ export function collect_folding_ranges(text, file_name) {
 	};
 
 	/**
-	 * The braces of `import { a, b } from` and `export { a, b }`.
-	 * @param {any[]} specifiers
+	 * The braces around `elements`: the names of `import { a, b } from` and `export { a, b }`,
+	 * and import attributes (`with { type: 'json' }`).
+	 * @param {any[]} elements
 	 */
-	const fold_specifier_list = (specifiers) => {
-		const named = specifiers.filter(
-			(specifier) => specifier.type === 'ImportSpecifier' || specifier.type === 'ExportSpecifier',
-		);
-		if (named.length === 0) return;
-		const close = text.indexOf('}', named.at(-1).end);
-		if (close !== -1) fold(previous_token_line(named[0].start), close + 1);
+	const fold_braces = (elements) => {
+		if (elements.length === 0) return;
+		const close = text.indexOf('}', elements.at(-1).end);
+		if (close !== -1) fold(previous_token_line(elements[0].start), close + 1);
 	};
 
 	visit(ast, null);
-	fold_comments(comments, text, line_of, fold);
+	fold_comments(
+		comments,
+		text,
+		line_of,
+		(offset) => /^[ \t]*$/.test(text.slice(line_starts[line_of(offset)], offset)),
+		fold,
+	);
 	return merge_folding_ranges(ranges);
 }
 
@@ -287,9 +311,11 @@ export function collect_folding_ranges(text, file_name) {
  * @param {AST.CommentWithLocation[]} comments
  * @param {string} text
  * @param {(offset: number) => number} line_of
+ * @param {(offset: number) => boolean} first_on_line Whether only blanks precede `offset` on
+ *   its line.
  * @param {(start_line: number, end: number, kind: FoldingRange['kind']) => void} fold
  */
-function fold_comments(comments, text, line_of, fold) {
+function fold_comments(comments, text, line_of, first_on_line, fold) {
 	/** @type {number[]} */
 	const regions = [];
 	/** @type {AST.CommentWithLocation | null} */
@@ -301,9 +327,7 @@ function fold_comments(comments, text, line_of, fold) {
 		first = last = null;
 	};
 	for (const comment of comments) {
-		const own_line =
-			comment.type === 'Line' &&
-			/^[ \t]*$/.test(text.slice(text.lastIndexOf('\n', comment.start - 1) + 1, comment.start));
+		const own_line = comment.type === 'Line' && first_on_line(comment.start);
 		const region = own_line ? REGION_MARKER.exec(comment.value.trim()) : null;
 		if (region || !own_line || (last && /\S/.test(text.slice(last.end, comment.start)))) {
 			end_run();

@@ -89,8 +89,8 @@ does. The parser can't prevent them:
   `{'@for (item of items)'}` stops parsing, and `{'// note'}` on its own line
   becomes a comment. Use `tsrx/jsx-curly-brace-presence` from
   [`@tsrx/eslint-plugin`](https://github.com/tsrx-org/tsrx/tree/main/packages/eslint-plugin)
-  instead: it has the same options, and keeps those braces. Its recommended
-  configuration does this for `.tsrx` files.
+  instead: it has the same options, and keeps those braces. Its `react`
+  configuration swaps it in for `.tsrx` files.
 - `react/jsx-tag-spacing` with `closingSlash: 'always'` writes `< /p>`, which
   neither TSRX nor TypeScript reads as a closing tag. With
   `afterOpening: 'always'` it writes `< br />`, which TSRX reads as text inside an

@@ -17,30 +17,37 @@ describe('eslint-plugin configs', () => {
 		}
 	});
 
-	it('uses tsrx/jsx-curly-brace-presence for .tsrx files in place of the react rule', () => {
-		for (const configs of [plugin.configs.recommended, plugin.configs.strict]) {
-			const [tsrx_config, typescript_config] = configs;
-			expect(tsrx_config.rules).toMatchObject({
-				'tsrx/jsx-curly-brace-presence': 'error',
-				'react/jsx-curly-brace-presence': 'off',
-			});
-			expect(typescript_config.rules).not.toHaveProperty('tsrx/jsx-curly-brace-presence');
+	it('keeps tsrx/jsx-curly-brace-presence out of the target-neutral configs', () => {
+		for (const config of [...plugin.configs.recommended, ...plugin.configs.strict]) {
+			expect(Object.keys(config.rules ?? {})).not.toContainEqual(
+				expect.stringMatching(/jsx-curly-brace-presence/),
+			);
+		}
+	});
 
-			// A rule that is off needs no plugin, so the config works without
-			// eslint-plugin-react.
-			const messages = new Linter().verify(
-				`export function A() @{
+	it('swaps in tsrx/jsx-curly-brace-presence for .tsrx files in the react config', () => {
+		const [react_config] = plugin.configs.react;
+		expect(react_config.files).toEqual(['**/*.tsrx']);
+		expect(react_config.plugins).toHaveProperty('tsrx', plugin);
+		expect(react_config.rules).toEqual({
+			'tsrx/jsx-curly-brace-presence': 'error',
+			'react/jsx-curly-brace-presence': 'off',
+		});
+
+		// A rule that is off needs no plugin, so the config works without
+		// eslint-plugin-react.
+		const messages = new Linter().verify(
+			`export function A() @{
 	<>
 		<p>{'plain'}</p>
 		<code>{'@for (item of items)'}</code>
 	</>
 }`,
-				configs,
-				'App.tsrx',
-			);
-			expect(messages.map((message) => `${message.line}: ${message.ruleId}`)).toEqual([
-				'3: tsrx/jsx-curly-brace-presence',
-			]);
-		}
+			[...plugin.configs.recommended, ...plugin.configs.react],
+			'App.tsrx',
+		);
+		expect(messages.map((message) => `${message.line}: ${message.ruleId}`)).toEqual([
+			'3: tsrx/jsx-curly-brace-presence',
+		]);
 	});
 });

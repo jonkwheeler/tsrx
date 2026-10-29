@@ -25,9 +25,6 @@ The recommended configuration:
 - uses `@tsrx/eslint-parser` for `.tsrx` files when installed;
 - uses `@typescript-eslint/parser` for `.ts` and `.tsx` files when installed;
 - registers the plugin under the `tsrx` rule namespace;
-- uses `tsrx/jsx-curly-brace-presence` for `.tsrx` files, and turns off
-  `react/jsx-curly-brace-presence` there (a rule that is off needs no plugin, so
-  this works without `eslint-plugin-react`);
 - ignores declaration files, dependencies, and common build output folders.
 
 Use the strict configuration to enable the same syntax rules at error severity:
@@ -38,6 +35,29 @@ import tsrx from '@tsrx/eslint-plugin';
 export default [...tsrx.configs.strict];
 ```
 
+### With eslint-plugin-react
+
+`react/jsx-curly-brace-presence` unwraps strings that TSRX text reads as syntax,
+so its `--fix` can break a `.tsrx` file. The `react` configuration turns it off
+for `.tsrx` files and turns on `tsrx/jsx-curly-brace-presence`, which keeps those
+braces. List it after eslint-plugin-react's configurations, or a later one turns
+the react rule back on:
+
+```js
+// eslint.config.js
+import react from 'eslint-plugin-react';
+import tsrx from '@tsrx/eslint-plugin';
+
+export default [
+  react.configs.flat.recommended,
+  ...tsrx.configs.recommended,
+  ...tsrx.configs.react,
+];
+```
+
+To pass options, set them on `tsrx/jsx-curly-brace-presence`, after
+`tsrx.configs.react`.
+
 ## Rules
 
 - `tsrx/control-flow-jsx` requires template output in returned `@for` blocks.
@@ -45,12 +65,11 @@ export default [...tsrx.configs.strict];
   `@{ ... }` statement-container marker.
 - `tsrx/valid-for-of-key` validates identifiers used in TSRX loop keys.
 - `tsrx/jsx-curly-brace-presence` is `react/jsx-curly-brace-presence`, with the
-  same options and messages, for TSRX text. It doesn't unwrap a string that TSRX
-  would read as syntax: a directive such as `{'@for (item of items)'}`, a comment
-  such as `{'// note'}` or ``{`/* note */`}``, or the first child of a `<style>`.
-  If you also use eslint-plugin-react's configurations, list
-  `tsrx.configs.recommended` after them, so that the react rule stays off for
-  `.tsrx` files.
+  same options and messages, for TSRX text. It doesn't unwrap a child that TSRX
+  would read differently: a directive such as `{'@for (item of items)'}`, a
+  comment such as `{'// note'}`, text that would join a comment or a directive
+  clause beside it, or the first child of a `<style>`. See
+  [With eslint-plugin-react](#with-eslint-plugin-react).
 - `tsrx/no-return-in-component` is a deprecated no-op retained for compatibility.
 
 Target runtime rules do not belong in the shared recommended configuration. For

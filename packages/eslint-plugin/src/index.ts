@@ -49,10 +49,6 @@ function createConfig(name: string, files: string[], parser: any, isTsrx: boolea
 
 	if (isTsrx) {
 		rules['tsrx/require-statement-container-body'] = 'error';
-		// eslint-plugin-react's version unwraps strings that TSRX text reads as
-		// syntax. A rule that is off needs no plugin, so this is safe without it.
-		rules['tsrx/jsx-curly-brace-presence'] = 'error';
-		rules['react/jsx-curly-brace-presence'] = 'off';
 	}
 
 	const config: any = {
@@ -95,6 +91,23 @@ plugin.configs.strict = [
 	{
 		name: 'tsrx/ignores',
 		ignores: ['**/*.d.ts', '**/node_modules/**', '**/dist/**', '**/build/**'],
+	},
+];
+
+// For eslint-plugin-react users, listed after react's configurations: its
+// `jsx-curly-brace-presence` unwraps strings that TSRX text reads as syntax, so
+// `.tsrx` files get the TSRX version. A rule that is off needs no plugin.
+plugin.configs.react = [
+	{
+		name: 'tsrx/react-tsrx-files',
+		files: ['**/*.tsrx'],
+		plugins: {
+			tsrx: plugin,
+		},
+		rules: {
+			'tsrx/jsx-curly-brace-presence': 'error',
+			'react/jsx-curly-brace-presence': 'off',
+		},
 	},
 ];
 

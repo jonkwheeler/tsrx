@@ -2723,10 +2723,10 @@ function reads_tag_binding(node) {
  * assign after it loads (`Menu.Item = …`), so only one that starts with an
  * import is hoisted. A tag that starts with `this`, `super`, a local binding,
  * a binding that can be reassigned (`let`, `var`, an enum, a namespace, an
- * import alias), or a name the module does not bind stays at render time.
- * Known limitation: a function declaration can still be reassigned
- * (`Tag = Replacement`), and a static keeps the function it read when the
- * module loaded.
+ * import alias), a binding the module assigns anywhere (`Tag = Replacement`
+ * after `function Tag() {}`), or a name the module does not bind stays at
+ * render time, since a static would keep the value it read when the module
+ * loaded.
  *
  * @param {AST.Program} program
  * @returns {Map<number, boolean>}
@@ -2754,10 +2754,22 @@ function collect_hoistable_tags(program) {
 	// A `var` in a block outside any function is module-level too
 	for (const name of var_names(program)) declare(name, 'mutable', Infinity);
 
-	/** @type {Map<number, boolean>} */
-	const hoistable = new Map();
 	/** @type {Set<string>[]} */
 	const scopes = [];
+	/** @param {string} name */
+	const is_local = (name) => scopes.some((names) => names.has(name));
+	/**
+	 * The names the module assigns anywhere. A name a local binding shadows
+	 * counts too: that only keeps a static at render time.
+	 * @type {Set<string>}
+	 */
+	const assigned = new Set();
+	/**
+	 * Each tag's root: its start, its name (`null` when it is local), and
+	 * whether the tag is a member tag.
+	 * @type {Array<[number, string | null, boolean]>}
+	 */
+	const tags = [];
 	/**
 	 * @param {string} name
 	 * @param {boolean} member
@@ -2766,7 +2778,7 @@ function collect_hoistable_tags(program) {
 	 */
 	const is_hoistable = (name, member, position) => {
 		if (name === 'this' || name === 'super') return false;
-		if (scopes.some((names) => names.has(name))) return false;
+		if (assigned.has(name)) return false;
 		const binding = module_bindings.get(name);
 		switch (binding?.kind) {
 			case 'import':
@@ -2787,17 +2799,82 @@ function collect_hoistable_tags(program) {
 		if (node.type === 'JSXOpeningElement' && !is_intrinsic_tag(node.name)) {
 			const root = jsx_tag_root(node.name);
 			if (root && typeof root.start === 'number') {
-				hoistable.set(
+				tags.push([
 					root.start,
-					is_hoistable(root.name, node.name.type === 'JSXMemberExpression', root.start),
-				);
+					is_local(root.name) ? null : root.name,
+					node.name.type === 'JSXMemberExpression',
+				]);
 			}
 		}
+		collect_assigned_names(node, assigned);
 		for (const child of child_nodes(node)) visit(child);
 		if (names) scopes.pop();
 	};
 	visit(program);
+
+	/** @type {Map<number, boolean>} */
+	const hoistable = new Map();
+	for (const [start, name, member] of tags) {
+		hoistable.set(start, name !== null && is_hoistable(name, member, start));
+	}
 	return hoistable;
+}
+
+/**
+ * Adds the names `node` assigns to `names`: the targets of an assignment, an
+ * update, or a `for … in`/`for … of` head without a declaration, through
+ * destructuring and type assertions.
+ *
+ * @param {AST.Node} node
+ * @param {Set<string>} names
+ */
+function collect_assigned_names(node, names) {
+	if (node.type === 'AssignmentExpression') add_target_names(node.left, names);
+	else if (node.type === 'UpdateExpression') add_target_names(node.argument, names);
+	else if (
+		(node.type === 'ForInStatement' || node.type === 'ForOfStatement') &&
+		node.left.type !== 'VariableDeclaration'
+	) {
+		add_target_names(node.left, names);
+	}
+}
+
+/**
+ * @param {AST.Node | null} target
+ * @param {Set<string>} names
+ */
+function add_target_names(target, names) {
+	/** @type {any} */
+	const node = target;
+	switch (node?.type) {
+		case 'Identifier':
+			names.add(node.name);
+			break;
+		case 'ObjectPattern':
+			for (const property of node.properties) {
+				add_target_names(
+					property.type === 'RestElement' ? property.argument : property.value,
+					names,
+				);
+			}
+			break;
+		case 'ArrayPattern':
+			for (const element of node.elements) add_target_names(element, names);
+			break;
+		case 'RestElement':
+			add_target_names(node.argument, names);
+			break;
+		case 'AssignmentPattern':
+			add_target_names(node.left, names);
+			break;
+		case 'ParenthesizedExpression':
+		case 'TSAsExpression':
+		case 'TSSatisfiesExpression':
+		case 'TSNonNullExpression':
+		case 'TSTypeAssertion':
+			add_target_names(node.expression, names);
+			break;
+	}
 }
 
 /**

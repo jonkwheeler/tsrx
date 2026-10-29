@@ -124,6 +124,10 @@ these without misdescribing the source to other rules:
   next, and `no-fallthrough` would then report every `@case`. The arms of `@if`
   and `@try` don't have this problem, so when an arm throws, an `@if`/`@else if`
   chain gets the right code paths.
+- `curly` with `multi` or `multi-or-nest` removes the braces from an `@if`,
+  `@else`, `@else if` or `@for` body that holds a single statement, such as
+  `@if (n) { throw error; }`. TSRX needs them, so `--fix` leaves a file that
+  doesn't parse. Use `all` or `multi-line`, which leave these bodies alone.
 
 ## Related Packages
 

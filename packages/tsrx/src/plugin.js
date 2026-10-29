@@ -379,6 +379,11 @@ const CHECKER_LEVEL_ERRORS = new Set([
 	TSRX_ERRORS.DUPLICATED_ATTRIBUTE_KEY,
 ]);
 
+/** The codes of `CHECKER_LEVEL_ERRORS` (see `#isSyntaxError`). */
+const CHECKER_LEVEL_CODES = new Set(
+	[...CHECKER_LEVEL_ERRORS].map((kind) => /** @type {{ code: string }} */ (kind).code),
+);
+
 /**
  * @param {string | { message?: string }} message
  * @returns {string}
@@ -738,6 +743,14 @@ const deferred_errors = new WeakSet();
 const unlogged_errors = new WeakSet();
 
 /**
+ * The checker errors a strict parse throws: those it raises with
+ * `#raiseCheckerError`, records with `#report_recoverable_error_range` when
+ * collecting, or held (see `#isSyntaxError`).
+ * @type {WeakSet<object>}
+ */
+const checker_errors_thrown = new WeakSet();
+
+/**
  * Errors by position, and at one position by code, as tsc sorts them.
  * @param {CompileError} a
  * @param {CompileError} b
@@ -764,7 +777,8 @@ const parameter_lists_with_clashes = new WeakSet();
 
 /**
  * The errors a strict parse recorded in a generic async arrow function's
- * parameters, which it throws after the `=>` (see `parseBindingList`).
+ * parameters, which it reports once the arrow function is read (see
+ * `parseBindingList` and `parseFunctionBody`).
  * @type {WeakMap<unknown[], CompileError[]>}
  */
 const generic_arrow_parameter_errors = new WeakMap();
@@ -1371,6 +1385,11 @@ export function TSRXPlugin(config) {
 			// `parseBindingList`).
 			/** @type {{ start: number, typeParametersStart?: number, outside: boolean, kind: 'function' | 'method' | 'signature' } | null} */
 			#ownParameterList = null;
+			// While a method is read whose TS2369 comes once it's read, from the end
+			// of its parameter list: its held errors, with its body's, and the errors
+			// held around it (see `parseBindingList` and `parseMethod`).
+			/** @type {{ held: CompileError[], outer: CompileError[] | null } | null} */
+			#methodHeld = null;
 			// While a function's or method's parameters are read: whether a parameter
 			// property is TS2369 on them whatever follows the list, and the errors
 			// held until the list is read (see `#parseAssignableListItem`).
@@ -1494,6 +1513,14 @@ export function TSRXPlugin(config) {
 			// Set while `tsFillSignature` reads a signature's type parameters (see
 			// `tsTryParseTypeParameters`).
 			#readingSignatureTypeParameters = false;
+			// While `tsFillSignature` reads a signature: the errors of its parameter
+			// list and of the signatures in it, reported once it's read.
+			/** @type {CompileError[] | null} */
+			#signatureErrors = null;
+			// The signatures' errors that a strict parse reports when the speculative
+			// parse they're in is kept (see `tryParse`).
+			/** @type {CompileError[]} */
+			#speculativeErrors = [];
 			// Where the import alias being read starts (see `raise`).
 			#importEqualsStart = -1;
 			// Where the last variable declarator ended, and where the expression of
@@ -4285,19 +4312,25 @@ export function TSRXPlugin(config) {
 				const start_loc = get_line_info(this, start);
 				const end_loc = get_line_info(this, range_end);
 
-				error(
-					message,
-					this.#filename,
-					/** @type {AST.NodeWithLocation} */ ({
-						start,
-						end: range_end,
-						loc: {
-							start: start_loc,
-							end: end_loc,
-						},
-					}),
-					errors,
-				);
+				try {
+					error(
+						message,
+						this.#filename,
+						/** @type {AST.NodeWithLocation} */ ({
+							start,
+							end: range_end,
+							loc: {
+								start: start_loc,
+								end: end_loc,
+							},
+						}),
+						errors,
+					);
+				} catch (thrown) {
+					// An error a collecting parse records (see `#isSyntaxError`).
+					checker_errors_thrown.add(/** @type {object} */ (thrown));
+					throw thrown;
+				}
 			}
 
 			/**
@@ -5323,7 +5356,7 @@ export function TSRXPlugin(config) {
 					// reserved word, or the name after `readonly` (#963). A strict parse
 					// of a generic async arrow function's parameters passes `true`:
 					// acorn-typescript takes an error in them for a sign that it isn't
-					// one, and `parseFunctionBody` throws TS2369 after its `=>` (#1162).
+					// one, and `parseFunctionBody` reports TS2369 (#1162).
 					allowModifiers = !this.#collect && this.#readingGenericArrowParameters;
 				}
 				const outer_hold = this.#hold.held;
@@ -5336,8 +5369,8 @@ export function TSRXPlugin(config) {
 						? // A strict parse of a generic async arrow function's parameters reads
 							// them as a collecting one does: acorn-typescript takes an error in
 							// them for a sign that it isn't one, which `async <T>(...a, b)`, a
-							// call, isn't. `parseFunctionBody` throws the first after the `=>`
-							// (#1162, #1264).
+							// call, isn't. `parseFunctionBody` reports them once the arrow
+							// function is read (#1162, #1264).
 							this.#asCollecting(
 								() =>
 									this.#parseBindingListPastRestElement(
@@ -5372,6 +5405,7 @@ export function TSRXPlugin(config) {
 				}
 				if (recorded) generic_arrow_parameter_errors.set(params, recorded);
 				if (list?.deferred.length) deferred_parameter_errors.set(params, list.deferred);
+				let method_held = false;
 				if (list && kind === 'method') {
 					// `parseMethod` raises TS2369 for a rest parameter property, and for a
 					// parameter property on a constructor without a body, once the method
@@ -5384,6 +5418,7 @@ export function TSRXPlugin(config) {
 							? /** @type {number} */ (param.start)
 							: this.#restParameterProperties.get(param);
 						if (start === undefined || (list.outside ? property : !bodiless)) continue;
+						const length = list.held.length;
 						this.#hold.held = list.held;
 						this.#recordCheckerLevelError(
 							start,
@@ -5392,11 +5427,30 @@ export function TSRXPlugin(config) {
 							true,
 						);
 						this.#hold.held = outer_hold;
+						if (list.outside && list.held.length > length) {
+							const error = list.held[list.held.length - 1];
+							deferred_errors.add(error);
+							list.deferred.push(error);
+						}
+					}
+					if (list.deferred.length > 0) {
+						// A method's TS2369 comes once the method is read, after the errors
+						// in its body before it, and not after a syntax error in its body,
+						// which TypeScript reports alone. Hold the body's errors with it
+						// until then (see `parseMethod`) (#1264).
+						list.held.push(...this.#parameterClashErrors(params));
+						this.#methodHeld = { held: list.held, outer: outer_hold };
+						this.#hold.held = list.held;
+						method_held = true;
 					}
 				}
-				if (list && (list.held.length > 0 || kind === 'signature')) {
+				if (method_held) {
+					// See above.
+				} else if (list && kind === 'signature' && this.#signatureErrors) {
 					// A signature's duplicate names too, which `checkParams` doesn't
-					// check (#1264).
+					// check, once the signature is read (see `tsFillSignature`) (#1264).
+					this.#signatureErrors.push(...list.held, ...this.#parameterClashErrors(params, true));
+				} else if (list && (list.held.length > 0 || kind === 'signature')) {
 					this.#reportParameterList(params, list.held, kind === 'signature');
 				}
 				return params;
@@ -5555,26 +5609,38 @@ export function TSRXPlugin(config) {
 				} finally {
 					this.#ownParameterList = outer_own;
 				}
-				return params.map((item) => {
-					const node = /** @type {AST.Node} */ (item);
-					const parameter = /** @type {AST.Node & AST.NodeWithLocation} */ (
-						node.type === 'TSParameterProperty' ? node.parameter : node
-					);
-					if (
-						parameter.type === 'AssignmentPattern' ||
-						this.#isRestParameterWithDefault(parameter)
-					) {
-						this.raise(parameter.start, TS_ERRORS.SIGNATURE_PARAMETER_INITIALIZER);
-					} else if (
-						parameter.type !== 'Identifier' &&
-						parameter.type !== 'RestElement' &&
-						parameter.type !== 'ObjectPattern' &&
-						parameter.type !== 'ArrayPattern'
-					) {
-						this.raise(parameter.start, TS_ERRORS.SIGNATURE_PARAMETER_NAME(parameter.type));
-					}
-					return item;
-				});
+				// TS2371 comes with the list's errors, once the signature is read (see
+				// `tsFillSignature`).
+				const outer_hold = this.#hold.held;
+				if (this.#signatureErrors) this.#hold.held = this.#signatureErrors;
+				try {
+					return params.map((item) => this.#checkSignatureParameter(item));
+				} finally {
+					this.#hold.held = outer_hold;
+				}
+			}
+
+			/**
+			 * See `tsParseBindingListForSignature`.
+			 * @param {AST.Pattern} item
+			 * @returns {AST.Pattern}
+			 */
+			#checkSignatureParameter(item) {
+				const node = /** @type {AST.Node} */ (item);
+				const parameter = /** @type {AST.Node & AST.NodeWithLocation} */ (
+					node.type === 'TSParameterProperty' ? node.parameter : node
+				);
+				if (parameter.type === 'AssignmentPattern' || this.#isRestParameterWithDefault(parameter)) {
+					this.raise(parameter.start, TS_ERRORS.SIGNATURE_PARAMETER_INITIALIZER);
+				} else if (
+					parameter.type !== 'Identifier' &&
+					parameter.type !== 'RestElement' &&
+					parameter.type !== 'ObjectPattern' &&
+					parameter.type !== 'ArrayPattern'
+				) {
+					this.raise(parameter.start, TS_ERRORS.SIGNATURE_PARAMETER_NAME(parameter.type));
+				}
+				return item;
 			}
 
 			// UPSTREAM(sveltejs/acorn-typescript#139): remove once a release includes the fix
@@ -5844,15 +5910,71 @@ export function TSRXPlugin(config) {
 
 			/**
 			 * See `tsTryParseTypeParameters`, which this reads first.
+			 *
+			 * The errors of the signature's parameter list, with those of the
+			 * signatures in it, come once the signature is read, by position: not
+			 * after a syntax error in it, as TypeScript reports a syntax error alone
+			 * (`type F = (a, a) => ;`). In a speculative parse, a strict parse reports
+			 * them only if it's kept (see `tryParse`), as acorn-typescript reads
+			 * `(b, b)` in `a < (b, b)` as type arguments first (#1264).
 			 * @type {Parse.Parser['tsFillSignature']}
 			 */
 			tsFillSignature(returnToken, signature) {
+				const outer = this.#signatureErrors;
+				/** @type {CompileError[]} */
+				const errors = [];
+				this.#signatureErrors = errors;
 				this.#readingSignatureTypeParameters = true;
 				try {
-					return super.tsFillSignature(returnToken, signature);
+					super.tsFillSignature(returnToken, signature);
+				} catch (error) {
+					this.#signatureErrors = outer;
+					if (errors.length > 0) this.#abandonHeldErrors(errors, error, false, true);
+					throw error;
 				} finally {
 					this.#readingSignatureTypeParameters = false;
 				}
+				this.#signatureErrors = outer;
+				if (errors.length === 0) return;
+				if (outer) {
+					outer.push(...errors);
+				} else if (!this.#collect && !this.#hold.held && this.parseEffects?.active) {
+					for (const error of errors) {
+						this.parseEffects.willAppend(this.#speculativeErrors);
+						this.#speculativeErrors.push(error);
+					}
+				} else {
+					this.#releaseErrors(errors);
+				}
+			}
+
+			/**
+			 * Report the signatures' errors held in a speculative parse once the
+			 * outermost one is kept (see `tsFillSignature`). acorn-typescript's undo
+			 * log drops them with an abandoned one.
+			 * @type {Parse.Parser['tryParse']}
+			 */
+			tryParse(fn) {
+				const result = super.tryParse(fn);
+				this.#reportSpeculativeErrors();
+				return result;
+			}
+
+			/**
+			 * See `tryParse`.
+			 * @type {Parse.Parser['tsTryParse']}
+			 */
+			tsTryParse(fn) {
+				const result = super.tsTryParse(fn);
+				this.#reportSpeculativeErrors();
+				return result;
+			}
+
+			#reportSpeculativeErrors() {
+				if (this.#speculativeErrors.length === 0 || this.parseEffects?.active) return;
+				const errors = this.#speculativeErrors;
+				this.#speculativeErrors = [];
+				this.#releaseErrors(errors);
 			}
 
 			/**
@@ -6641,13 +6763,23 @@ export function TSRXPlugin(config) {
 				this.#checkModifiersRead(read.modifiers, read.declaration_expected);
 				const export_index = read.modifiers.findIndex((modifier) => modifier.type === tt._export);
 				if (export_index === -1) {
-					const declaration = this.#parseModifiedDeclaration(
-						read.modifiers,
-						read.modifiers.length,
-						read.declaration,
-						false,
-					);
-					this.#raiseModifierErrors(read.modifiers, declaration, context, null);
+					const parse = () => {
+						const declaration = this.#parseModifiedDeclaration(
+							read.modifiers,
+							read.modifiers.length,
+							read.declaration,
+							false,
+						);
+						this.#raiseModifierErrors(read.modifiers, declaration, context, null);
+						return declaration;
+					};
+					if (!context.block) return /** @type {AST.Statement} */ (parse());
+					// In a block, the errors in the declaration come after TS1184 at its
+					// first modifier (#1264).
+					/** @type {CompileError[]} */
+					const held = [];
+					const declaration = this.#holdingErrors(held, parse);
+					this.#releaseErrors(held);
 					return /** @type {AST.Statement} */ (declaration);
 				}
 				const node = this.startNode();
@@ -6897,7 +7029,14 @@ export function TSRXPlugin(config) {
 			 * @param {Diagnostic} error
 			 */
 			#raiseCheckerError(position, error) {
-				if (this.#throwsCheckerErrors()) this.#throwError(position, error);
+				if (this.#throwsCheckerErrors()) {
+					try {
+						this.#throwError(position, error);
+					} catch (thrown) {
+						checker_errors_thrown.add(/** @type {object} */ (thrown));
+						throw thrown;
+					}
+				}
 				this.#recordCheckerLevelError(position, position + 1, error, true);
 			}
 
@@ -7951,8 +8090,8 @@ export function TSRXPlugin(config) {
 			 * throws it, and a collecting one records it first, after the duplicate
 			 * names before it in the list (#1214). A strict parse
 			 * of a generic async arrow function's parameters, which
-			 * `parseFunctionBody` reports after the `=>` (see
-			 * `#reportArrowParameterProperties`), reads the parameter as a
+			 * `parseFunctionBody` reports once the arrow function is read (see
+			 * `#arrowParameterErrors`), reads the parameter as a
 			 * collecting one does, and drops what it records: acorn-typescript takes
 			 * an error there for a sign that the code isn't an arrow function.
 			 * @param {boolean | undefined} allowModifiers
@@ -9848,18 +9987,25 @@ export function TSRXPlugin(config) {
 			 * collecting parse records them before the error, and a strict parse
 			 * throws the first by position when it comes before `thrown`, as a
 			 * collecting parse records it first, unless errors are held around the
-			 * code, where they go. Those it reports only later (`deferred_errors`,
-			 * such as a method's TS2369, after its body) go. In a generic arrow
-			 * function that acorn-typescript abandons (`abandoned`), a collecting
-			 * parse records them where the abandoned parse doesn't drop them, and a
-			 * strict parse throws one as it is, which acorn-typescript doesn't take
-			 * for a sign that the code isn't an arrow function (#1264).
+			 * code, where they go. After a syntax error (one that isn't a checker
+			 * error, see `#isSyntaxError`), which TypeScript reports alone, those it
+			 * reports only later go (`deferred_errors`, such as a method's TS2369,
+			 * after its body, or all of them, `deferred`, such as a signature's, once
+			 * it's read). In a generic arrow function that acorn-typescript abandons
+			 * (`abandoned`), a collecting parse records them where the abandoned parse
+			 * doesn't drop them, and a strict parse throws one as it is, which
+			 * acorn-typescript doesn't take for a sign that the code isn't an arrow
+			 * function (#1264).
 			 * @param {CompileError[]} held
 			 * @param {unknown} thrown
 			 * @param {boolean} [abandoned]
+			 * @param {boolean} [deferred]
 			 */
-			#abandonHeldErrors(held, thrown, abandoned = false) {
-				const kept = held.filter((error) => !deferred_errors.has(error)).sort(compare_errors);
+			#abandonHeldErrors(held, thrown, abandoned = false, deferred = false) {
+				const syntax_error = this.#isSyntaxError(thrown);
+				const kept = held
+					.filter((error) => !(syntax_error && (deferred || deferred_errors.has(error))))
+					.sort(compare_errors);
 				if (this.#collect) {
 					if (abandoned) {
 						for (const error of kept) unlogged_errors.add(error);
@@ -9885,6 +10031,21 @@ export function TSRXPlugin(config) {
 					this.parseEffects?.willAppend(outer);
 					outer.push(error);
 				}
+			}
+
+			/**
+			 * Whether `error`, which the parser threw, is a syntax error, which
+			 * TypeScript reports alone: anything but a checker error, which a
+			 * collecting parse records (`CHECKER_LEVEL_ERRORS`, and what a strict
+			 * parse throws for one, see `checker_errors_thrown`).
+			 * @param {unknown} error
+			 */
+			#isSyntaxError(error) {
+				const code = /** @type {{ code?: unknown }} */ (error)?.code;
+				return (
+					!checker_errors_thrown.has(/** @type {object} */ (error)) &&
+					!(typeof code === 'string' && CHECKER_LEVEL_CODES.has(code))
+				);
 			}
 
 			/**
@@ -9933,9 +10094,15 @@ export function TSRXPlugin(config) {
 			 */
 			#throwHeldError(error) {
 				if (raised_errors.has(error)) {
-					this.#throwError(error.pos ?? 0, { code: error.code, message: error.message });
+					try {
+						this.#throwError(error.pos ?? 0, { code: error.code, message: error.message });
+					} catch (thrown) {
+						checker_errors_thrown.add(/** @type {object} */ (thrown));
+						throw thrown;
+					}
 				}
 				error.type = 'fatal';
+				checker_errors_thrown.add(error);
 				throw error;
 			}
 
@@ -10498,7 +10665,11 @@ export function TSRXPlugin(config) {
 				// though an arrow function's is read before that list is done.
 				const arrow_parameter_list = this.#arrowParameterList;
 				this.#arrowParameterList = null;
-				try {
+				const outer_hold = this.#hold.held;
+				/** @type {CompileError[] | null} */
+				let arrow_held = null;
+				/** @returns {AST.Node} */
+				const read = () => {
 					// Allow a `@{ … }` code block as the body of a function, method, or
 					// arrow function, so components can be written as `function Something()
 					// @{ … }`, `{ Render() @{ … } }`, or `const Something = () => @{ … }`.
@@ -10513,7 +10684,16 @@ export function TSRXPlugin(config) {
 					}
 					const is_code_block = this.#isCodeBlockStart(this.start);
 					if (isArrowFunction) {
-						this.#reportArrowParameterProperties(node);
+						// A generic async arrow function's parameters' errors, in a strict
+						// parse, come once it's read, by position with its body's, and not
+						// after a syntax error in its body, which TypeScript reports alone,
+						// as a collecting parse drops them with acorn-typescript's attempt at
+						// it (#1264).
+						arrow_held = this.#arrowParameterErrors(node);
+						if (arrow_held) {
+							for (const error of arrow_held) deferred_errors.add(error);
+							this.#hold.held = arrow_held;
+						}
 						this.#reportRestParameterMistakes(/** @type {AST.ArrowFunctionExpression} */ (node));
 						this.#reportOptionalPatternParameters(node);
 					} else if (is_code_block || !this.#isBodilessSignature(args[0])) {
@@ -10547,23 +10727,43 @@ export function TSRXPlugin(config) {
 						return node;
 					}
 					return super.parseFunctionBody(node, isArrowFunction, isMethod, forInit, ...args);
+				};
+				/** @type {AST.Node} */
+				let result;
+				try {
+					result = read();
+				} catch (error) {
+					const held = /** @type {CompileError[] | null} */ (arrow_held);
+					if (held) {
+						this.#hold.held = outer_hold;
+						this.#abandonHeldErrors(held, error, true);
+					}
+					throw error;
 				} finally {
 					this.#functionBodyDepth--;
 					this.#arrowParameterList = arrow_parameter_list;
 				}
+				const held = /** @type {CompileError[] | null} */ (arrow_held);
+				if (held) {
+					this.#hold.held = outer_hold;
+					for (const error of held) deferred_errors.delete(error);
+					this.#releaseErrors(held);
+				}
+				return result;
 			}
 
 			/**
-			 * Throw the first error in a generic async arrow function's parameters in
-			 * a strict parse, which `parseBindingList` recorded, or TS2369 for a
-			 * parameter property modifier there, at the first modifier, which it reads
-			 * without the error, by position. A collecting parse records them there,
-			 * and other arrow functions' parameters report them when read (see
-			 * `#parseArrowParameterProperty`).
+			 * The errors in a generic async arrow function's parameters in a strict
+			 * parse, which `parseBindingList` recorded, and TS2369 for a parameter
+			 * property modifier there, at the first modifier, which it reads without
+			 * the error (see `parseFunctionBody`), or `null`. A collecting parse
+			 * records them there, and other arrow functions' parameters report them
+			 * when read (see `#parseArrowParameterProperty`).
 			 * @param {AST.Function} node
+			 * @returns {CompileError[] | null}
 			 */
-			#reportArrowParameterProperties(node) {
-				if (this.#collect) return;
+			#arrowParameterErrors(node) {
+				if (this.#collect) return null;
 				const recorded = generic_arrow_parameter_errors.get(node.params);
 				/** @type {CompileError[]} */
 				const errors = recorded ? [...recorded] : [];
@@ -10579,7 +10779,13 @@ export function TSRXPlugin(config) {
 						target.type !== 'Identifier' &&
 						!(target.type === 'AssignmentPattern' && target.left.type === 'Identifier')
 					) {
-						this.#raiseCheckerError(start, TS_ERRORS.PATTERN_PARAMETER_PROPERTY);
+						this.#report_recoverable_error_range(
+							start,
+							start + 1,
+							TS_ERRORS.PATTERN_PARAMETER_PROPERTY,
+							errors,
+						);
+						raised_errors.add(errors[errors.length - 1]);
 					}
 					this.#report_recoverable_error_range(
 						start,
@@ -10589,7 +10795,7 @@ export function TSRXPlugin(config) {
 					);
 					raised_errors.add(errors[errors.length - 1]);
 				}
-				if (errors.length > 0) this.#releaseErrors(errors);
+				return errors.length > 0 ? errors : null;
 			}
 
 			/**
@@ -12756,17 +12962,26 @@ export function TSRXPlugin(config) {
 				}
 
 				const start = this.start;
-				const statement = super.parseStatement(context, topLevel, exports);
-				// The body of an `if`, a loop or a label: `declare` there is TS1184, as
-				// in a block (see `#readsModifiedDeclaration`), which acorn-typescript
-				// reads without an error (#1264).
-				if (
-					context != null &&
-					/** @type {{ declare?: boolean }} */ (statement).declare &&
-					statement.start === start
-				) {
-					this.#raiseCheckerError(start, TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE);
-				}
+				const read = () => {
+					const statement = super.parseStatement(context, topLevel, exports);
+					// The body of an `if`, a loop or a label: `declare` there is TS1184, as
+					// in a block (see `#readsModifiedDeclaration`), which acorn-typescript
+					// reads without an error (#1264).
+					if (
+						context != null &&
+						/** @type {{ declare?: boolean }} */ (statement).declare &&
+						statement.start === start
+					) {
+						this.#raiseCheckerError(start, TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE);
+					}
+					return statement;
+				};
+				if (context == null || this.value !== 'declare') return read();
+				// The errors in the declaration come after TS1184 at its start.
+				/** @type {CompileError[]} */
+				const held = [];
+				const statement = this.#holdingErrors(held, read);
+				this.#releaseErrors(held);
 				return statement;
 			}
 
@@ -13374,15 +13589,40 @@ export function TSRXPlugin(config) {
 					!method.computed &&
 					method.key.type === 'Identifier' &&
 					method.key.name === 'constructor';
-				const node = this.#readingOwnParameters(
-					!(method?.kind === 'constructor' || static_constructor),
-					() => super.parseMethod(isGenerator, isAsync, allowDirectSuper, inClassScope, method),
-					'method',
+				const outer_method_held = this.#methodHeld;
+				this.#methodHeld = null;
+				/** @type {AST.FunctionExpression} */
+				let node;
+				try {
+					node = this.#readingOwnParameters(
+						!(method?.kind === 'constructor' || static_constructor),
+						() => super.parseMethod(isGenerator, isAsync, allowDirectSuper, inClassScope, method),
+						'method',
+					);
+				} catch (error) {
+					const held =
+						/** @type {{ held: CompileError[], outer: CompileError[] | null } | null} */ (
+							this.#methodHeld
+						);
+					this.#methodHeld = outer_method_held;
+					if (held) {
+						this.#hold.held = held.outer;
+						this.#abandonHeldErrors(held.held, error);
+					}
+					throw error;
+				}
+				const held = /** @type {{ held: CompileError[], outer: CompileError[] | null } | null} */ (
+					this.#methodHeld
 				);
+				this.#methodHeld = outer_method_held;
 				// A strict parse that doesn't hold them throws its parameters' TS2369
 				// from here (see `#parseAssignableListItem`).
 				for (const error of deferred_parameter_errors.get(node.params) ?? []) {
 					deferred_errors.delete(error);
+				}
+				if (held) {
+					this.#hold.held = held.outer;
+					this.#releaseErrors(held.held);
 				}
 				// Written with an escape, TS1260 is a syntax error first (see
 				// `parseClassElement`).

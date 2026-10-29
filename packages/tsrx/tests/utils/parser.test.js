@@ -12685,14 +12685,20 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 	it('throws first the error a collecting parse records first (#1264)', () => {
 		// The errors in a parameter list come by position. A strict parse reads a
 		// generic arrow function's parameters past a mistake that acorn-typescript
-		// would take for a sign that it isn't one. A syntax error after them keeps
-		// the checker errors before it.
+		// would take for a sign that it isn't one. A syntax error, which TypeScript
+		// reports alone, drops the checker errors reported only after it: a
+		// method's TS2369, a signature's errors and a generic async arrow
+		// function's parameters' errors, which come once it's read.
 		const unexpected = code_of(TS_ERRORS.UNEXPECTED_TOKEN);
 		const parameter_property = code_of(TS_ERRORS.PARAMETER_PROPERTY_OUTSIDE_CONSTRUCTOR);
 		const rest_property = code_of(TS_ERRORS.REST_PARAMETER_PROPERTY);
 		const rest_comma = code_of(TS_ERRORS.REST_ELEMENT_TRAILING_COMMA);
 		const rest_not_last = code_of(TS_ERRORS.REST_PARAMETER_NOT_LAST);
 		const rest_pattern_not_last = code_of(TS_ERRORS.REST_ELEMENT_NOT_LAST);
+		const modifiers = code_of(TS_ERRORS.MODIFIERS_CANNOT_APPEAR_HERE);
+		const ambient_implementation = code_of(TS_ERRORS.AMBIENT_IMPLEMENTATION);
+		// `'}' expected.`, `';' expected.`
+		const expected = 'TS1005';
 		const clash = code_of(TS_ERRORS.ARGUMENT_NAME_CLASH);
 		const reserved = code_of(TS_ERRORS.RESERVED_ARROW_TYPE_PARAMETER);
 		const uninitialized = code_of(TS_ERRORS.DECLARATION_NOT_INITIALIZED);
@@ -12706,11 +12712,33 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 					[rest_comma, ',)'],
 				],
 			],
+			['a.ts', 'class A { m(public x) { +; } }', [], [unexpected, '; }']],
+			['a.ts', 'type F = (a, a) => ;', [], [unexpected, ';']],
+			['a.ts', 'const f = async <T,>(...a, b) => { +; };', [], [unexpected, '; };']],
 			[
 				'a.ts',
-				'class A { m(public x) { +; } }',
-				[[parameter_property, 'public x']],
-				[unexpected, '; }'],
+				'f<(a, a) => void>();',
+				[
+					[clash, 'a, a'],
+					[clash, 'a)'],
+				],
+			],
+			['a.ts', 'a < (b, b) => c;', [], [expected, '=> c;']],
+			[
+				'a.ts',
+				'{ declare function f() {} }',
+				[
+					[modifiers, 'declare'],
+					[ambient_implementation, '{} }'],
+				],
+			],
+			[
+				'a.ts',
+				'if (a) declare function f() {}',
+				[
+					[modifiers, 'declare'],
+					[ambient_implementation, '{}'],
+				],
 			],
 			[
 				'a.ts',
@@ -12798,9 +12826,36 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				source,
 			).toEqual(collected.map(([code, at]) => [code, source.indexOf(at)]));
 		}
-		// Calls, which acorn-typescript tries as generic async arrow functions first.
-		for (const source of ['async <T>(...a, b);', 'async<number>(...a,);', 'async<T>([...a, 1]);']) {
-			expect(() => parseModule(source, 'a.ts'), source).not.toThrow();
+		// At the end of the input.
+		for (const source of ['async <T,>(...a, b) => {', 'class A { m(public x) {']) {
+			const at = expect.objectContaining({ code: expected, pos: source.length });
+			expect(() => parseModule(source, 'a.ts'), source).toThrow(at);
+			/** @type {CompileError[]} */
+			const errors = [];
+			expect(() => parseModule(source, 'a.ts', { collect: true, errors }), source).toThrow(at);
+			expect(errors, source).toEqual([]);
+		}
+		// Calls, which acorn-typescript tries as generic async arrow functions
+		// first, and comparisons, whose right side it tries as type arguments with
+		// a function type first.
+		for (const [filename, source] of [
+			['a.ts', 'async <T>(...a, b);'],
+			['a.ts', 'async<number>(...a,);'],
+			['a.ts', 'async<T>([...a, 1]);'],
+			['a.ts', 'let x = y < (a, a);'],
+			['a.ts', 'if (a < (b, b)) {}'],
+			['a.ts', 'for (let i = 0; i < (n, n); i++) {}'],
+			['a.ts', 'let r = a < (b, b) > c;'],
+			['a.ts', 'f(a < b, (c, c) > d)'],
+			['App.tsrx', 'function App() @{\n\tconst r = a < (b, b);\n\t<>{r}</>\n}'],
+		]) {
+			expect(() => parseModule(source, filename), source).not.toThrow();
+			for (const options of [{ collect: true }, { loose: true }]) {
+				/** @type {CompileError[]} */
+				const errors = [];
+				parseModule(source, filename, { ...options, errors });
+				expect(errors, `${source} ${JSON.stringify(options)}`).toEqual([]);
+			}
 		}
 	});
 

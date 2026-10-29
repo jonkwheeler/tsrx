@@ -1267,6 +1267,32 @@ export function convert_source_map_to_mappings(
 						];
 						mapping.generatedLengths = [generated_close_length];
 					}
+					// After a child whose closing tag loose recovery added in the
+					// type-only output (#978), that closing tag, which has no source
+					// position, comes between the child's end and this closing tag, which
+					// share a source position. Start this closing tag at its own `</`,
+					// right before its name, so that TypeScript's errors on the added tag
+					// don't land on it.
+					const last_child = /** @type {AST.Node | undefined} */ (node.children?.at(-1));
+					if (
+						closing &&
+						has_location(closing.name) &&
+						last_child?.type === 'JSXElement' &&
+						/** @type {AST.TSRXJSXElement} */ (last_child).closingElement?.metadata?.recovered
+					) {
+						const name_start = closing.name.loc.start;
+						const name_positions = src_to_gen_map.get(`${name_start.line}:${name_start.column}`);
+						if (name_positions?.length) {
+							const own_start =
+								loc_to_offset(name_positions[0].line, name_positions[0].column, gen_line_offsets) -
+								'</'.length;
+							const end = mapping.generatedOffsets[0] + mapping.generatedLengths[0];
+							if (own_start > mapping.generatedOffsets[0] && own_start < end) {
+								mapping.generatedOffsets = [own_start];
+								mapping.generatedLengths = [end - own_start];
+							}
+						}
+					}
 					mappings.push(mapping);
 				}
 

@@ -309,6 +309,20 @@ describe('compile error diagnostic plugin — unclosed and mismatched tags', () 
 		).toEqual([]);
 	});
 
+	// TypeScript also reports an undefined name on the closing tag the
+	// editor's code adds. That tag has no mapping, and the parent's closing
+	// tag starts after it, so the error isn't repeated on `</div>`.
+	it.each([
+		['UndefinedUnclosedTag', 'export function C() @{\n\t<div><Missing>valid</div>\n}\n'],
+		['UndefinedUnclosedNestedTag', 'export function C() @{\n\t<div><Missing><b>x</div>\n}\n'],
+	])('reports %s as undefined once, at its name', async (name, source) => {
+		const { document, diagnostics } = await editor_diagnostics_for(name, source);
+
+		expect(reported(document, diagnostics, 'TS2304')).toEqual([
+			{ source: 'ts', text: 'Missing', offset: source.indexOf('Missing') },
+		]);
+	});
+
 	it('keeps hover, completions and diagnostics elsewhere in the file', async () => {
 		const source = `export function C({ items }: { items: string[] }) @{
 	const count: number = 'one';

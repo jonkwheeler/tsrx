@@ -379,10 +379,24 @@ const CHECKER_LEVEL_ERRORS = new Set([
 	TSRX_ERRORS.DUPLICATED_ATTRIBUTE_KEY,
 ]);
 
-/** The codes of `CHECKER_LEVEL_ERRORS` (see `#isSyntaxError`). */
-const CHECKER_LEVEL_CODES = new Set(
-	[...CHECKER_LEVEL_ERRORS].map((kind) => /** @type {{ code: string }} */ (kind).code),
-);
+/**
+ * The codes of `CHECKER_LEVEL_ERRORS`, and of the errors that TSRX throws in
+ * every mode but TypeScript reports from its checker, as grammar errors, with
+ * its other checker errors: a repeated label (TS1114), `break` or `continue`
+ * outside a loop (TS1105, TS1104), `delete x` (TS1102), `arguments = 1`
+ * (TS1100), `await` outside an async function (TS1262), and `'use strict'`
+ * with a parameter list that isn't simple (TS1347). See `#isSyntaxError`.
+ */
+const CHECKER_LEVEL_CODES = new Set([
+	...[...CHECKER_LEVEL_ERRORS].map((kind) => /** @type {{ code: string }} */ (kind).code),
+	'TS1100',
+	'TS1102',
+	'TS1104',
+	'TS1105',
+	'TS1114',
+	'TS1262',
+	TS_ERRORS.USE_STRICT_NON_SIMPLE_PARAMETERS.code,
+]);
 
 /**
  * @param {string | { message?: string }} message
@@ -9985,8 +9999,9 @@ export function TSRXPlugin(config) {
 			 * When code whose checker errors were held throws `thrown`, keep the held
 			 * errors that a parse that doesn't hold them reports before that: a
 			 * collecting parse records them before the error, and a strict parse
-			 * throws the first by position when it comes before `thrown`, as a
-			 * collecting parse records it first, unless errors are held around the
+			 * throws the first by position, when it comes before `thrown` if that's a
+			 * syntax error, as a collecting parse records it first, unless errors are
+			 * held around the
 			 * code, where they go. After a syntax error (one that isn't a checker
 			 * error, see `#isSyntaxError`), which TypeScript reports alone, those it
 			 * reports only later go (`deferred_errors`, such as a method's TS2369,
@@ -10017,7 +10032,9 @@ export function TSRXPlugin(config) {
 				if (!outer) {
 					const first = kept[0];
 					const at = /** @type {{ pos?: number }} */ (thrown)?.pos;
-					if (first && (at === undefined || (first.pos ?? 0) < at)) {
+					// After a checker error, a collecting parse records the kept errors
+					// first, wherever it is: TS1347 is at the function's start.
+					if (first && (at === undefined || !syntax_error || (first.pos ?? 0) < at)) {
 						if (!abandoned) this.#throwHeldError(first);
 						first.type = 'fatal';
 						throw first;
@@ -10037,7 +10054,8 @@ export function TSRXPlugin(config) {
 			 * Whether `error`, which the parser threw, is a syntax error, which
 			 * TypeScript reports alone: anything but a checker error, which a
 			 * collecting parse records (`CHECKER_LEVEL_ERRORS`, and what a strict
-			 * parse throws for one, see `checker_errors_thrown`).
+			 * parse throws for one, see `checker_errors_thrown`), or a grammar error
+			 * that TSRX throws in every mode (see `CHECKER_LEVEL_CODES`).
 			 * @param {unknown} error
 			 */
 			#isSyntaxError(error) {

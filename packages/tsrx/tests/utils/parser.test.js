@@ -12713,6 +12713,33 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				],
 			],
 			['a.ts', 'class A { m(public x) { +; } }', [], [unexpected, '; }']],
+			// Errors TSRX throws in every mode but TypeScript reports from its
+			// checker, with TS2369, aren't syntax errors.
+			...[
+				['class A { m(public x) { label: label: ; } }', 'TS1114', 'label: ;'],
+				['class A { m(public x) { break; } }', 'TS1105', 'break'],
+				['class A { m(public x) { continue; } }', 'TS1104', 'continue'],
+				['class A { m(public x) { delete y; } }', 'TS1102', 'delete'],
+				['class A { m(public x) { arguments = 1; } }', 'TS1100', 'arguments'],
+				["class A { m(public x) { 'use strict'; } }", 'TS1347', '(public'],
+			].map(
+				([source, code, at]) =>
+					/** @type {[string, string, Array<[string | undefined, string]>, [string, string]]} */ ([
+						'a.ts',
+						source,
+						[[parameter_property, 'public x']],
+						[code, at],
+					]),
+			),
+			[
+				'a.ts',
+				'class A { m(public x) { yield; await; } }',
+				[
+					[parameter_property, 'public x'],
+					[code_of(TS_ERRORS.STRICT_MODE_RESERVED_WORD_IN_CLASS('yield')), 'yield'],
+				],
+				['TS1262', 'await'],
+			],
 			['a.ts', 'type F = (a, a) => ;', [], [unexpected, ';']],
 			['a.ts', 'const f = async <T,>(...a, b) => { +; };', [], [unexpected, '; };']],
 			[

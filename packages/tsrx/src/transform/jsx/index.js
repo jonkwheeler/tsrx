@@ -6057,7 +6057,7 @@ function create_spread_props_name(transform_context) {
  * @param {string} name a name of identifier characters only
  * @returns {boolean}
  */
-function source_mentions_identifier(source, name) {
+export function source_mentions_identifier(source, name) {
 	// `$` is an identifier character and a regex anchor.
 	const escaped = name.replace(/\$/g, '\\$');
 	return new RegExp(`(?<![\\w$])${escaped}(?![\\w$])`).test(source);

@@ -1319,7 +1319,7 @@ function upstream_lookup_rows() {
 		// acorn: regexp_validateUnicodePropertyNameAndValue
 		[/^Invalid regular expression: \/.*\/: Invalid property value$/, 'TS1526'],
 		// acorn: regexp_eatCharacterClass
-		[/^Invalid regular expression: \/.*\/: Unterminated character class$/, 'TS1005'],
+		[/^Invalid regular expression: \/.*\/: Unterminated character class$/, 'TS1005', 'checker'],
 		// acorn: regexp_eatCharacterClass, regexp_eatNestedClass
 		[/^Invalid regular expression: \/.*\/: Negated character class may contain strings$/, 'TS1518'],
 		// acorn: regexp_nonEmptyClassRanges

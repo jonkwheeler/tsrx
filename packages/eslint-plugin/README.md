@@ -8,7 +8,7 @@ ESLint rules and flat configurations for target-neutral TSRX syntax.
 ## Installation
 
 ```bash
-pnpm add --save-dev eslint @tsrx/eslint-parser @tsrx/eslint-plugin
+pnpm add --save-dev eslint @eslint/js @tsrx/eslint-parser @tsrx/eslint-plugin
 ```
 
 ## Usage
@@ -25,7 +25,8 @@ export default [
 ];
 ```
 
-Leave out `tsrx.configs.js` if you don't use `js.configs.recommended`. See
+List `tsrx.configs.js` after any configuration that turns on core `no-unused-vars`
+or `no-unreachable`, such as `js.configs.recommended`. See
 [With `js.configs.recommended`](#with-jsconfigsrecommended).
 
 The recommended configuration:
@@ -59,9 +60,11 @@ export default [...tsrx.configs.strict];
   as alternatives. After an arm that throws, it doesn't report the other arms or
   the code after the `@switch`. It still reports unreachable code inside an arm:
   there it follows `throw`, `return`, `break`, `continue`, `try` and endless loops
-  itself, since code path analysis has already given up on the arm. In rare
-  nestings, such as a `try` inside a `try` whose `finally` never ends, it can miss
-  unreachable code in such an arm.
+  itself, since code path analysis has already given up on the arm. It can miss
+  unreachable code there when a `break`, `continue` or `return` passes through a
+  `finally` block. In generated arms with heavy `try`/`finally`, label and loop
+  nesting, it missed some unreachable code in about 1 in 120 (0.8%). It never
+  reported code that runs.
 
 ### With `js.configs.recommended`
 

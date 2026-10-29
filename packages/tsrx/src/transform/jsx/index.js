@@ -2518,7 +2518,14 @@ function hoist_static_jsx(node, transform_context) {
 	if (references_scope_bindings(node, transform_context.available_bindings)) return null;
 	if (reads_unhoistable_tag(node, transform_context.hoistable_tags())) return null;
 
-	const id = create_generated_identifier(create_helper_name(helper_state, 'static'));
+	// Skip a name the source already uses, so the static can't redeclare or be
+	// shadowed by an authored `App__static1`.
+	/** @type {string} */
+	let name;
+	do {
+		name = create_helper_name(helper_state, 'static');
+	} while (source_mentions_identifier(transform_context.source, name));
+	const id = create_generated_identifier(name);
 	helper_state.statics.push(b.const(id, lower_static_script_bodies(node, transform_context)));
 	return clone_identifier(id);
 }
@@ -2717,6 +2724,9 @@ function reads_tag_binding(node) {
  * import is hoisted. A tag that starts with `this`, `super`, a local binding,
  * a binding that can be reassigned (`let`, `var`, an enum, a namespace, an
  * import alias), or a name the module does not bind stays at render time.
+ * Known limitation: a function declaration can still be reassigned
+ * (`Tag = Replacement`), and a static keeps the function it read when the
+ * module loaded.
  *
  * @param {AST.Program} program
  * @returns {Map<number, boolean>}
@@ -5995,7 +6005,9 @@ function create_spread_props_name(transform_context) {
  * @returns {boolean}
  */
 function source_mentions_identifier(source, name) {
-	return new RegExp(`(?<![\\w$])${name}(?![\\w$])`).test(source);
+	// `$` is an identifier character and a regex anchor.
+	const escaped = name.replace(/\$/g, '\\$');
+	return new RegExp(`(?<![\\w$])${escaped}(?![\\w$])`).test(source);
 }
 
 /**

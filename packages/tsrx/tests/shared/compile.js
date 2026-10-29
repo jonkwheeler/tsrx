@@ -4593,6 +4593,30 @@ export function App() @{
 			expect(run_result(code)).toBe(expected);
 		});
 
+		it.each([
+			[
+				'in the component and at module level',
+				"const App__static1 = 'module';\nexport function App() {\n\tconst App__static2 = 'local';\n\treturn <>{<div>static</div>}<b>bare</b>{App__static1}{App__static2}</>;\n}\nexport const result = () => App().props.children.map((child: any) => (typeof child === 'object' ? child.type : child));",
+				['App__static3', 'App__static4'],
+				['div', 'b', 'module', 'local'],
+			],
+			[
+				'with a $ in its name',
+				"export function $App() {\n\tconst $App__static1 = 'local';\n\treturn <>{<div>static</div>}{$App__static1}</>;\n}\nexport const result = () => $App().props.children.map((child: any) => (typeof child === 'object' ? child.type : child));",
+				['$App__static2'],
+				['div', 'local'],
+			],
+		])(
+			'names a static apart from an authored static name %s',
+			(_case, source, statics, expected) => {
+				const { code } = compile(source, 'App.tsrx');
+				expect(
+					[...code.matchAll(/^const (\S+__static\d+) = </gm)].map((match) => match[1]),
+				).toEqual(hoistsStaticJsx ? statics : []);
+				expect(run_result(code)).toEqual(expected);
+			},
+		);
+
 		it('hoists an intrinsic tag that shares its name with a later binding', () => {
 			const { code } = compile(
 				'function App() {\n\treturn <div>hello</div>;\n}\nconst div = 1;\nexport const result = () => App().type;',

@@ -13561,6 +13561,9 @@ describe('comments between template children', () => {
 			'%s/* c */// c\n\t\t1st prize\n\t',
 			"%s/* c */// c\n\t\t's fine\n\t",
 			'%s/* c */// c\n\t\t"open\n\t',
+			// JavaScript whitespace and line terminators before the comment.
+			'%s\u2028/* c */// c\n\t\t1st prize\n\t',
+			'%s\u00a0/* c */// c\n\t\t1st prize\n\t',
 		];
 		/** @type {Array<(children: string) => string>} */
 		const positions = [

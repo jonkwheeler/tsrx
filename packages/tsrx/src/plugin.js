@@ -16,6 +16,9 @@ import { is_tsrx_render_output_node } from './utils/ast.js';
 /** Whitespace and comments from `lastIndex` on, like acorn's `skipSpace` */
 const regex_space_and_comments = /(?:\s|\/\/[^\n\r\u2028\u2029]*|\/\*[\s\S]*?\*\/)*/y;
 
+/** A character acorn's `skipSpace` skips as whitespace or a line terminator */
+const regex_whitespace_character = /\s/;
+
 /**
  * A comment between template children, as `#parseTemplateRawText` reads it.
  * @typedef {{ type: 'Line' | 'Block', value: string, start: number, end: number }} TemplateTextComment
@@ -1524,8 +1527,10 @@ export function TSRXPlugin(config) {
 			#readsTemplateTextAfterBlock() {
 				const after = this.end;
 				let index = after;
+				// Whitespace and line terminators as the tokenizer skips them (`\s`, as
+				// `regex_space_and_comments`), then block comments.
 				while (index < this.input.length) {
-					if (is_html_whitespace(this.input.charCodeAt(index))) {
+					if (regex_whitespace_character.test(this.input[index])) {
 						index++;
 					} else if (this.input.startsWith('/*', index)) {
 						const close = this.input.indexOf('*/', index + 2);

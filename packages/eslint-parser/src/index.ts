@@ -45,7 +45,8 @@ const visitorKeys: Record<string, string[]> = {
 /**
  * eslint-scope's referencer, plus the `@for` parts: the loop's `index` and
  * `key` belong to the loop's scope, like its variable, and the `@empty` branch
- * runs outside it. TSRX gives every iteration its own index.
+ * runs outside it. TSRX gives every iteration its own index. A `@catch` can
+ * also take a `reset` function after the error.
  */
 class TSRXReferencer extends Referencer {
 	#tsrx_for_by_loop = new Map<any, any>();
@@ -75,6 +76,26 @@ class TSRXReferencer extends Referencer {
 			this.visitVariableDeclaration(this.currentScope(), 'Variable', node, index);
 			if (declaration.init) this.visit(declaration.init);
 		});
+	}
+
+	CatchClause(node: any): void {
+		if (!node.resetParam) {
+			super.CatchClause(node);
+			return;
+		}
+		// eslint-scope's `CatchClause`, with `reset` defined as the error is.
+		(this as any).scopeManager.__nestCatchScope(node);
+		for (const param of [node.param, node.resetParam]) {
+			this.visitPattern(param, { processRightHandNodes: true }, (pattern: any, info: any) => {
+				(this.currentScope() as any).__define(
+					pattern,
+					new (Definition as any)('CatchClause', pattern, node, null, null, null),
+				);
+				this.referencingDefaultValue(pattern, info.assignments, null, true);
+			});
+		}
+		this.visit(node.body);
+		this.close(node);
 	}
 
 	close(node: any): void {

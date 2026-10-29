@@ -284,6 +284,21 @@ export function A({ items }) @{
 		]);
 	});
 
+	it('defines the reset function of a @catch in its scope, as the error is', () => {
+		const code = `export function A() @{
+	<div>
+		@try { <b /> } @catch (e, reset) { <button onClick={() => reset()}>{e.message}</button> }
+		@try { <b /> } @catch (error, unusedReset) { <p>{error.message}</p> }
+		@try { <b /> } @catch (e) { <p>{e.message}</p> }
+		<p>{reset}</p>
+	</div>
+}`;
+		expect(lint(code, { rules: { 'no-undef': 'error', 'no-unused-vars': 'error' } })).toEqual([
+			"4: no-unused-vars: 'unusedReset' is defined but never used.",
+			"6: no-undef: 'reset' is not defined.",
+		]);
+	});
+
 	it('locates the loop of a @for with any line break', () => {
 		for (const line_break of ['\n', '\r\n', '\r', ' ']) {
 			const code = [

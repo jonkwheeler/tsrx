@@ -1167,6 +1167,11 @@ export function TSRXPlugin(config) {
 			#path = [];
 			#collect = false;
 			#loose = false;
+			// Where the caller collects the line comments the tokenizer recorded that
+			// template text reads as text, to drop them after the parse (see
+			// `#readSkippedTemplateText`).
+			/** @type {Array<[number, number]> | undefined} */
+			#textComments;
 			// Set while `parseVarStatement` or `parseVar` lets `const` declarators omit
 			// the initializer (see `#parseConstWithoutInitializer`).
 			#collectingConstWithoutInitializer = false;
@@ -1375,6 +1380,7 @@ export function TSRXPlugin(config) {
 				this.#loose = tsrx_options?.loose === true;
 				this.#errors = tsrx_options?.errors;
 				this.#filename = tsrx_options?.filename || null;
+				this.#textComments = tsrx_options?.textComments;
 				if (this.#collect) {
 					// With private-field checks on, acorn rejects `#x in obj` outside a class
 					// with `Unexpected token`. TypeScript parses it and reports TS18016 from
@@ -1959,7 +1965,12 @@ export function TSRXPlugin(config) {
 					return;
 				}
 				const next = this.input.charCodeAt(this.start);
+				// The tokenizer read a `//` that touches a block comment as a comment,
+				// where it is text (`/* c */// c`, see `#isTemplateLineCommentStart`).
+				const skipped_text =
+					this.type === tt.braceR ? [] : this.#skippedTemplateLineCommentText(start);
 				const starts_text =
+					skipped_text.length > 0 ||
 					this.type === tstt.jsxText ||
 					(this.type !== tt.eof &&
 						this.type !== tt.braceR &&
@@ -1969,6 +1980,20 @@ export function TSRXPlugin(config) {
 						!this.#atCodeBlockStart() &&
 						!this.#isJSXControlFlowDirectiveStart());
 				if (starts_text) {
+					if (skipped_text.length > 0) {
+						// Read the run again from where the previous child ends, as text and
+						// comments, as without the skipped code. `#parseTemplateRawText`
+						// records its comments again (the parser keeps one of each), and the
+						// tokenizer's comments that are text are dropped after the parse.
+						const records = this.#textComments;
+						if (records) {
+							this.parseEffects?.willAppend(records);
+							records.push(...skipped_text);
+						}
+						this.#truncateContext(this.context.length - this.#currentTokenContextCount());
+						this.type = tstt.jsxText;
+						this.end = start;
+					}
 					const loc = get_line_info(this, start);
 					this.pos = start;
 					this.start = start;
@@ -1976,6 +2001,36 @@ export function TSRXPlugin(config) {
 				} else {
 					this.#addSkippedTemplateText(body, start, this.start);
 				}
+			}
+
+			/**
+			 * The line comments the tokenizer skipped from `start` to the current
+			 * token that template text reads as text: each `//` that touches a block
+			 * comment (`/* c *\/// c`), with the line after it. As `[start, end]`.
+			 * @param {number} start
+			 * @returns {Array<[number, number]>}
+			 */
+			#skippedTemplateLineCommentText(start) {
+				/** @type {Array<[number, number]>} */
+				const text = [];
+				let index = start;
+				while (index < this.start) {
+					if (this.input.startsWith('/*', index)) {
+						const close = this.input.indexOf('*/', index + 2);
+						index = close === -1 ? this.start : close + 2;
+						continue;
+					}
+					if (this.input.startsWith('//', index)) {
+						const comment_start = index;
+						while (index < this.start && !this.#isNewlineCharCode(index)) index++;
+						if (!this.#isTemplateLineCommentStart(comment_start, start)) {
+							text.push([comment_start, index]);
+						}
+						continue;
+					}
+					index++;
+				}
+				return text;
 			}
 
 			/**

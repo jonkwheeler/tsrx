@@ -6382,10 +6382,10 @@ export function TSRXPlugin(config) {
 			 * (`reportObviousModifierErrors`, see `#modifierError`). TypeScript's
 			 * checker reports a `declare` before it first: TS1038 in an ambient
 			 * namespace or module (`ambient`), or TS1184 in a block, at the `declare`.
-			 * Then a collecting parse records `abstract`'s own error too, as the tree
-			 * leaves it out, so that the formatter refuses the code (see
+			 * Then the declaration's metadata keeps `abstract`'s own error, as the
+			 * tree leaves it out, so that the formatter refuses the code (see
 			 * `#raiseModifierErrors`). These are checker errors: a strict parse throws
-			 * the first.
+			 * the first, and a collecting one records it.
 			 * @param {number} start
 			 * @param {AST.Node | undefined} declaration
 			 * @param {boolean} block
@@ -6411,7 +6411,17 @@ export function TSRXPlugin(config) {
 					return;
 				}
 				this.#raiseCheckerError(declare_start, first);
-				if (!this.#throwsCheckerErrors()) this.#recordCheckerLevelError(start, start + 1, error);
+				// `abstract`'s own error, which TypeScript doesn't report beside the
+				// first, for the formatter (see `#raiseModifierErrors`) (#961).
+				if (this.#collect && declaration) {
+					/** @type {CompileError[]} */
+					const dropped = [];
+					this.#report_recoverable_error_range(start, start + 1, error, dropped);
+					declaration.metadata = {
+						...declaration.metadata,
+						dropped_modifiers: [...(declaration.metadata?.dropped_modifiers ?? []), ...dropped],
+					};
+				}
 			}
 
 			/**

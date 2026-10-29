@@ -3495,6 +3495,11 @@ class A {}`,
 				[[31, TS_ERRORS.MODIFIER_ON_MODULE_ELEMENT]],
 			],
 			[
+				'declare namespace N {\n\tdeclare abstract function f(): void;\n}',
+				[23, TS_ERRORS.DECLARE_MODIFIER_IN_AMBIENT_CONTEXT],
+				[[31, TS_ERRORS.ABSTRACT_MODIFIER_NOT_ALLOWED]],
+			],
+			[
 				'declare global {\n\tdeclare readonly class A {}\n}',
 				[18, TS_ERRORS.DECLARE_MODIFIER_IN_AMBIENT_CONTEXT],
 				[[26, TS_ERRORS.READONLY_MODIFIER_NOT_ALLOWED]],

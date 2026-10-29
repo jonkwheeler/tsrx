@@ -9,14 +9,12 @@ const FUNCTION_TYPES = new Set([
 	'ArrowFunctionExpression',
 ]);
 
-/** The statements an unlabeled `break` leaves. */
-const BREAKABLE_TYPES = [
+const LOOP_TYPES = [
 	'WhileStatement',
 	'DoWhileStatement',
 	'ForStatement',
 	'ForInStatement',
 	'ForOfStatement',
-	'SwitchStatement',
 ];
 
 const SEGMENT_EVENTS = [
@@ -40,6 +38,26 @@ interface SwitchState {
 	completes: boolean;
 }
 
+interface TryState {
+	/** Whether the `try` block, the `catch` block or the `finally` block reaches its end. */
+	block?: boolean;
+	handler?: boolean;
+	finalizer?: boolean;
+	/** Whether something that can throw runs in the `try` block, or in the `try` statement. */
+	block_throws: boolean;
+	throws: boolean;
+	in_block: boolean;
+}
+
+/** The expressions code path analysis counts as able to throw. */
+const THROWING_TYPES = [
+	'CallExpression',
+	'NewExpression',
+	'MemberExpression',
+	'ImportExpression',
+	'Identifier',
+];
+
 /**
  * Core `no-unreachable`, with the arms of a `@switch` as alternatives.
  *
@@ -50,12 +68,10 @@ interface SwitchState {
  * paths: at the start of each arm of a reached `@switch`, and after the
  * `@switch` when an arm reaches its end or there is no `@default` arm.
  *
- * Code path analysis records no exit inside code it already holds
- * unreachable, so in a revived path this rule tracks `throw` and `return`
- * itself: the code after one is unreachable again, until a `catch` or
- * `finally` block of a reached `try`, the next arm, or a path from elsewhere.
- * A `break` there revives the code after the statement it leaves. The code
- * right after a `break` or `continue` in a revived path isn't reported.
+ * Code path analysis records nothing for an exit inside code it already holds
+ * unreachable, so in a revived path this rule follows `throw`, `return`,
+ * `break`, `continue`, `try` and endless loops itself. Elsewhere, every answer
+ * is the core rule's.
  */
 const rule: Rule.RuleModule = {
 	meta: wrapper_meta(
@@ -69,31 +85,60 @@ const rule: Rule.RuleModule = {
 		// change as the traversal goes on: a segment can span several arms.
 		const revived = new WeakSet<Segment>();
 		const exited = new WeakSet<Segment>();
+		// Answers of `is_reachable`. Reviving or ending a current segment changes
+		// only its own answer: the segments after it don't exist yet.
+		const answers = new Map<Segment, boolean>();
 
 		const outer_segments: Set<Segment>[] = [];
 		let current = new Set<Segment>();
 		const switches = new Map<unknown, SwitchState>();
-		const try_entries = new Map<unknown, boolean>();
-		// Statements a `break` in a revived path leaves.
+		// The `try` statements and loops entered through a revived path.
+		const tries = new Map<unknown, TryState>();
+		// The `try` statements of the current code path the traversal is in.
+		const outer_try_stacks: TryState[][] = [];
+		let try_stack: TryState[] = [];
+		const loops = new WeakSet<object>();
+		// Statements a `break` or `continue` in a revived path leaves or repeats.
 		const broken = new WeakSet<object>();
+		const continued = new WeakSet<object>();
 		const proxies = new WeakMap<Segment, { readonly reachable: boolean }>();
 
-		function is_reachable(segment: Segment, seen = new Set<Segment>()): boolean {
+		function is_reachable(segment: Segment, seen?: Set<Segment>): boolean {
+			const known = answers.get(segment);
+			if (known !== undefined) return known;
 			if (segment.reachable || revived.has(segment)) return true;
-			if (exited.has(segment) || seen.has(segment)) return false;
+			if (exited.has(segment) || seen?.has(segment)) return false;
+			const top = !seen;
+			seen ??= new Set();
 			seen.add(segment);
 			const previous = segment.allPrevSegments;
 			// Code path analysis made it unreachable after an exit.
-			if (previous.some((segment) => segment.reachable)) return false;
-			return previous.some((segment) => is_reachable(segment, seen));
+			const result =
+				!previous.some((segment) => segment.reachable) &&
+				previous.some((segment) => is_reachable(segment, seen));
+			// Below the top, `false` may only mean the path loops back.
+			if (result || top) answers.set(segment, result);
+			return result;
 		}
 
 		const any_reachable = () => [...current].some((segment) => is_reachable(segment));
+		const in_revived_path = () =>
+			[...current].some((segment) => !segment.reachable && is_reachable(segment));
 
 		const revive = () => {
 			for (const segment of current) {
+				answers.delete(segment);
 				exited.delete(segment);
 				revived.add(segment);
+			}
+		};
+
+		const exit = () => {
+			for (const segment of current) {
+				if (segment.reachable) continue;
+				answers.delete(segment);
+				revived.delete(segment);
+				exited.add(segment);
 			}
 		};
 
@@ -114,11 +159,32 @@ const rule: Rule.RuleModule = {
 			onCodePathStart(...args: any[]) {
 				outer_segments.push(current);
 				current = new Set();
+				outer_try_stacks.push(try_stack);
+				try_stack = [];
 				listeners.onCodePathStart?.(...args);
 			},
 			onCodePathEnd(...args: any[]) {
 				current = outer_segments.pop()!;
+				try_stack = outer_try_stacks.pop()!;
 				listeners.onCodePathEnd?.(...args);
+			},
+			// A loop adds a predecessor to an earlier segment.
+			onCodePathSegmentLoop() {
+				answers.clear();
+			},
+			// Before the core rule checks the block.
+			BlockStatement(node: any) {
+				const parent = node.parent;
+				const state = tries.get(parent);
+				if (
+					parent.finalizer === node &&
+					state &&
+					(state.block || state.handler || state.throws) &&
+					!any_reachable()
+				) {
+					revive();
+				}
+				listeners.BlockStatement(node);
 			},
 		};
 		for (const event of SEGMENT_EVENTS) {
@@ -130,29 +196,23 @@ const rule: Rule.RuleModule = {
 			};
 		}
 
-		// Before the core rule checks the block.
-		wrapped.BlockStatement = (node: any) => {
-			const parent = node.parent;
-			if (
-				parent.type === 'TryStatement' &&
-				parent.finalizer === node &&
-				try_entries.get(parent) &&
-				!any_reachable()
-			) {
-				revive();
-			}
-			listeners.BlockStatement(node);
-		};
-
-		const exit = () => {
-			for (const segment of current) {
-				if (segment.reachable) continue;
-				revived.delete(segment);
-				exited.add(segment);
+		// Something that can throw, or a `return`, runs here.
+		const may_throw = () => {
+			if (!try_stack.length || !any_reachable()) return;
+			for (const state of try_stack) {
+				state.throws = true;
+				if (state.in_block) state.block_throws = true;
 			}
 		};
 
-		const revive_after_break = (node: object) => {
+		const leave_loop = (node: any) => {
+			if (broken.has(node) || (continued.has(node) && !is_endless(node))) {
+				if (!any_reachable()) revive();
+			} else if (loops.has(node) && is_endless(node)) {
+				exit();
+			}
+		};
+		const leave_breakable = (node: object) => {
 			if (broken.has(node) && !any_reachable()) revive();
 		};
 
@@ -160,25 +220,71 @@ const rule: Rule.RuleModule = {
 			{ ...listeners, ...wrapped },
 			{
 				...Object.fromEntries(
-					[...BREAKABLE_TYPES, 'LabeledStatement'].map((type) => [
-						`${type}:exit`,
-						revive_after_break,
+					LOOP_TYPES.flatMap((type) => [
+						[
+							type,
+							(node: object) => {
+								if (in_revived_path()) loops.add(node);
+							},
+						],
+						[`${type}:exit`, leave_loop],
 					]),
 				),
+				'SwitchStatement:exit': leave_breakable,
+				'LabeledStatement:exit': leave_breakable,
 				'BreakStatement:exit'(node: any) {
-					if (![...current].some((segment) => !segment.reachable && is_reachable(segment))) {
-						return;
-					}
-					const target = break_target(node);
+					if (!in_revived_path()) return;
+					const target = jump_target(node, true);
 					if (target) broken.add(target);
+					exit();
 				},
-				'ThrowStatement:exit': exit,
-				'ReturnStatement:exit': exit,
+				'ContinueStatement:exit'(node: any) {
+					if (!in_revived_path()) return;
+					const target = jump_target(node, false);
+					if (target) continued.add(target);
+					exit();
+				},
+				'ThrowStatement:exit'() {
+					may_throw();
+					exit();
+				},
+				'ReturnStatement:exit'() {
+					may_throw();
+					exit();
+				},
+				...Object.fromEntries(THROWING_TYPES.map((type) => [`${type}:exit`, may_throw])),
 				TryStatement(node: unknown) {
-					try_entries.set(node, any_reachable());
+					if (!in_revived_path()) return;
+					const state = { block_throws: false, throws: false, in_block: true };
+					tries.set(node, state);
+					try_stack.push(state);
 				},
+				'BlockStatement:exit'(node: any) {
+					const state = tries.get(node.parent);
+					if (!state) return;
+					if (node.parent.block === node) {
+						state.block = any_reachable();
+						state.in_block = false;
+					}
+					if (node.parent.finalizer === node) state.finalizer = any_reachable();
+				},
+				// As code path analysis has it, a `catch` block runs when something in
+				// the `try` block can throw, or the `try` block reaches its end.
 				CatchClause(node: any) {
-					if (try_entries.get(node.parent) && !any_reachable()) revive();
+					const state = tries.get(node.parent);
+					if (state && (state.block_throws || state.block) && !any_reachable()) revive();
+				},
+				'CatchClause:exit'(node: any) {
+					const state = tries.get(node.parent);
+					if (state) state.handler = any_reachable();
+				},
+				'TryStatement:exit'(node: any) {
+					const state = tries.get(node);
+					if (!state) return;
+					try_stack.pop();
+					const completes = (state.block || state.handler) && (!node.finalizer || state.finalizer);
+					if (completes && !any_reachable()) revive();
+					else if (!completes && any_reachable()) exit();
 				},
 				JSXSwitchExpression(node: any) {
 					switches.set(node, {
@@ -205,21 +311,39 @@ const rule: Rule.RuleModule = {
 	},
 };
 
-function break_target(node: any): object | null {
+/**
+ * The statement a `break` leaves, or the loop a `continue` repeats.
+ */
+function jump_target(node: any, is_break: boolean): object | null {
 	for (
 		let parent = node.parent;
 		parent && !FUNCTION_TYPES.has(parent.type);
 		parent = parent.parent
 	) {
-		if (
-			node.label
-				? parent.type === 'LabeledStatement' && parent.label.name === node.label.name
-				: BREAKABLE_TYPES.includes(parent.type)
+		if (node.label) {
+			if (parent.type === 'LabeledStatement' && parent.label.name === node.label.name) {
+				return is_break ? parent : parent.body;
+			}
+		} else if (
+			LOOP_TYPES.includes(parent.type) ||
+			(is_break && parent.type === 'SwitchStatement')
 		) {
 			return parent;
 		}
 	}
 	return null;
+}
+
+/** Whether a loop's test is missing or a truthy literal, as code path analysis checks. */
+function is_endless(node: any): boolean {
+	if (node.type === 'ForStatement' && !node.test) return true;
+	return (
+		(node.type === 'WhileStatement' ||
+			node.type === 'DoWhileStatement' ||
+			node.type === 'ForStatement') &&
+		node.test.type === 'Literal' &&
+		Boolean(node.test.value)
+	);
 }
 
 export default rule;

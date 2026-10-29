@@ -11,7 +11,13 @@ import { isWhitespaceTextNode, BINDING_TYPES, DestructuringErrors } from './pars
 import { parse_style } from './parse/style.js';
 import { regex_newline_characters, regex_not_whitespace } from './utils/patterns.js';
 import { error } from './errors.js';
-import { TS_ERRORS, TSRX_ERRORS, UPSTREAM_ERRORS, get_upstream_error } from './diagnostics.js';
+import {
+	TS_ERRORS,
+	TS_SYNTAX_ERROR_CODES,
+	TSRX_ERRORS,
+	UPSTREAM_ERRORS,
+	get_upstream_error,
+} from './diagnostics.js';
 import { is_tsrx_render_output_node } from './utils/ast.js';
 import { keyword_suggestion } from './utils/keyword-suggestion.js';
 
@@ -379,24 +385,13 @@ const CHECKER_LEVEL_ERRORS = new Set([
 	TSRX_ERRORS.DUPLICATED_ATTRIBUTE_KEY,
 ]);
 
-/**
- * The codes of `CHECKER_LEVEL_ERRORS`, and of the errors that TSRX throws in
- * every mode but TypeScript reports from its checker, as grammar errors, with
- * its other checker errors: a repeated label (TS1114), `break` or `continue`
- * outside a loop (TS1105, TS1104), `delete x` (TS1102), `arguments = 1`
- * (TS1100), `await` outside an async function (TS1262), and `'use strict'`
- * with a parameter list that isn't simple (TS1347). See `#isSyntaxError`.
- */
-const CHECKER_LEVEL_CODES = new Set([
-	...[...CHECKER_LEVEL_ERRORS].map((kind) => /** @type {{ code: string }} */ (kind).code),
-	'TS1100',
-	'TS1102',
-	'TS1104',
-	'TS1105',
-	'TS1114',
-	'TS1262',
-	TS_ERRORS.USE_STRICT_NON_SIMPLE_PARAMETERS.code,
-]);
+/** See `#isSyntaxError`. */
+const SYNTAX_ERROR_CODES = new Set(TS_SYNTAX_ERROR_CODES);
+
+/** The codes of `CHECKER_LEVEL_ERRORS` (see `#isSyntaxError`). */
+const CHECKER_LEVEL_CODES = new Set(
+	[...CHECKER_LEVEL_ERRORS].map((kind) => /** @type {{ code: string }} */ (kind).code),
+);
 
 /**
  * @param {string | { message?: string }} message
@@ -10052,18 +10047,21 @@ export function TSRXPlugin(config) {
 
 			/**
 			 * Whether `error`, which the parser threw, is a syntax error, which
-			 * TypeScript reports alone: anything but a checker error, which a
-			 * collecting parse records (`CHECKER_LEVEL_ERRORS`, and what a strict
-			 * parse throws for one, see `checker_errors_thrown`), or a grammar error
-			 * that TSRX throws in every mode (see `CHECKER_LEVEL_CODES`).
+			 * TypeScript reports alone: not a checker error that a strict parse
+			 * throws (see `checker_errors_thrown`), and, with a TypeScript code, one
+			 * TypeScript reports from its scanner or parser
+			 * (`TS_SYNTAX_ERROR_CODES`), as opposed to its binder or checker, which
+			 * report a grammar error such as a repeated label (TS1114) with the other
+			 * checker errors. A TSRX error is one unless it's a checker error
+			 * (`CHECKER_LEVEL_ERRORS`).
 			 * @param {unknown} error
 			 */
 			#isSyntaxError(error) {
+				if (checker_errors_thrown.has(/** @type {object} */ (error))) return false;
 				const code = /** @type {{ code?: unknown }} */ (error)?.code;
-				return (
-					!checker_errors_thrown.has(/** @type {object} */ (error)) &&
-					!(typeof code === 'string' && CHECKER_LEVEL_CODES.has(code))
-				);
+				if (typeof code !== 'string') return true;
+				if (/^TS\d/.test(code)) return SYNTAX_ERROR_CODES.has(code);
+				return !CHECKER_LEVEL_CODES.has(code);
 			}
 
 			/**

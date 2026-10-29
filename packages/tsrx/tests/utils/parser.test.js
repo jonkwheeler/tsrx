@@ -12714,7 +12714,8 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 			],
 			['a.ts', 'class A { m(public x) { +; } }', [], [unexpected, '; }']],
 			// Errors TSRX throws in every mode but TypeScript reports from its
-			// checker, with TS2369, aren't syntax errors.
+			// binder or checker, with TS2369, aren't syntax errors (see
+			// `TS_SYNTAX_ERROR_CODES`).
 			...[
 				['class A { m(public x) { label: label: ; } }', 'TS1114', 'label: ;'],
 				['class A { m(public x) { break; } }', 'TS1105', 'break'],
@@ -12722,6 +12723,22 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				['class A { m(public x) { delete y; } }', 'TS1102', 'delete'],
 				['class A { m(public x) { arguments = 1; } }', 'TS1100', 'arguments'],
 				["class A { m(public x) { 'use strict'; } }", 'TS1347', '(public'],
+				[
+					'class A { m(public x) { switch (0) { default: ; default: ; } } }',
+					'TS1113',
+					'default: ; }',
+				],
+				['class A { m(public x) { for (var a = 1 in b) {} } }', 'TS1189', 'var a'],
+				['class A { m(public x) { with (a) {} } }', 'TS1101', 'with'],
+				['class A { m(public x) { ({ __proto__: 1, __proto__: 2 }); } }', 'TS1117', '__proto__: 2'],
+				['class A { m(public x) { for (const a = 1 of b) {} } }', 'TS1190', 'const a'],
+				['class A { m(public x) { /a/gg; } }', 'TS1500', 'a/gg'],
+				[
+					'class A { m(public x) { class B { constructor() {} constructor() {} } } }',
+					'TS2392',
+					'constructor() {} }',
+				],
+				['class A { m(public x) { throw\nx; } }', 'TS1142', '\nx'],
 			].map(
 				([source, code, at]) =>
 					/** @type {[string, string, Array<[string | undefined, string]>, [string, string]]} */ ([

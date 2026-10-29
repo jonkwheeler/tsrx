@@ -139,6 +139,57 @@ export const DIAGNOSTIC_CODES = {
 export const DIAGNOSTIC_SOURCE = 'TSRX';
 
 /**
+ * The TypeScript codes in this module that TypeScript reports as syntax errors,
+ * from its scanner or parser (`getSyntacticDiagnostics`). It reports every
+ * other TypeScript code here from its binder or checker, as a grammar or
+ * semantic error, with its other checker errors, and none of them for a file
+ * with a syntax error (see `#isSyntaxError` in `plugin.js`). A test derives
+ * this from where TypeScript raises each code.
+ * @type {string[]}
+ */
+export const TS_SYNTAX_ERROR_CODES = [
+	'TS1002',
+	'TS1003',
+	'TS1005',
+	'TS1010',
+	'TS1012',
+	'TS1109',
+	'TS1124',
+	'TS1125',
+	'TS1127',
+	'TS1128',
+	'TS1134',
+	'TS1136',
+	'TS1145',
+	'TS1146',
+	'TS1160',
+	'TS1161',
+	'TS1177',
+	'TS1178',
+	'TS1198',
+	'TS1209',
+	'TS1260',
+	'TS1351',
+	'TS1359',
+	'TS1381',
+	'TS1382',
+	'TS1434',
+	'TS1435',
+	'TS1438',
+	'TS1440',
+	'TS1472',
+	'TS1477',
+	'TS1478',
+	'TS1487',
+	'TS1488',
+	'TS17002',
+	'TS17008',
+	'TS2657',
+	'TS6188',
+	'TS6189',
+];
+
+/**
  * TypeScript 7's content-mapper protocol takes a number as an error's code, and
  * shows every error `@tsrx/content-mapper` reports as {@link DIAGNOSTIC_SOURCE}
  * then that number. Each kind of code gets its own numbers:

@@ -12742,6 +12742,7 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 				// Codes TypeScript's parser reports too, but its checker reports here.
 				['class A { async m(public x) { let await; } }', 'TS1359', 'await;'],
 				['class A { m(public x) { /(/; } }', 'TS1005', '(/;'],
+				['class A { m(public x) { /[[a]/v; } }', 'TS1005', '[[a]/v'],
 				['class A { m(public x) { ({ get a() {} } = y); } }', 'TS1136', 'a() {}'],
 			].map(
 				([source, code, at]) =>

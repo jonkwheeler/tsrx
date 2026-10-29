@@ -254,9 +254,10 @@ function is_position_only(data) {
  * (with `fallbackToAnyMatch`) over it maps a diagnostic exactly as `tsrx-tsc`
  * does. The grouping matters: Volar maps a range through one mapping that holds
  * both of its ends, such as the start and end points of a literal, and tries
- * mappings in this order, narrower first. A mapping whose verification is a
- * `shouldReport` callback is left out: the callback depends on the diagnostic
- * and doesn't serialize.
+ * mappings in this order, narrower first. When any mapping's verification is a
+ * `shouldReport` callback, the result is empty: the callback depends on the
+ * diagnostic and doesn't serialize, and leaving out only that mapping could
+ * let an overlapping one map a diagnostic somewhere else.
  * @param {readonly CodeMapping[]} mappings
  * @returns {VerificationMapping[]}
  */
@@ -267,7 +268,7 @@ export function to_verification_mappings(mappings) {
 		const verification = mapping.data?.verification;
 		if (!verification) continue;
 		if (typeof verification === 'object' && typeof verification.shouldReport === 'function') {
-			continue;
+			return [];
 		}
 		result.push({
 			sourceOffsets: [...mapping.sourceOffsets],

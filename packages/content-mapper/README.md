@@ -94,13 +94,18 @@ const map = new SourceMap(result.verificationMappings);
 const [range] = map.toSourceRange(start, start + length, true);
 ```
 
+`@tsrx/content-mapper` doesn't depend on `@volar/source-map`; a checker that uses
+it installs it itself (`npm install @volar/source-map`, version 2).
+
 Unlike `mappings`, nothing is selected, coalesced or extended over whitespace, and
 each mapping keeps its offsets together: Volar maps a range only through one
 mapping that holds both of its ends, such as the two zero-length points of a
-literal's start and end, and tries mappings in this order. A mapping whose
-`verification` is a `shouldReport` callback is left out, since the callback
-depends on the diagnostic; the TSRX compilers in this repository emit none. The
-field is outside the TypeScript 7 protocol (`VerificationMapping` in
+literal's start and end, and tries mappings in this order. When any mapping of a
+file has a `verification` that is a `shouldReport` callback, the file's
+`verificationMappings` is empty: the callback depends on the diagnostic and can't
+be serialized, and leaving out only that mapping could let an overlapping one move
+a diagnostic. The TSRX compilers in this repository emit none. The field is
+outside the TypeScript 7 protocol (`VerificationMapping` in
 `@tsrx/content-mapper/protocol`); TypeScript ignores it, and `mappings` is the
 same with or without the option.
 

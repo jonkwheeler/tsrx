@@ -281,13 +281,13 @@ describe('to_verification_mappings', () => {
 		const points = mapping([1, 9], [0, 0], { verification: true, customData: {} });
 		const wide = mapping([0], [6], { verification: true, customData: {} });
 		const narrow = mapping([2], [2], { verification: true, customData: {} });
+		const object = mapping([5], [1], { verification: {}, customData: {} });
 		const mappings = [
 			points,
 			mapping([3], [1], { semantic: true, customData: {} }),
 			narrow,
 			wide,
-			mapping([4], [1], { verification: { shouldReport: () => false }, customData: {} }),
-			mapping([5], [1], { verification: {}, customData: {} }),
+			object,
 		];
 		const strip = (/** @type {CodeMapping} */ m) => ({
 			sourceOffsets: m.sourceOffsets,
@@ -300,9 +300,19 @@ describe('to_verification_mappings', () => {
 			strip(points),
 			strip(narrow),
 			strip(wide),
-			strip(mappings[5]),
+			strip(object),
 		]);
 		// The arrays are copies, not the transform's own.
 		expect(to_verification_mappings(mappings)[0].sourceOffsets).not.toBe(points.sourceOffsets);
+	});
+
+	it('gives nothing for a transform with a shouldReport callback anywhere', () => {
+		// Leaving out only that mapping could let the wide one below it map a
+		// diagnostic that the callback would have reported through the narrow one.
+		const mappings = [
+			mapping([2], [2], { verification: { shouldReport: () => true }, customData: {} }),
+			mapping([0], [6], { verification: true, customData: {} }),
+		];
+		expect(to_verification_mappings(mappings)).toEqual([]);
 	});
 });

@@ -64,6 +64,8 @@ export const DiagnosticDirectivePolicy = /** @type {const} */ ({ Ignore: 0, Expe
  * transform's order, so `new SourceMap(verificationMappings).toSourceRange(start,
  * end, true)` from `@volar/source-map` maps a diagnostic as `tsrx-tsc` does.
  * Points (offsets with zero length) belong to the mapping they are listed in.
+ * Empty when the transform has a mapping whose verification is a `shouldReport`
+ * callback, which can't be serialized.
  * @typedef {object} VerificationMapping
  * @property {number[]} sourceOffsets
  * @property {number[]} generatedOffsets

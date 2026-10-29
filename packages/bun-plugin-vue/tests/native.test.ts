@@ -1,14 +1,33 @@
-import { expect, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tsrxVue } from '../src/index.js';
 
+// Each test starts `bun test` or Bun.build(), which can take well over Bun's
+// default 5 s on a loaded machine.
+const NATIVE_TIMEOUT = 60_000;
+
+// Fixtures go in folders next to this file, so Bun resolves the workspace's
+// packages from them. They're removed after each test, even one that timed out.
+const temp_dirs: string[] = [];
+
+async function make_temp_dir() {
+	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
+	temp_dirs.push(dir);
+	return dir;
+}
+
+afterEach(async () => {
+	await Promise.all(temp_dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
+
 // A `bun:test` preload registers the plugin with Bun.plugin(), which requires
 // an object from every onLoad hook it calls, so the plugin must not claim
 // modules it leaves alone.
-test('works as a bun:test preload', async () => {
-	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
-	try {
+test(
+	'works as a bun:test preload',
+	async () => {
+		const dir = await make_temp_dir();
 		const files = {
 			'preload.mjs': `import { tsrxVue } from ${JSON.stringify(join(import.meta.dir, '../src/index.js'))};\nBun.plugin(tsrxVue());\n`,
 			'helper.js': 'export const answer = 42;\n',
@@ -34,16 +53,16 @@ test('works as a bun:test preload', async () => {
 		});
 		expect(child.stderr.toString()).toContain(' 2 pass');
 		expect(child.exitCode).toBe(0);
-	} finally {
-		await rm(dir, { recursive: true, force: true });
-	}
-});
+	},
+	NATIVE_TIMEOUT,
+);
 
 // Bun.plugin() registration calls only the first onLoad hook whose filter
 // matches, so instances that split the source files have to hand them on.
-test('splits the source files between two instances in a bun:test preload', async () => {
-	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
-	try {
+test(
+	'splits the source files between two instances in a bun:test preload',
+	async () => {
+		const dir = await make_temp_dir();
 		const files = {
 			'preload.mjs': `import { tsrxVue } from ${JSON.stringify(join(import.meta.dir, '../src/index.js'))};
 Bun.plugin(tsrxVue({ exclude: [/Second\\.tsrx$/, /Asset\\.tsrx$/] }));
@@ -71,17 +90,17 @@ test('loads both and the left-out file as Bun does', () => {
 		});
 		expect(child.stderr.toString()).toContain(' 1 pass');
 		expect(child.exitCode).toBe(0);
-	} finally {
-		await rm(dir, { recursive: true, force: true });
-	}
-});
+	},
+	NATIVE_TIMEOUT,
+);
 
 // An async onLoad hook makes Bun load the module asynchronously, and
 // `require()` can't load an async module. The interop hook runs only in
 // Bun.build(), so CommonJS and `require()` keep working under the preload.
-test('leaves require() of project modules working in a bun:test preload', async () => {
-	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
-	try {
+test(
+	'leaves require() of project modules working in a bun:test preload',
+	async () => {
+		const dir = await make_temp_dir();
 		const files = {
 			'preload.mjs': `import { tsrxVue } from ${JSON.stringify(join(import.meta.dir, '../src/index.js'))};\nBun.plugin(tsrxVue());\n`,
 			'legacy.cjs': "module.exports = { value: 'cjs' };\n",
@@ -105,10 +124,9 @@ test('requires CommonJS project modules', () => {
 		});
 		expect(child.stderr.toString()).toContain(' 1 pass');
 		expect(child.exitCode).toBe(0);
-	} finally {
-		await rm(dir, { recursive: true, force: true });
-	}
-});
+	},
+	NATIVE_TIMEOUT,
+);
 
 // vue-jsx-vapor's macros give a component with destructured props its `props`
 // option, and read an identifier `props` through a helper module.
@@ -172,9 +190,10 @@ export function render(createVaporApp, component, props) {
 }
 `;
 
-test('runs the macros in Bun.build()', async () => {
-	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
-	try {
+test(
+	'runs the macros in Bun.build()',
+	async () => {
+		const dir = await make_temp_dir();
 		await write_vue_project(dir, {
 			...GREETING_FILES,
 			'entry.js': `export { Greeting } from './Greeting.tsrx';
@@ -201,14 +220,14 @@ export { createVaporApp } from 'vue';
 			'<p class="greeting">Hi, Ada</p>',
 		);
 		expect(render(createVaporApp, Named, { name: 'Lin' })).toBe('<p class="named">Hi, Lin</p>');
-	} finally {
-		await rm(dir, { recursive: true, force: true });
-	}
-});
+	},
+	NATIVE_TIMEOUT,
+);
 
-test('runs the macros in a bun:test preload', async () => {
-	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
-	try {
+test(
+	'runs the macros in a bun:test preload',
+	async () => {
+		const dir = await make_temp_dir();
 		await write_vue_project(dir, {
 			...GREETING_FILES,
 			'preload.mjs': `import { tsrxVue } from ${JSON.stringify(join(import.meta.dir, '../src/index.js'))};\nBun.plugin(tsrxVue());\n`,
@@ -230,16 +249,16 @@ test('renders the props', () => {
 		});
 		expect(child.stderr.toString()).toContain(' 1 pass');
 		expect(child.exitCode).toBe(0);
-	} finally {
-		await rm(dir, { recursive: true, force: true });
-	}
-});
+	},
+	NATIVE_TIMEOUT,
+);
 
 // Bun.plugin() registration calls only the first instance's helper hook, so it
 // has to serve the helpers another instance's macros import.
-test("serves another instance's helper modules in a bun:test preload", async () => {
-	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
-	try {
+test(
+	"serves another instance's helper modules in a bun:test preload",
+	async () => {
+		const dir = await make_temp_dir();
 		await write_vue_project(dir, {
 			'Rich.tsrx': `export function Rich() @{
 	const count = defineModel<number>('count');
@@ -266,16 +285,16 @@ test('renders the model', () => {
 		});
 		expect(child.stderr.toString()).toContain(' 1 pass');
 		expect(child.exitCode).toBe(0);
-	} finally {
-		await rm(dir, { recursive: true, force: true });
-	}
-});
+	},
+	NATIVE_TIMEOUT,
+);
 
 // An earlier plugin's loose `include` sees every path with `.tsrx` in it, so
 // helper modules must not be served from a `.tsrx` file's path.
-test("leaves helper modules out of another plugin's loose include in a bun:test preload", async () => {
-	const dir = await mkdtemp(join(import.meta.dir, '.native-'));
-	try {
+test(
+	"leaves helper modules out of another plugin's loose include in a bun:test preload",
+	async () => {
+		const dir = await make_temp_dir();
 		await write_vue_project(dir, {
 			'Rich.tsrx': `export function Rich() @{
 	const count = defineModel<number>('count');
@@ -303,7 +322,6 @@ test('renders the model', () => {
 		});
 		expect(child.stderr.toString()).toContain(' 1 pass');
 		expect(child.exitCode).toBe(0);
-	} finally {
-		await rm(dir, { recursive: true, force: true });
-	}
-});
+	},
+	NATIVE_TIMEOUT,
+);

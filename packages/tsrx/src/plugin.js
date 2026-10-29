@@ -4523,21 +4523,28 @@ export function TSRXPlugin(config) {
 					// The raise site goes on parsing (see `CHECKER_LEVEL_ERRORS`).
 					return /** @type {never} */ (undefined);
 				}
-				return this.#throwError(position, error);
+				return this.#throwError(
+					position,
+					error,
+					/** @type {{ checker?: boolean } | undefined} */ (kind)?.checker,
+				);
 			}
 
 			/**
 			 * Throw acorn's error for `error` at `position`, with its code: TSRX's
-			 * own, or TypeScript's for a mistake TypeScript also reports.
+			 * own, or TypeScript's for a mistake TypeScript also reports. `checker`
+			 * marks one TypeScript reports from its checker (see `#isSyntaxError`).
 			 * @param {number} position
 			 * @param {ReportedError} error
+			 * @param {boolean} [checker]
 			 * @returns {never}
 			 */
-			#throwError(position, error) {
+			#throwError(position, error, checker = false) {
 				try {
 					return super.raise(position, error.message);
 				} catch (thrown) {
 					/** @type {{ code?: string }} */ (thrown).code = error.code;
+					if (checker) checker_errors_thrown.add(/** @type {object} */ (thrown));
 					throw thrown;
 				}
 			}
@@ -4603,7 +4610,11 @@ export function TSRXPlugin(config) {
 					return;
 				}
 				// acorn's `raiseRecoverable` is its `raise`.
-				return this.#throwError(position, error);
+				return this.#throwError(
+					position,
+					error,
+					/** @type {{ checker?: boolean } | undefined} */ (kind)?.checker,
+				);
 			}
 
 			/**

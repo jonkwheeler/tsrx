@@ -138,9 +138,22 @@ const invalid: RuleTester.InvalidTestCase[] = [
 		errors: [{ messageId: 'unnecessaryCurly' }],
 	},
 	{
-		// `@empty` continues only a `@for`, and `else` alone is text.
-		code: component("<p>\n\t\t@if (ok) {1}\n\t\t{'@empty'}\n\t\t@if (ok) {<b />} {'else'}\n\t</p>"),
-		output: component('<p>\n\t\t@if (ok) {1}\n\t\t@empty\n\t\t@if (ok) {<b />} else\n\t</p>'),
+		// `@empty` continues only a `@for`.
+		code: component("<p>\n\t\t@if (ok) {1}\n\t\t{'@empty'}\n\t</p>"),
+		output: component('<p>\n\t\t@if (ok) {1}\n\t\t@empty\n\t</p>'),
+		errors: [{ messageId: 'unnecessaryCurly' }],
+	},
+	{
+		// `else` alone is text, even after an `@if` block.
+		code: component("<p>@if (ok) {<b />} {'else'}</p>"),
+		output: component('<p>@if (ok) {<b />} else</p>'),
+		errors: [{ messageId: 'unnecessaryCurly' }],
+	},
+	{
+		// Fixes that would touch the same text go in separate passes, and each
+		// pass checks the code it edits.
+		code: component("<p>{'a'} {'b'}</p>"),
+		output: component("<p>a {'b'}</p>"),
 		errors: [{ messageId: 'unnecessaryCurly' }, { messageId: 'unnecessaryCurly' }],
 	},
 	{
@@ -199,5 +212,89 @@ describe('jsx-curly-brace-presence --fix', () => {
 		for (const { output } of invalid) {
 			expect(() => parser.parseForESLint(output as string, { filePath: 'App.tsrx' })).not.toThrow();
 		}
+	});
+
+	it('keeps what every element renders', () => {
+		// What each element's children render: text, with a string in braces read
+		// as its text, and the type of anything else. Also the comments and
+		// diagnostics.
+		const reading = (code: string) => {
+			let result;
+			try {
+				result = parser.parseForESLint(code, { filePath: 'App.tsrx' }) as any;
+			} catch (error: any) {
+				return `fatal: ${error.message}`;
+			}
+			const elements: string[][] = [];
+			const walk = (node: any) => {
+				if (!node || typeof node !== 'object') return;
+				if (Array.isArray(node)) return node.forEach(walk);
+				if (node.children && /^JSX(Element|Fragment)$/.test(node.type)) {
+					const parts: string[] = [];
+					for (const child of node.children) {
+						const expression = child.type === 'JSXExpressionContainer' ? child.expression : null;
+						const value =
+							child.type === 'JSXText'
+								? child.value
+								: typeof expression?.value === 'string'
+									? expression.value
+									: expression?.type === 'TemplateLiteral' && !expression.expressions.length
+										? expression.quasis[0].value.cooked
+										: null;
+						if (value !== null && parts.length && !parts.at(-1)!.startsWith('<')) {
+							parts[parts.length - 1] += value;
+						} else {
+							parts.push(value ?? `<${child.expression?.type ?? child.type}>`);
+						}
+					}
+					elements.push(parts);
+				}
+				for (const key of Object.keys(node)) {
+					if (key !== 'parent' && key !== 'loc' && key !== 'range' && key !== 'metadata') {
+						walk(node[key]);
+					}
+				}
+			};
+			walk(result.ast.body);
+			return JSON.stringify({
+				elements,
+				comments: result.ast.comments.map((comment: any) => comment.value),
+				diagnostics: result.services.tsrxDiagnostics.map((diagnostic: any) => diagnostic.code),
+			});
+		};
+		const lint = (code: string, parser_object: any) =>
+			new Linter().verifyAndFix(
+				code,
+				{
+					files: ['**/*.tsrx'],
+					languageOptions: { parser: parser_object },
+					plugins: { tsrx: { rules: { 'jsx-curly-brace-presence': rule } } },
+					rules: { 'tsrx/jsx-curly-brace-presence': 'error' },
+				},
+				'App.tsrx',
+			);
+		const cases = [
+			...tsrx_syntax_children.map(component),
+			...invalid.map(({ code }) => code),
+			// Text after a directive's block and before an element.
+			component("<p>@if (ok) {<b />}, write to {'me@x.dev'}<br /></p>"),
+			component("<p>@if (ok) {<b />}, write to {'hello'}<br /></p>"),
+			component("<p>@if (ok) {<b />} or {'me@x.dev'}<br /></p>"),
+			component("<p>@for (const item of items) {<b />}{'/'}</p>"),
+			// An element in an expression container, which a cut can't reproduce.
+			`export function A({ ok }) {\n\treturn <div>{ok ? <p>@if (ok) {<b />}<i />{'x'}<em /></p> : null}</div>;\n}`,
+			`export function A({ ok }) {\n\treturn <div>{ok && <p>@if (ok) {<b />}<i />{'a@b'}<em /></p>}</div>;\n}`,
+		];
+		// A parser with only `parse` gives no diagnostics, and the check still runs.
+		const parse_only = { parse: parser.parse };
+		for (const code of cases) {
+			for (const parser_object of [parser, parse_only]) {
+				const { output } = lint(code, parser_object);
+				expect({ code, reading: reading(output) }).toEqual({ code, reading: reading(code) });
+			}
+		}
+		expect(lint(component("<p>{'user@example.com'}</p>"), parse_only).output).toBe(
+			component('<p>user@example.com</p>'),
+		);
 	});
 });

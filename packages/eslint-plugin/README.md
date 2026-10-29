@@ -55,8 +55,11 @@ export default [
 ];
 ```
 
-To pass options, set them on `tsrx/jsx-curly-brace-presence`, after
-`tsrx.configs.react`.
+`react.configs.flat.recommended` doesn't turn on `react/jsx-curly-brace-presence`,
+so with it, `tsrx.configs.react` adds `tsrx/jsx-curly-brace-presence` as a new
+rule at `error` rather than swapping one in. Leave `tsrx.configs.react` out if you
+don't want the rule. To pass options, set them on `tsrx/jsx-curly-brace-presence`,
+after `tsrx.configs.react`.
 
 ## Rules
 
@@ -68,7 +71,10 @@ To pass options, set them on `tsrx/jsx-curly-brace-presence`, after
   same options and messages, for TSRX text. It doesn't unwrap a child that TSRX
   would read differently: a directive such as `{'@for (item of items)'}`, a
   comment such as `{'// note'}`, text that would join a comment or a directive
-  clause beside it, or the first child of a `<style>`. See
+  clause beside it, or the first child of a `<style>`. To tell, it parses the
+  element around a child whose text could be TSRX syntax, before and after the
+  unwrap, with the file's parser. Each fix spans the child's neighbors, so fixes
+  that would touch the same text go in separate passes. See
   [With eslint-plugin-react](#with-eslint-plugin-react).
 - `tsrx/no-return-in-component` is a deprecated no-op retained for compatibility.
 

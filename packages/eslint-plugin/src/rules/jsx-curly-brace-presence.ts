@@ -173,7 +173,7 @@ function isLiteralWithTrailingWhiteSpaces(node: AnyNode) {
 	);
 }
 
-/** TSRX: the directives whose clause (`@else`, `catch (e)`) text could continue. */
+/** TSRX: the directives, whose clauses (`@else`, `catch (e)`) text could continue. */
 const DIRECTIVE_TYPES = new Set([
 	'JSXIfExpression',
 	'JSXForExpression',
@@ -191,16 +191,36 @@ function is_in_raw_text_element(node: AnyNode) {
 	return name?.type === 'JSXIdentifier' && (name.name === 'style' || name.name === 'script');
 }
 
-/** TSRX: whether `child` is text of whitespace only. */
-const is_blank_text = (child: AnyNode | undefined) =>
-	child?.type === 'JSXText' && child.value.trim() === '';
+/**
+ * TSRX: whether an expression container or an attribute holds `element`, at any
+ * depth. A cut parsed on its own doesn't reproduce that context.
+ */
+function is_in_expression(element: AnyNode) {
+	for (let node = element.parent; node; node = node.parent) {
+		if (node.type === 'JSXExpressionContainer' || node.type === 'JSXAttribute') return true;
+	}
+	return false;
+}
+
+/** TSRX: the nearest child before (`step` -1) or after (1) `index` that isn't text. */
+function non_text_sibling(children: AnyNode[], index: number, step: number) {
+	let at = index + step;
+	while (children[at]?.type === 'JSXText') at += step;
+	return at;
+}
 
 /**
  * TSRX: whether unwrapping the child `node` into `replacement` could read as
- * TSRX syntax: text with `@`, `/`, `*` or `&` once joined with the text beside
- * it, a comment right after the braces, a directive just before (whose clause
- * the text could continue), or a `<style>` or `<script>` around it. Anything
- * else reads as the same text in TSRX as in JSX.
+ * TSRX syntax:
+ *
+ * - its text, joined with the text beside it, has `@`, `/`, `*` or `&`;
+ * - a comment follows the braces directly;
+ * - the nearest sibling before it that isn't text is a directive, whose clause
+ *   the text could continue;
+ * - a `<style>` or `<script>` holds it;
+ * - inside an expression container, the element holds a directive.
+ *
+ * Anything else reads as the same text in TSRX as in JSX.
  */
 function may_read_as_tsrx_syntax(node: AnyNode, replacement: string, sourceCode: AnyNode) {
 	if (is_in_raw_text_element(node)) return true;
@@ -209,23 +229,63 @@ function may_read_as_tsrx_syntax(node: AnyNode, replacement: string, sourceCode:
 	const text_of = (child: AnyNode | undefined) =>
 		child?.type === 'JSXText' ? sourceCode.getText(child) : '';
 	const run = text_of(children[index - 1]) + replacement + text_of(children[index + 1]);
-	let previous = index - 1;
-	while (is_blank_text(children[previous])) previous--;
 	return (
 		/[@/*&]/.test(run) ||
 		sourceCode.text[node.range[1]] === '/' ||
-		DIRECTIVE_TYPES.has(children[previous]?.type)
+		DIRECTIVE_TYPES.has(children[non_text_sibling(children, index, -1)]?.type) ||
+		(is_in_expression(node.parent) && children.some((child) => DIRECTIVE_TYPES.has(child.type)))
 	);
 }
 
 /**
+ * TSRX: a parse function from the file's parser, or `null`. A parser with only
+ * `parse` gives no diagnostics.
+ */
+function parser_of(context: Rule.RuleContext) {
+	const parser = (context.languageOptions as AnyNode)?.parser;
+	const options = { ...context.languageOptions.parserOptions, filePath: context.filename };
+	if (typeof parser?.parseForESLint === 'function') {
+		return (code: string) => parser.parseForESLint(code, options);
+	}
+	if (typeof parser?.parse === 'function') {
+		return (code: string) => ({ ast: parser.parse(code, options) });
+	}
+	return null;
+}
+
+/** TSRX: each child's type, with adjacent text joined. */
+function children_shape(children: AnyNode[]) {
+	const out: Array<{ type: string; value?: string }> = [];
+	for (const child of children) {
+		const previous = out.at(-1);
+		if (child.type === 'JSXText' && previous?.type === 'JSXText') {
+			previous.value += child.value;
+		} else {
+			out.push({ type: child.type, value: child.type === 'JSXText' ? child.value : undefined });
+		}
+	}
+	return JSON.stringify(out);
+}
+
+/** TSRX: the comments inside `range`. */
+function count_comments(comments: AnyNode[] | undefined, range: [number, number]) {
+	return (comments ?? []).filter(
+		(comment) => comment.range[0] >= range[0] && comment.range[1] <= range[1],
+	).length;
+}
+
+/**
  * TSRX: whether unwrapping the child `node` into `replacement`, which parses as
- * a `type` child, keeps the element around it as it was. The check parses the
- * element, cut down to the children between `node`'s neighbors, before and
- * after the edit, with the parser of the file. The element must keep its type
- * and its comments and diagnostics, and its children must come out the same,
- * with the new text joined to the text beside it. Without a parser that can
- * tell, the braces stay.
+ * a `type` child, keeps the element around it as it was: its comments, its
+ * diagnostics and its children, with the new text joined to the text beside
+ * it. The parser of the file reads the element before and after the edit:
+ *
+ * - usually only a cut of it, from the nearest child before `node` that isn't
+ *   text to the nearest one after, in a bare tag of its own;
+ * - the whole file when the element sits in an expression container or an
+ *   attribute, a context the cut can't reproduce.
+ *
+ * Without a parser, and for the first child of a `<style>`, the braces stay.
  */
 function unwraps_to_the_same_children(
 	context: Rule.RuleContext,
@@ -233,76 +293,125 @@ function unwraps_to_the_same_children(
 	replacement: string,
 	type: string,
 ) {
-	const parser = (context.languageOptions as AnyNode)?.parser;
-	if (typeof parser?.parseForESLint !== 'function') return false;
+	const parse = parser_of(context);
+	if (!parse) return false;
 	const text = context.sourceCode.text;
 	const element = node.parent;
 	const children: AnyNode[] = element.children;
 	const index = children.indexOf(node);
-	// The first child of a `<style>` decides what it is, so it keeps them all.
-	let first = is_in_raw_text_element(node) ? -1 : index - 1;
-	while (is_blank_text(children[first])) first--;
-	let last = index + 1;
-	while (is_blank_text(children[last])) last++;
-	const opening = element.openingElement ?? element.openingFragment;
-	const closing = element.closingElement ?? element.closingFragment;
-	const start = first >= 0 ? children[first].range[0] : opening.range[1];
-	const end = last < children.length ? children[last].range[1] : closing.range[0];
-	const prefix = 'export const tsrx = (\n' + text.slice(...opening.range);
-	const suffix = text.slice(...closing.range) + '\n);\n';
-	const offset = prefix.length - start;
-
-	const parse = (code: string) => {
+	// The first child of a `<style>` decides what it is. Any other child leaves
+	// it an ordinary element, whose children read like any element's.
+	if (
+		is_in_raw_text_element(node) &&
+		children.slice(0, index).every((child) => child.type === 'JSXText' && !child.value.trim())
+	) {
+		return false;
+	}
+	const expected = (nodes: AnyNode[], at: number) =>
+		children_shape(
+			nodes.map((child) =>
+				child.range[0] === at
+					? { type, value: type === 'JSXText' ? replacement : undefined }
+					: child,
+			),
+		);
+	const read = (code: string) => {
 		try {
-			const result = parser.parseForESLint(code, {
-				...context.languageOptions.parserOptions,
-				filePath: context.filename,
-			});
-			const root = result.ast.body[0]?.declaration?.declarations?.[0]?.init;
-			if (!root?.children) return null;
-			return {
-				root,
-				comments: result.ast.comments?.length ?? 0,
-				diagnostics: result.services?.tsrxDiagnostics?.length ?? 0,
-			};
+			const result = parse(code);
+			return { ast: result.ast, diagnostics: result.services?.tsrxDiagnostics?.length ?? 0 };
 		} catch {
 			return null;
 		}
 	};
-	// Each child's type, with adjacent text joined.
-	const shape = (nodes: AnyNode[]) => {
-		const out: Array<{ type: string; value?: string }> = [];
-		for (const child of nodes) {
-			const previous_child = out.at(-1);
-			if (child.type === 'JSXText' && previous_child?.type === 'JSXText') {
-				previous_child.value += child.value;
-			} else {
-				out.push({ type: child.type, value: child.type === 'JSXText' ? child.value : undefined });
-			}
-		}
-		return JSON.stringify(out);
-	};
 
-	const before = parse(prefix + text.slice(start, end) + suffix);
-	const after = parse(
+	if (is_in_expression(element)) {
+		const after = read(text.slice(0, node.range[0]) + replacement + text.slice(node.range[1]));
+		const found = after && find_element(after.ast.body, element.range[0]);
+		if (!after || !found) return false;
+		return (
+			found.type === element.type &&
+			count_comments(after.ast.comments, found.range) ===
+				count_comments(context.sourceCode.getAllComments(), element.range) &&
+			after.diagnostics ===
+				((context.sourceCode.parserServices as AnyNode)?.tsrxDiagnostics?.length ?? 0) &&
+			children_shape(found.children) === expected(children, node.range[0])
+		);
+	}
+
+	const [start, end] = neighborhood(node);
+	// The element's name, without its attributes. TSRX can read text after a
+	// directive's block differently before another closing tag.
+	const name =
+		element.type === 'JSXFragment' ? '' : text.slice(...element.openingElement.name.range);
+	// The children of a `<style>` read like any element's once `{…}` leads them.
+	const open = `<${name}>` + (is_in_raw_text_element(node) ? '{0}' : '');
+	const close = `</${name}>`;
+	// Statement level, not in parentheses: TSRX reads some text after a
+	// directive's block more strictly there, so the check errs toward the braces.
+	const prefix = 'export const tsrx = ' + open;
+	const suffix = close + ';\n';
+	const root = (result: { ast: AnyNode } | null) =>
+		result?.ast.body[0]?.declaration?.declarations?.[0]?.init;
+	const before = read(prefix + text.slice(start, end) + suffix);
+	const after = read(
 		prefix +
 			text.slice(start, node.range[0]) +
 			replacement +
 			text.slice(node.range[1], end) +
 			suffix,
 	);
-	if (!before || !after) return false;
-	const expected = before.root.children.map((child: AnyNode) =>
-		child.range[0] === node.range[0] + offset
-			? { type, value: type === 'JSXText' ? replacement : undefined }
-			: child,
-	);
+	const before_root = root(before);
+	const after_root = root(after);
+	if (!before_root?.children || !after_root?.children) return false;
 	return (
-		after.root.type === before.root.type &&
-		after.comments === before.comments &&
-		after.diagnostics === before.diagnostics &&
-		shape(after.root.children) === shape(expected)
+		after_root.type === before_root.type &&
+		after!.ast.comments?.length === before!.ast.comments?.length &&
+		after!.diagnostics === before!.diagnostics &&
+		children_shape(after_root.children) ===
+			expected(before_root.children, node.range[0] - start + prefix.length)
 	);
+}
+
+/**
+ * TSRX: the source range from the nearest child before `node` that isn't text
+ * to the nearest one after, or to the start or end of the element's children.
+ */
+function neighborhood(node: AnyNode): [number, number] {
+	const element = node.parent;
+	const children: AnyNode[] = element.children;
+	const index = children.indexOf(node);
+	const first = non_text_sibling(children, index, -1);
+	const last = non_text_sibling(children, index, 1);
+	return [
+		first >= 0
+			? children[first].range[0]
+			: (element.openingElement ?? element.openingFragment).range[1],
+		last < children.length
+			? children[last].range[1]
+			: (element.closingElement ?? element.closingFragment).range[0],
+	];
+}
+
+const ELEMENT_TYPES = new Set(['JSXElement', 'JSXFragment', 'JSXStyleElement']);
+
+/** TSRX: the first element or fragment in `node` that starts at `start`. */
+function find_element(node: AnyNode, start: number): AnyNode | null {
+	if (!node || typeof node !== 'object') return null;
+	if (Array.isArray(node)) {
+		for (const child of node) {
+			const found = find_element(child, start);
+			if (found) return found;
+		}
+		return null;
+	}
+	if (node.range && (node.range[1] < start || node.range[0] > start)) return null;
+	if (ELEMENT_TYPES.has(node.type) && node.range?.[0] === start) return node;
+	for (const key of Object.keys(node)) {
+		if (key === 'parent' || key === 'loc' || key === 'range' || key === 'metadata') continue;
+		const found = find_element(node[key], start);
+		if (found) return found;
+	}
+	return null;
 }
 
 const messages = {
@@ -387,6 +496,19 @@ const rule: Rule.RuleModule = {
 						}
 					}
 
+					// TSRX: a child's fix also spans its neighbors, up to the nearest child
+					// on each side that isn't text. Fixes that would touch the same text
+					// then go in separate passes, each checked against the code it edits.
+					if (JSXExpressionNode.parent.type !== 'JSXAttribute') {
+						const [start, end] = neighborhood(JSXExpressionNode);
+						const [node_start, node_end] = JSXExpressionNode.range;
+						return fixer.replaceTextRange(
+							[start, end],
+							sourceCode.text.slice(start, node_start) +
+								textToReplace +
+								sourceCode.text.slice(node_end, end),
+						);
+					}
 					return fixer.replaceText(JSXExpressionNode as Rule.Node, textToReplace);
 				},
 			});

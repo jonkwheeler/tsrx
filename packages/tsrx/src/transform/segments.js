@@ -1267,30 +1267,42 @@ export function convert_source_map_to_mappings(
 						];
 						mapping.generatedLengths = [generated_close_length];
 					}
-					// After a child whose closing tag loose recovery added in the
-					// type-only output (#978), that closing tag, which has no source
-					// position, comes between the child's end and this closing tag, which
-					// share a source position. Start this closing tag at its own `</`,
-					// right before its name, so that TypeScript's errors on the added tag
-					// don't land on it.
-					const last_child = /** @type {AST.Node | undefined} */ (node.children?.at(-1));
-					if (
-						closing &&
-						has_location(closing.name) &&
-						last_child?.type === 'JSXElement' &&
-						/** @type {AST.TSRXJSXElement} */ (last_child).closingElement?.metadata?.recovered
-					) {
-						const name_start = closing.name.loc.start;
-						const name_positions = src_to_gen_map.get(`${name_start.line}:${name_start.column}`);
-						if (name_positions?.length) {
-							const own_start =
-								loc_to_offset(name_positions[0].line, name_positions[0].column, gen_line_offsets) -
-								'</'.length;
-							const end = mapping.generatedOffsets[0] + mapping.generatedLengths[0];
-							if (own_start > mapping.generatedOffsets[0] && own_start < end) {
-								mapping.generatedOffsets = [own_start];
-								mapping.generatedLengths = [end - own_start];
-							}
+					// Loose recovery adds a closing tag, with no source position, to a tag
+					// left unclosed (#978), and the closing tags around it can then be
+					// printed after children that follow them in the source. The first
+					// generated position of this closing tag's start can be an added tag,
+					// or the end of a child before one, so the span would cover it, and
+					// TypeScript's errors on the added tag would show here again. Start
+					// the span at this tag's own `</`, the last generated position of its
+					// start, and end it at its own `>`, keeping the extension above.
+					/** @param {any} element */
+					const has_recovered_closing = (element) =>
+						element.children?.some(
+							(/** @type {any} */ child) =>
+								(child.type === 'JSXElement' || child.type === 'JSXFragment') &&
+								(child.closingElement?.metadata?.recovered || has_recovered_closing(child)),
+						);
+					if (closing && has_recovered_closing(node)) {
+						const { start, end } = /** @type {AST.SourceLocation} */ (closing.loc);
+						const offsets = (/** @type {AST.Position} */ position) =>
+							(src_to_gen_map.get(`${position.line}:${position.column}`) ?? []).map((generated) =>
+								loc_to_offset(generated.line, generated.column, gen_line_offsets),
+							);
+						const own_start = offsets(start)
+							.filter((offset) => generated_code.startsWith('</', offset))
+							.at(-1);
+						const first_end = offsets(end)[0];
+						if (
+							own_start !== undefined &&
+							first_end !== undefined &&
+							own_start >= mapping.generatedOffsets[0]
+						) {
+							const extension =
+								mapping.generatedOffsets[0] + mapping.generatedLengths[0] - first_end;
+							mapping.generatedOffsets = [own_start];
+							mapping.generatedLengths = [
+								generated_code.indexOf('>', own_start) + 1 - own_start + extension,
+							];
 						}
 					}
 					mappings.push(mapping);

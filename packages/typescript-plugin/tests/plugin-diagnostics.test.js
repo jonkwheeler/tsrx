@@ -45,6 +45,41 @@ describe('tsserver plugin: TypeScript diagnostics on TSRX compile failure', () =
 });
 
 describe('tsserver plugin: TypeScript diagnostics around an unclosed tag', () => {
+	/** Name, source, and the undefined tag left unclosed. */
+	const CASES = [
+		['Unclosed', 'export function C() @{\n\t<div><Missing>valid</div>\n}\n', 'Missing'],
+		['UnclosedNested', 'export function C() @{\n\t<div><Missing><b>x</div>\n}\n', 'Missing'],
+		[
+			'NotLastChild',
+			'export function C() @{\n\t<div><span><Missing>x</span>tail</div>\n}\n',
+			'Missing',
+		],
+		[
+			'TrailingSpace',
+			'export function C() @{\n\t<div><span><Missing>x</span> </div>\n}\n',
+			'Missing',
+		],
+		[
+			'TrailingExpression',
+			'export function C({ y }: { y: string }) @{\n\t<div><span><Missing>x</span>{y}</div>\n}\n',
+			'Missing',
+		],
+		[
+			'TrailingText',
+			'export function C() @{\n\t<p>\n\t\t<b>\n\t\t\t<NewComp>hello\n\t\t</b>\n\t\tmore text\n\t</p>\n}\n',
+			'NewComp',
+		],
+		[
+			'DynamicParent',
+			'export function C({ Tag }: { Tag: string }) @{\n\t<{Tag}><Missing>valid</{Tag}>\n}\n',
+			'Missing',
+		],
+		[
+			'DynamicParentWithText',
+			'export function C({ Tag }: { Tag: string }) @{\n\t<div><{Tag}><Missing>x</{Tag}>tail</div>\n}\n',
+			'Missing',
+		],
+	];
 	const FILES = {
 		'tsconfig.json': JSON.stringify({
 			compilerOptions: {
@@ -56,8 +91,7 @@ describe('tsserver plugin: TypeScript diagnostics around an unclosed tag', () =>
 			tsrx: { compiler: '@tsrx/react' },
 			include: ['src'],
 		}),
-		'src/Unclosed.tsrx': 'export function C() @{\n\t<div><Missing>valid</div>\n}\n',
-		'src/UnclosedNested.tsrx': 'export function C() @{\n\t<div><Missing><b>x</div>\n}\n',
+		...Object.fromEntries(CASES.map(([name, source]) => [`src/${name}.tsrx`, source])),
 	};
 	/** @type {string} */
 	let workspace;
@@ -68,11 +102,10 @@ describe('tsserver plugin: TypeScript diagnostics around an unclosed tag', () =>
 		const created = create_tsserver_workspace('tsrx-unclosed-', FILES);
 		workspace = created.workspace;
 		server = start_tsserver(workspace, created.probe_location);
-		for (const file of ['src/Unclosed.tsrx', 'src/UnclosedNested.tsrx']) {
-			const full = path.join(workspace, file);
+		for (const [name, source] of CASES) {
 			await server.request('open', {
-				file: full,
-				fileContent: fs.readFileSync(full, 'utf8'),
+				file: path.join(workspace, `src/${name}.tsrx`),
+				fileContent: source,
 				projectRootPath: workspace,
 			});
 		}
@@ -83,14 +116,24 @@ describe('tsserver plugin: TypeScript diagnostics around an unclosed tag', () =>
 		fs.rmSync(workspace, { recursive: true, force: true });
 	});
 
+	/**
+	 * The tsserver `{ line, offset }` of `index` in `text`.
+	 * @param {string} text
+	 * @param {number} index
+	 */
+	function location(text, index) {
+		const before = text.slice(0, index).split('\n');
+		return { line: before.length, offset: before[before.length - 1].length + 1 };
+	}
+
 	// TypeScript also reports the undefined name on the closing tag the
-	// editor's code adds, which has no mapping. The parent's closing tag
-	// starts after it, so the error isn't repeated on `</div>`.
-	it.each(['src/Unclosed.tsrx', 'src/UnclosedNested.tsrx'])(
+	// editor's code adds, which has no mapping. No closing tag around it
+	// covers it, so the error isn't repeated on one of them.
+	it.each(CASES)(
 		'reports the undefined unclosed tag of %s once, at its name',
-		async (file) => {
+		async (name, source, tag) => {
 			const response = await server.request('semanticDiagnosticsSync', {
-				file: path.join(workspace, file),
+				file: path.join(workspace, `src/${name}.tsrx`),
 			});
 			expect(
 				response.body
@@ -99,7 +142,12 @@ describe('tsserver plugin: TypeScript diagnostics around an unclosed tag', () =>
 						start: diagnostic.start,
 						end: diagnostic.end,
 					})),
-			).toEqual([{ start: { line: 2, offset: 8 }, end: { line: 2, offset: 15 } }]);
+			).toEqual([
+				{
+					start: location(source, source.indexOf(tag)),
+					end: location(source, source.indexOf(tag) + tag.length),
+				},
+			]);
 		},
 	);
 });

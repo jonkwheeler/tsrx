@@ -310,16 +310,47 @@ describe('compile error diagnostic plugin — unclosed and mismatched tags', () 
 	});
 
 	// TypeScript also reports an undefined name on the closing tag the
-	// editor's code adds. That tag has no mapping, and the parent's closing
-	// tag starts after it, so the error isn't repeated on `</div>`.
+	// editor's code adds. That tag has no mapping, and no closing tag around
+	// it, whether it is printed right after it or after later children,
+	// covers it, so the error isn't repeated on one of them.
 	it.each([
-		['UndefinedUnclosedTag', 'export function C() @{\n\t<div><Missing>valid</div>\n}\n'],
-		['UndefinedUnclosedNestedTag', 'export function C() @{\n\t<div><Missing><b>x</div>\n}\n'],
-	])('reports %s as undefined once, at its name', async (name, source) => {
-		const { document, diagnostics } = await editor_diagnostics_for(name, source);
+		['Unclosed', 'export function C() @{\n\t<div><Missing>valid</div>\n}\n', 'Missing'],
+		['UnclosedNested', 'export function C() @{\n\t<div><Missing><b>x</div>\n}\n', 'Missing'],
+		[
+			'NotLastChild',
+			'export function C() @{\n\t<div><span><Missing>x</span>tail</div>\n}\n',
+			'Missing',
+		],
+		[
+			'TrailingSpace',
+			'export function C() @{\n\t<div><span><Missing>x</span> </div>\n}\n',
+			'Missing',
+		],
+		[
+			'TrailingExpression',
+			'export function C({ y }: { y: string }) @{\n\t<div><span><Missing>x</span>{y}</div>\n}\n',
+			'Missing',
+		],
+		[
+			'TrailingText',
+			'export function C() @{\n\t<p>\n\t\t<b>\n\t\t\t<NewComp>hello\n\t\t</b>\n\t\tmore text\n\t</p>\n}\n',
+			'NewComp',
+		],
+		[
+			'DynamicParent',
+			'export function C({ Tag }: { Tag: string }) @{\n\t<{Tag}><Missing>valid</{Tag}>\n}\n',
+			'Missing',
+		],
+		[
+			'DynamicParentWithText',
+			'export function C({ Tag }: { Tag: string }) @{\n\t<div><{Tag}><Missing>x</{Tag}>tail</div>\n}\n',
+			'Missing',
+		],
+	])('reports the undefined unclosed tag of %s once, at its name', async (name, source, tag) => {
+		const { document, diagnostics } = await editor_diagnostics_for(`Undefined${name}`, source);
 
 		expect(reported(document, diagnostics, 'TS2304')).toEqual([
-			{ source: 'ts', text: 'Missing', offset: source.indexOf('Missing') },
+			{ source: 'ts', text: tag, offset: source.indexOf(tag) },
 		]);
 	});
 

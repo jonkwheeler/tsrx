@@ -154,8 +154,8 @@ export interface BaseNodeMetaData {
 	dynamicElement?: boolean;
 	/**
 	 * A closing tag the type-only output adds to a tag that loose recovery found
-	 * unclosed. It has no source position, and the parent's closing-tag mapping
-	 * starts after it.
+	 * unclosed. It has no source position, and the closing-tag mappings around it
+	 * leave it out.
 	 */
 	recovered?: boolean;
 	templateMode?: 'script' | 'template';

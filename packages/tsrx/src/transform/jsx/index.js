@@ -3220,7 +3220,7 @@ function to_jsx_element(
 			// the parser's TSRX1001 or TSRX1002 alone, not TypeScript's TS17008 and
 			// TS1005 on top of it (#978).
 			closingElement = b.jsx_closing_element(unlocated_jsx_name(name));
-			// The mappings leave it out of the parent's closing tag (`segments.js`).
+			// The closing-tag mappings around it leave it out (`segments.js`).
 			closingElement.metadata.recovered = true;
 		} else {
 			// Recovered unclosed tags have no authored close. Map the synthesized

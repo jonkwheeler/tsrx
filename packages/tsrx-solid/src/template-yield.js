@@ -18,11 +18,19 @@ const AST_METADATA_KEYS = new Set(['loc', 'start', 'end', 'metadata']);
  * - evaluates `class` and `style` in an effect unless the value is an object
  *   literal, an array `ref` in an arrow, and event handlers and other refs in
  *   place;
- * - passes component children in a getter once any child is an element or a
- *   dynamic value.
+ * - applies an assignable component `ref` in a callback, and passes on or
+ *   drops any other;
+ * - passes component children in a getter when there are several, or one is
+ *   an element or a dynamic value.
  *
  * A `yield` there no longer runs in its generator and fails to parse, so only
  * those are returned. One the compiler leaves in place is left alone.
+ *
+ * These rules follow @dom-expressions/babel-plugin-jsx 0.50.0-next.44, from
+ * babel-preset-solid 2.0.0-rc.2 and vite-plugin-solid 3.0.0-next.5.
+ * `packages/vite-plugin-solid/tests/template-yield-downstream.test.js` runs
+ * probes through the installed compiler, so a release that compiles them
+ * differently fails there.
  *
  * @param {AST.Program} program
  * @returns {AST.YieldExpression[]}

@@ -10,6 +10,11 @@ const AST_METADATA_KEYS = new Set(['loc', 'start', 'end', 'metadata']);
  * dynamic parts into render effects and prop getters, so a `yield` anywhere in
  * an element or fragment ends up in a function that isn't its generator.
  *
+ * This follows vue-jsx-vapor 3.2.14 (@vue-jsx-vapor/compiler-rs 3.2.14).
+ * `packages/vite-plugin-vue/tests/template-yield-downstream.test.js` runs
+ * probes through the installed compiler, so a release that compiles them
+ * differently fails there.
+ *
  * @param {AST.Program} program
  * @returns {AST.YieldExpression[]}
  */

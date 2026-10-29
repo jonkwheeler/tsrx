@@ -1369,6 +1369,10 @@ export function TSRXPlugin(config) {
 			#expressionContainerPathBaselines = [];
 			#consumeContainerBraceAfterScope = false;
 			#scriptJSXElementDepth = 0;
+			// The names of the script JSX elements being read, innermost last (see
+			// `#readScriptJSXToken`).
+			/** @type {string[]} */
+			#scriptJSXOpenNames = [];
 			#forceScriptJSXElementDepth = 0;
 			#suppressTemplateRawTextToken = false;
 			// Set while the `?` of an optional class member (`m?<T>()`) is consumed:
@@ -3004,7 +3008,7 @@ export function TSRXPlugin(config) {
 			 * `JSXCodeBlock` whose `body` holds the setup statements and `render` the
 			 * single optional render output (§9).
 			 */
-			#parseCodeBlock({ allowReturnStatements = false } = {}) {
+			#parseCodeBlock({ allowReturnStatements = false, functionBody = false } = {}) {
 				const start = this.start;
 				const startLoc = this.startLoc;
 				const node = /** @type {AST.JSXCodeBlock} */ (this.startNodeAt(start, startLoc));
@@ -3040,11 +3044,12 @@ export function TSRXPlugin(config) {
 
 				/** @type {AST.Node[]} */
 				const flat = [];
-				this.enterScope(0);
+				// A function's body shares its scope, as acorn reads a `{ … }` body.
+				if (!functionBody) this.enterScope(0);
 				try {
 					this.#parseCodeBlockBody(flat);
 				} finally {
-					this.exitScope();
+					if (!functionBody) this.exitScope();
 					this.#path = enclosing_path;
 				}
 				// The body stops at the end of the input too.
@@ -5601,9 +5606,12 @@ export function TSRXPlugin(config) {
 			 * `#readRestParameterDefault`), after TS1048.
 			 *
 			 * This is acorn-typescript's method with those changes. Its check of each
-			 * parameter looks through a parameter property to its parameter. A strict
-			 * parse reads the list through `parseBindingList` too, for
-			 * `parseBindingListItem` to know it's a parameter list.
+			 * parameter looks through a parameter property to its parameter, and
+			 * leaves out acorn-typescript's error for a parameter other than a name,
+			 * a pattern or a rest element, which the list reads as nothing else; the
+			 * list takes no holes (#964). A strict parse reads the list through
+			 * `parseBindingList` too, for `parseBindingListItem` to know it's a
+			 * parameter list.
 			 * @type {Parse.Parser['tsParseBindingListForSignature']}
 			 */
 			tsParseBindingListForSignature() {
@@ -5614,7 +5622,9 @@ export function TSRXPlugin(config) {
 				/** @type {AST.Pattern[]} */
 				let params;
 				try {
-					params = this.parseBindingList(tt.parenR, true, true);
+					// No holes: `(a, , b)` is an unexpected `,`, as in a function's
+					// parameters (#964).
+					params = this.parseBindingList(tt.parenR, false, true);
 				} finally {
 					this.#ownParameterList = outer_own;
 				}
@@ -5630,6 +5640,37 @@ export function TSRXPlugin(config) {
 			}
 
 			/**
+			 * TS2371 for each parameter of `params`, a signature's, with a default,
+			 * at the parameter, as `#checkSignatureParameter` raises it for a
+			 * function type's.
+			 * @param {AST.Pattern[]} params
+			 * @returns {CompileError[]}
+			 */
+			#signatureInitializerErrors(params) {
+				/** @type {CompileError[]} */
+				const errors = [];
+				for (const param of params) {
+					const node = /** @type {AST.Node} */ (param);
+					const parameter = node.type === 'TSParameterProperty' ? node.parameter : node;
+					if (
+						parameter.type !== 'AssignmentPattern' &&
+						!this.#isRestParameterWithDefault(/** @type {AST.Node} */ (parameter))
+					) {
+						continue;
+					}
+					const start = /** @type {number} */ (param.start);
+					this.#report_recoverable_error_range(
+						start,
+						start + 1,
+						TS_ERRORS.SIGNATURE_PARAMETER_INITIALIZER,
+						errors,
+					);
+					raised_errors.add(errors[errors.length - 1]);
+				}
+				return errors;
+			}
+
+			/**
 			 * See `tsParseBindingListForSignature`.
 			 * @param {AST.Pattern} item
 			 * @returns {AST.Pattern}
@@ -5641,13 +5682,6 @@ export function TSRXPlugin(config) {
 				);
 				if (parameter.type === 'AssignmentPattern' || this.#isRestParameterWithDefault(parameter)) {
 					this.raise(parameter.start, TS_ERRORS.SIGNATURE_PARAMETER_INITIALIZER);
-				} else if (
-					parameter.type !== 'Identifier' &&
-					parameter.type !== 'RestElement' &&
-					parameter.type !== 'ObjectPattern' &&
-					parameter.type !== 'ArrayPattern'
-				) {
-					this.raise(parameter.start, TS_ERRORS.SIGNATURE_PARAMETER_NAME(parameter.type));
 				}
 				return item;
 			}
@@ -10714,13 +10748,23 @@ export function TSRXPlugin(config) {
 						this.#reportOptionalPatternParameters(node);
 					} else if (is_code_block || !this.#isBodilessSignature(args[0])) {
 						this.#reportOptionalPatternParameters(node);
-					} else if (!parameter_lists_with_clashes.has(node.params)) {
+					} else {
 						// A signature without a body: `checkParams` doesn't check its
-						// duplicate names (#1264).
-						this.#reportParameterList(node.params, []);
+						// duplicate names (#1264), and a parameter's default is TS2371, as
+						// in a function type (#964).
+						const initializers = this.#signatureInitializerErrors(node.params);
+						if (!parameter_lists_with_clashes.has(node.params)) {
+							this.#reportParameterList(node.params, initializers);
+						} else if (initializers.length > 0) {
+							this.#releaseErrors(initializers);
+						}
 					}
 					if (is_code_block) {
-						const body = this.#parseCodeBlock({ allowReturnStatements: true });
+						// As for a `{ … }` body, the parameters are declared before the body,
+						// whose declarations share the function's scope, so a `let` or
+						// `const` that redeclares a parameter is TS2300 (#964).
+						this.checkParams(node, false);
+						const body = this.#parseCodeBlock({ allowReturnStatements: true, functionBody: true });
 						node.body = body;
 						// A `@{ … }` body compiles to the function's body, so its leading
 						// strings are its directive prologue, as acorn reads a `{ … }` body's.
@@ -10738,7 +10782,6 @@ export function TSRXPlugin(config) {
 								TS_ERRORS.USE_STRICT_NON_SIMPLE_PARAMETERS,
 							);
 						}
-						this.checkParams(node, false);
 						this.exitScope();
 						return node;
 					}
@@ -11484,6 +11527,82 @@ export function TSRXPlugin(config) {
 				return this.finishNode(node, 'TryStatement');
 			}
 
+			/**
+			 * acorn-typescript's `jsx_readToken`, for the JSX that TSRX reads as
+			 * script, such as an element in a dynamic tag's expression
+			 * (`<{c ? <b>a</b> : 'i'} />`), with TSRX's rules for template text: a
+			 * `>` is text (#711), and an element left open at the end of the input
+			 * is TSRX1001. A `}` is TS1381, as TypeScript reports it (#964).
+			 * @returns {void}
+			 */
+			#readScriptJSXToken() {
+				let out = '';
+				let chunk_start = this.pos;
+				for (;;) {
+					if (this.pos >= this.input.length) {
+						// acorn reads the end of the input itself after this text.
+						const name = this.#scriptJSXOpenNames.at(-1);
+						const error = name === undefined ? null : TSRX_ERRORS.UNCLOSED_TAG(name);
+						// Once, though acorn may read the text again.
+						if (
+							error &&
+							!this.#errors?.some(
+								(other) => other.pos === this.pos && other.message === error.message,
+							)
+						) {
+							this.#report_broken_markup_error(this.pos, error);
+						}
+						if (this.pos === this.start) return this.finishToken(tt.eof);
+						out += this.input.slice(chunk_start, this.pos);
+						return this.finishToken(tstt.jsxText, out);
+					}
+					const ch = this.input.charCodeAt(this.pos);
+					switch (ch) {
+						case CharCode.lessThan:
+						case CharCode.openBrace:
+							if (this.pos === this.start) {
+								if (ch === CharCode.lessThan && this.exprAllowed) {
+									++this.pos;
+									return this.finishToken(tstt.jsxTagStart);
+								}
+								return this.getTokenFromCode(ch);
+							}
+							out += this.input.slice(chunk_start, this.pos);
+							return this.finishToken(tstt.jsxText, out);
+						case CharCode.ampersand:
+							out += this.input.slice(chunk_start, this.pos);
+							out += this.jsx_readEntity();
+							chunk_start = this.pos;
+							break;
+						case CharCode.closeBrace:
+							this.raise(this.pos, TS_ERRORS.JSX_UNESCAPED_CLOSING_BRACE);
+							break;
+						default:
+							if (acorn.isNewLine(ch)) {
+								out += this.input.slice(chunk_start, this.pos);
+								out += this.jsx_readNewLine(true);
+								chunk_start = this.pos;
+							} else {
+								++this.pos;
+							}
+					}
+				}
+			}
+
+			/**
+			 * Note the name of each script JSX element while it's read (see
+			 * `#readScriptJSXToken`).
+			 * @type {Parse.Parser['jsx_parseElementAt']}
+			 */
+			jsx_parseElementAt(startPos, startLoc) {
+				const depth = this.#scriptJSXOpenNames.length;
+				try {
+					return super.jsx_parseElementAt(startPos, startLoc);
+				} finally {
+					this.#scriptJSXOpenNames.length = depth;
+				}
+			}
+
 			/** @type {Parse.Parser['jsx_readToken']} */
 			jsx_readToken() {
 				if (this.#scriptJSXElementDepth > 0 || this.#path.length === 0) {
@@ -11524,7 +11643,7 @@ export function TSRXPlugin(config) {
 					}
 				}
 				if (this.#scriptJSXElementDepth > 0 || this.#path.length === 0) {
-					return super.jsx_readToken();
+					return this.#readScriptJSXToken();
 				}
 
 				let out = '',
@@ -11539,7 +11658,12 @@ export function TSRXPlugin(config) {
 							}
 							return this.finishToken(tt.eof);
 						}
-						this.raise(this.start, TS_ERRORS.UNTERMINATED_JSX_CONTENTS);
+						// The text up to the end of the input, after which acorn reads the
+						// end itself, and the element left open reports it (TSRX1001), as
+						// in a template (#964).
+						if (this.pos === this.start) return this.finishToken(tt.eof);
+						out += this.input.slice(chunkStart, this.pos);
+						return this.finishToken(tstt.jsxText, out);
 					}
 					let ch = this.input.charCodeAt(this.pos);
 
@@ -11727,12 +11851,13 @@ export function TSRXPlugin(config) {
 								this.#resetTokenStartToCurrentPosition();
 								return original.readToken.call(this, ch);
 							}
-							this.raise(
-								this.pos,
-								ch === CharCode.greaterThan
-									? TS_ERRORS.JSX_UNESCAPED_GREATER_THAN
-									: TS_ERRORS.JSX_UNESCAPED_CLOSING_BRACE,
-							);
+							// A `>` is text (#711), and a `}` is TS1381, as TypeScript reports
+							// it (#964).
+							if (ch === CharCode.greaterThan) {
+								++this.pos;
+								break;
+							}
+							this.raise(this.pos, TS_ERRORS.JSX_UNESCAPED_CLOSING_BRACE);
 						}
 
 						default:
@@ -11842,6 +11967,9 @@ export function TSRXPlugin(config) {
 				node.attributes = [];
 				const nodeName = this.jsx_parseElementName();
 				if (nodeName) node.name = nodeName;
+				if (this.#scriptJSXElementDepth > 0 || this.#path.length === 0) {
+					this.#scriptJSXOpenNames.push(nodeName ? String(this.getElementName(nodeName)) : '');
+				}
 				if (this.#isDynamicJSXElementName(nodeName)) {
 					node.isDynamic = true;
 					this.#reportInvalidDynamicTag(nodeName);
@@ -12155,7 +12283,7 @@ export function TSRXPlugin(config) {
 					// Leaving a native template body. We may still be in TSX/JSX tokenization
 					// context (e.g. after parsing markup), but the closing `}` is a JS token.
 					// If we don't reset this here, the following `next()` can read EOF using
-					// `jsx_readToken()` and throw "Unterminated JSX contents".
+					// `jsx_readToken()` and report an unclosed element.
 					while (this.curContext() === tstc.tc_expr) {
 						this.#popContext();
 					}

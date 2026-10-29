@@ -247,51 +247,37 @@ function is_position_only(data) {
 }
 
 /**
- * The transform's own segments for diagnostics, for command-line checkers (the
- * `verificationMappings` mapper option): one
- * `[generatedStart, generatedLength, originalStart, originalLength]` entry per
- * index of every mapping whose `data.verification` is set, in generated order.
- * Unlike {@link to_span_mappings}, nothing is selected, coalesced or extended,
- * so entries may overlap, and zero-length points (a statement's or a
- * literal's start and end) are kept. Negative lengths and ranges outside
- * either text are skipped.
+ * The transform's own mappings for diagnostics, for command-line checkers (the
+ * `verificationMappings` mapper option): every mapping whose `data.verification`
+ * is set, in the transform's order, with its offsets and lengths as emitted.
+ * This is what `tsrx-tsc` hands Volar, so Volar's `SourceMap#toSourceRange`
+ * (with `fallbackToAnyMatch`) over it maps a diagnostic exactly as `tsrx-tsc`
+ * does. The grouping matters: Volar maps a range through one mapping that holds
+ * both of its ends, such as the start and end points of a literal, and tries
+ * mappings in this order, narrower first. A mapping whose verification is a
+ * `shouldReport` callback is left out: the callback depends on the diagnostic
+ * and doesn't serialize.
  * @param {readonly CodeMapping[]} mappings
- * @param {string} generated_text
- * @param {string} original_text
  * @returns {VerificationMapping[]}
  */
-export function to_verification_mappings(mappings, generated_text, original_text) {
+export function to_verification_mappings(mappings) {
 	/** @type {VerificationMapping[]} */
 	const result = [];
 	for (const mapping of mappings) {
-		if (!mapping.data?.verification) continue;
-		const count = Math.min(mapping.sourceOffsets.length, mapping.generatedOffsets.length);
-		for (let index = 0; index < count; index++) {
-			const original_start = mapping.sourceOffsets[index];
-			const generated_start = mapping.generatedOffsets[index];
-			const original_length = mapping.lengths[index] ?? mapping.lengths[0];
-			const generated_length =
-				mapping.generatedLengths?.[index] ?? mapping.generatedLengths?.[0] ?? original_length;
-			if (
-				!Number.isInteger(original_start) ||
-				!Number.isInteger(generated_start) ||
-				!Number.isInteger(original_length) ||
-				!Number.isInteger(generated_length) ||
-				original_start < 0 ||
-				generated_start < 0 ||
-				original_length < 0 ||
-				generated_length < 0 ||
-				generated_start + generated_length > generated_text.length ||
-				original_start + original_length > original_text.length
-			) {
-				continue;
-			}
-			result.push([generated_start, generated_length, original_start, original_length]);
+		const verification = mapping.data?.verification;
+		if (!verification) continue;
+		if (typeof verification === 'object' && typeof verification.shouldReport === 'function') {
+			continue;
 		}
+		result.push({
+			sourceOffsets: [...mapping.sourceOffsets],
+			generatedOffsets: [...mapping.generatedOffsets],
+			lengths: [...mapping.lengths],
+			generatedLengths: [...(mapping.generatedLengths ?? mapping.lengths)],
+			data: { verification: true },
+		});
 	}
-	return result.sort(
-		(left, right) => left[0] - right[0] || left[1] - right[1] || left[2] - right[2],
-	);
+	return result;
 }
 
 /**

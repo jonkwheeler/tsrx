@@ -1,11 +1,34 @@
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+import * as react from '@tsrx/react';
+import { transform_tsrx } from '@tsrx/typescript-plugin/src/transform.js';
 import { create_tsrx_content_mapper } from '../src/mapper.js';
 import { to_verification_mappings } from '../src/span-mappings.js';
 import { consumer_fixture_dir } from './fixture-utils.js';
 
 /** @import {VerificationMapping} from '../src/protocol.js' */
+/** @import {CodeMapping} from '@tsrx/core/types' */
+
+/**
+ * @typedef {{
+ * 	toSourceRange(start: number, end: number, fallback: boolean, filter?: (data: any) => boolean): Iterable<[number, number, ...unknown[]]>,
+ * }} VolarSourceMap
+ */
+
+/**
+ * `@volar/source-map`'s `SourceMap` and Volar's diagnostics filter, through the
+ * classic plugin's own Volar, as `tsrx-tsc` uses them.
+ * @type {{
+ * 	SourceMap: new (mappings: readonly object[]) => VolarSourceMap,
+ * 	shouldReportDiagnostics: (data: any, source: string, code: string) => boolean,
+ * }}
+ */
+const volar = createRequire(
+	createRequire(import.meta.url).resolve('@tsrx/typescript-plugin/package.json'),
+)('@volar/language-core');
 
 /**
  * Code whose printed form differs from the source in many ways: respaced
@@ -40,42 +63,92 @@ const SAMPLE = [
 ].join('\n');
 
 /**
- * A checker that rejects approximate ranges: a range's start maps through a
- * segment that starts there or holds it on equal-length text, and its end
- * through one that ends there or holds it. Undefined when no segment maps an
- * end, or two map it differently.
- * @param {VerificationMapping[]} segments
- * @param {number} start
- * @param {number} end
- * @returns {[number, number] | undefined}
+ * More `.tsrx` sources for the comparison with `tsrx-tsc`, with templates and
+ * many mistakes, so the checker reports many kinds of diagnostics.
  */
-function map_range(segments, start, end) {
-	/** @param {number} offset @param {boolean} at_end */
-	const map = (offset, at_end) => {
-		const found = new Set();
-		for (const [gs, gl, os, ol] of segments) {
-			if (at_end ? offset === gs + gl : offset === gs) found.add(at_end ? os + ol : os);
-			else if (gl === ol && gs < offset && offset < gs + gl) found.add(os + offset - gs);
+const PROBES = [
+	SAMPLE,
+	fs.readFileSync(path.join(consumer_fixture_dir, 'Panel.tsrx'), 'utf8'),
+	fs.readFileSync(path.join(consumer_fixture_dir, 'Button.tsrx'), 'utf8'),
+	`import { useState } from 'react';
+export function Counter({ start, unusedProp }: { start: number; unusedProp: string }) @{
+	const [count, setCount] = useState(start);
+	const unused = 1;
+	<div class="x" onClick={() => setCount(count + 'one')}>
+		@if (count > 'a') {
+			<span>{missing}</span>
+		} @else {
+			<b>{count.toFixed('2')}</b>
 		}
-		return found.size === 1 ? /** @type {number} */ ([...found][0]) : undefined;
-	};
-	const mapped_start = map(start, false);
-	const mapped_end = map(end, true);
-	return mapped_start === undefined || mapped_end === undefined
-		? undefined
-		: [mapped_start, mapped_end];
+		@for (const item of count; index i) {
+			<i key={i}>{item}</i>
+		}
+		<Unknown prop={[ /* c */ 1 as string ]} {...{ /* c */ ...count }} />
+	</div>
 }
+export default function Plain() {
+	const { a, b } = { a: 1, b: [ 2 ] };
+	let u1 = [ 1 ], u2 = {a: 1};
+	for (const x of [1]) { return; continue; }
+	return <p>{a + b}</p>;
+}
+`,
+	`export class Registry { static [k: string]: number; [k: string]: string; [k: string]: number }
+export type R = Record< {}, 1 > | import(  './missing'  ).X | { /* c */ [x: string]: 1; [x: string]: 2 };
+export const f = (n: number) => { while (n) { return; break; } };
+export function g(c: number, d: string) { if (c) c = d; else d = c; for (;;) { return; break; } }
+`,
+	`export const a: number[] = [1,   {},
+	[],
+		{ },
+];
+export const b: number[] = [ /* c */ {} , [ ] ,
+	// note
+	{} ];
+export const c: [number] = [   ];
+export const d: { x: number }[] = [{ x: 'no' }, {  }];
+export type T = { a: 1 } & {  } & { b:
+	Missing };
+export const e: number[] = [...[{}], , 1];
+declare function h(x: { a: number }): void;
+h({ a: 1, b: 2 });
+h({  });
+class Base {}
+export class X extends [Base][0] {}
+export class Z extends [1][0] {}
+`,
+	`declare function foo(): void;
+declare const xs: number[];
+declare const o: { a: number };
+export function a() {
+	for (const x of xs) {
+		return;
+		foo();
+	}
+	for (const k in o) { return; foo(); }
+	for (const x of 1) {}
+	for (const k in 1) {}
+	for (const [p, q] of [[1, 'a']]) { const r: string = p; }
+	outer: for (;;) { for (;;) { return; break outer; } }
+}
+export const m = import.meta.url satisfies number;
+export const n = (0, o);
+export const s = 'x' as unknown as number satisfies string;
+`,
+];
 
 /**
- * Semantic and syntactic diagnostics of `files` (name → text) as
- * `[file, start, end, code]`.
+ * Diagnostics of `files` (name → text) as `[file, start, end, code]`.
  * @param {Record<string, string>} files
  */
 function check(files) {
 	const options = {
 		strict: true,
 		noEmit: true,
+		noUnusedLocals: true,
+		noUnusedParameters: true,
 		allowUnreachableCode: false,
+		jsx: ts.JsxEmit.Preserve,
 		target: ts.ScriptTarget.ES2022,
 		types: [],
 	};
@@ -90,12 +163,27 @@ function check(files) {
 	return ts
 		.getPreEmitDiagnostics(program)
 		.filter((d) => d.file && d.file.fileName in files)
-		.map((d) => [
-			/** @type {ts.SourceFile} */ (d.file).fileName,
-			/** @type {number} */ (d.start),
-			/** @type {number} */ (d.start) + /** @type {number} */ (d.length),
-			d.code,
-		]);
+		.map((d) => ({
+			file: /** @type {ts.SourceFile} */ (d.file).fileName,
+			start: /** @type {number} */ (d.start),
+			end: /** @type {number} */ (d.start) + /** @type {number} */ (d.length),
+			code: d.code,
+		}));
+}
+
+/**
+ * The first source range Volar maps a generated range to, with
+ * `fallbackToAnyMatch` as `tsrx-tsc` uses it.
+ * @param {VolarSourceMap} map
+ * @param {number} start
+ * @param {number} end
+ * @param {(data: any) => boolean} [filter]
+ */
+function to_source(map, start, end, filter) {
+	for (const [source_start, source_end] of map.toSourceRange(start, end, true, filter)) {
+		return [source_start, source_end];
+	}
+	return null;
 }
 
 describe('verificationMappings', () => {
@@ -118,28 +206,49 @@ describe('verificationMappings', () => {
 		});
 	}
 
-	it('maps every diagnostic of a checker run on the generated code exactly', () => {
+	it('maps every diagnostic of a checker run as tsrx-tsc does, through @volar/source-map', () => {
+		const file_name = path.join(consumer_fixture_dir, 'Sample.tsrx');
+		/** @type {Record<string, string>} */
+		const files = {};
+		const maps = PROBES.map((content, index) => {
+			const result = transform({ verificationMappings: true }, content);
+			// What tsrx-tsc maps through: every mapping, with Volar's diagnostics filter.
+			const classic = transform_tsrx(react, file_name, content);
+			expect(classic.text).toBe(result.text);
+			files[`/probe${index}.tsx`] = result.text;
+			return {
+				exported: new volar.SourceMap(
+					/** @type {VerificationMapping[]} */ (result.verificationMappings),
+				),
+				all: new volar.SourceMap(classic.mappings),
+			};
+		});
+		const diagnostics = check(files);
+		for (const { file, start, end, code } of diagnostics) {
+			const { exported, all } = maps[Number(file.slice('/probe'.length, -'.tsx'.length))];
+			const filter = (/** @type {any} */ data) =>
+				volar.shouldReportDiagnostics(data, 'ts', String(code));
+			expect(to_source(exported, start, end), `${file}, TS${code} at ${start}`).toEqual(
+				to_source(all, start, end, filter),
+			);
+		}
+		expect(diagnostics.length).toBeGreaterThan(90);
+	}, 60_000);
+
+	it('maps the sample as tsc reports it on the same code as a .ts file', () => {
 		const result = transform({ verificationMappings: true });
-		const segments = /** @type {VerificationMapping[]} */ (result.verificationMappings);
+		const map = new volar.SourceMap(
+			/** @type {VerificationMapping[]} */ (result.verificationMappings),
+		);
 		const diagnostics = check({ '/virtual.ts': result.text, '/plain.ts': SAMPLE });
-		const plain = diagnostics
-			.filter(([file]) => file === '/plain.ts')
-			.map(([, start, end, code]) => [start, end, code]);
+		const starts = (/** @type {string} */ file) =>
+			diagnostics.filter((d) => d.file === file).map((d) => [d.start, d.code]);
 		const mapped = diagnostics
-			.filter(([file]) => file === '/virtual.ts')
-			.map(([, start, end, code]) => {
-				const range = map_range(
-					segments,
-					/** @type {number} */ (start),
-					/** @type {number} */ (end),
-				);
-				return range ? [...range, code] : ['unmapped', SAMPLE.length, code];
-			});
-		expect(plain.length).toBe(16);
-		expect(mapped).toEqual(plain);
-		// Without the zero-length points, 12 of the 16 would have no mapped end.
-		expect(segments.some(([, length]) => length === 0)).toBe(true);
-	});
+			.filter((d) => d.file === '/virtual.ts')
+			.map((d) => [to_source(map, d.start, d.end)?.[0], d.code]);
+		expect(mapped.length).toBeGreaterThan(15);
+		expect(mapped).toEqual(starts('/plain.ts'));
+	}, 60_000);
 
 	it('is absent by default and leaves the rest of the result unchanged', () => {
 		const default_result = transform();
@@ -154,52 +263,46 @@ describe('verificationMappings', () => {
 });
 
 describe('to_verification_mappings', () => {
-	const verify = { verification: true, customData: {} };
-	const text = 'abcdefghij';
-
 	/**
-	 * @param {number[]} source
-	 * @param {number[]} generated
+	 * @param {number[]} offsets
 	 * @param {number[]} lengths
-	 * @param {number[]} [generated_lengths]
-	 * @param {import('@tsrx/core/types').CodeMapping['data']} [data]
-	 * @returns {import('@tsrx/core/types').CodeMapping}
+	 * @param {CodeMapping['data']} data
+	 * @returns {CodeMapping}
 	 */
-	const mapping = (source, generated, lengths, generated_lengths = lengths, data = verify) => ({
-		sourceOffsets: source,
-		generatedOffsets: generated,
+	const mapping = (offsets, lengths, data) => ({
+		sourceOffsets: offsets,
+		generatedOffsets: offsets.map((offset) => offset + 1),
 		lengths,
-		generatedLengths: generated_lengths,
+		generatedLengths: lengths,
 		data,
 	});
 
-	it('keeps every verification index once, in generated order, overlapping or not', () => {
+	it('keeps each mapping with verification whole and in order, and nothing else', () => {
+		const points = mapping([1, 9], [0, 0], { verification: true, customData: {} });
+		const wide = mapping([0], [6], { verification: true, customData: {} });
+		const narrow = mapping([2], [2], { verification: true, customData: {} });
 		const mappings = [
-			// A container and the token inside it both stay.
-			mapping([0], [0], [6]),
-			mapping([2], [2], [2]),
-			// Points of one mapping: its start and end, with no length.
-			mapping([1, 9], [1, 8], [0, 0]),
-			// Different lengths on the two sides.
-			mapping([6], [7], [3], [2]),
+			points,
+			mapping([3], [1], { semantic: true, customData: {} }),
+			narrow,
+			wide,
+			mapping([4], [1], { verification: { shouldReport: () => false }, customData: {} }),
+			mapping([5], [1], { verification: {}, customData: {} }),
 		];
-		expect(to_verification_mappings(mappings, text, text)).toEqual([
-			[0, 6, 0, 6],
-			[1, 0, 1, 0],
-			[2, 2, 2, 2],
-			[7, 2, 6, 3],
-			[8, 0, 9, 0],
+		const strip = (/** @type {CodeMapping} */ m) => ({
+			sourceOffsets: m.sourceOffsets,
+			generatedOffsets: m.generatedOffsets,
+			lengths: m.lengths,
+			generatedLengths: m.generatedLengths,
+			data: { verification: true },
+		});
+		expect(to_verification_mappings(mappings)).toEqual([
+			strip(points),
+			strip(narrow),
+			strip(wide),
+			strip(mappings[5]),
 		]);
-	});
-
-	it('skips mappings without verification, negative lengths and ranges outside a text', () => {
-		const mappings = [
-			mapping([0], [0], [2], [2], { customData: {} }),
-			mapping([0], [0], [-1]),
-			mapping([9], [9], [2]),
-			mapping([0], [9], [1], [2]),
-			mapping([3], [3], [1]),
-		];
-		expect(to_verification_mappings(mappings, text, text)).toEqual([[3, 1, 3, 1]]);
+		// The arrays are copies, not the transform's own.
+		expect(to_verification_mappings(mappings)[0].sourceOffsets).not.toBe(points.sourceOffsets);
 	});
 });

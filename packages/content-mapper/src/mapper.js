@@ -32,7 +32,7 @@ const bare_package_specifier_pattern =
  * @property {string} [compiler] Bare package specifier of the TSRX compiler. Takes precedence over `tsrx.compiler` in the tsconfig chain.
  * @property {'web' | 'ios' | 'android'} [platform] Platform for `import.meta.env.platform` flags. Takes precedence over `tsrx.platform`.
  * @property {boolean} [languageFeatures] `false` clears every editor feature bit while keeping spans for diagnostics (CLI-only projects).
- * @property {boolean} [verificationMappings] `true` adds `verificationMappings` to each transform result: the transform's own diagnostics segments, for command-line checkers. Off by default; TypeScript ignores the field.
+ * @property {boolean} [verificationMappings] `true` adds `verificationMappings` to each transform result: the transform's own diagnostics mappings, in Volar's shape and order, for command-line checkers. Off by default; TypeScript ignores the field.
  */
 
 /**
@@ -184,8 +184,12 @@ export function create_tsrx_content_mapper(context = {}) {
 			state.lastGood.set(file_name, result.sourceAst);
 		}
 
+		// The one generated output every consumer below reads, so that a rewrite of
+		// the text and its mappings reaches the spans, the directives and the
+		// verification mappings alike.
+		const generated = { text: result.text, mappings: result.mappings };
 		const language_features = state.options.languageFeatures !== false;
-		const mappings = to_span_mappings(result.mappings, result.text, content, {
+		const mappings = to_span_mappings(generated.mappings, generated.text, content, {
 			languageFeatures: language_features,
 		});
 		// Every error goes to TypeScript, even one with a TypeScript code: the
@@ -198,20 +202,18 @@ export function create_tsrx_content_mapper(context = {}) {
 		const diagnosticDirectives = ignore_directives(
 			result.errors,
 			result.sourceAst,
-			result.mappings,
+			generated.mappings,
 			content.length,
-			result.text.length,
+			generated.text.length,
 		);
 		return {
-			text: result.text,
+			text: generated.text,
 			extension: '.tsx',
 			mappings,
 			...(diagnostics.length > 0 ? { diagnostics } : null),
 			...(diagnosticDirectives ? { diagnosticDirectives } : null),
 			...(state.options.verificationMappings
-				? {
-						verificationMappings: to_verification_mappings(result.mappings, result.text, content),
-					}
+				? { verificationMappings: to_verification_mappings(generated.mappings) }
 				: null),
 		};
 	}

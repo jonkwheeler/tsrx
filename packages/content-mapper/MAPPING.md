@@ -59,8 +59,9 @@ diagnostic text shows the authored name.
 
 Everything below applies to `mappings`, the spans TypeScript 7 reads. The opt-in
 `verificationMappings` output (`to_verification_mappings`) skips all of it: it
-keeps every index of every mapping with `verification`, zero-length points
-included, overlapping or not, as the transform emitted it.
+keeps every mapping with `verification` whole (zero-length points included) and in
+the transform's order, which is what Volar, and so `tsrx-tsc`, maps diagnostics
+through.
 
 - Container spans lose to the token spans they enclose (Verbatim first, then
   shorter before longer, disjoint in generated space).

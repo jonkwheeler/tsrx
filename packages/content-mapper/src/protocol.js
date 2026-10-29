@@ -59,17 +59,17 @@ export const DiagnosticDirectivePolicy = /** @type {const} */ ({ Ignore: 0, Expe
 
 /**
  * Not part of the TypeScript 7 protocol: what the `verificationMappings` mapper
- * option adds to a transform result for command-line checkers. One entry per
- * index of every compiler mapping marked for diagnostics, as the transform
- * emitted it: no selection, coalescing or whitespace extension, so entries may
- * overlap. A zero-length entry is a point: the transform maps that exact
- * position (the start or end of a statement or literal) and nothing around it.
- * @typedef {[
- * 	generatedStart: number,
- * 	generatedLength: number,
- * 	originalStart: number,
- * 	originalLength: number,
- * ]} VerificationMapping
+ * option adds to a transform result for command-line checkers. Every compiler
+ * mapping marked for diagnostics, in Volar's `CodeMapping` shape and in the
+ * transform's order, so `new SourceMap(verificationMappings).toSourceRange(start,
+ * end, true)` from `@volar/source-map` maps a diagnostic as `tsrx-tsc` does.
+ * Points (offsets with zero length) belong to the mapping they are listed in.
+ * @typedef {object} VerificationMapping
+ * @property {number[]} sourceOffsets
+ * @property {number[]} generatedOffsets
+ * @property {number[]} lengths
+ * @property {number[]} generatedLengths
+ * @property {{ verification: true }} data
  */
 
 /**

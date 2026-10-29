@@ -38,11 +38,12 @@ customLanguages:
     # Relative to this file, or absolute.
     libraryPath: tools/tsrx.so
     extensions: [tsrx]
-    # Optional. `$` is an identifier character in TSRX, so `$NAME`
-    # meta-variables parse as they are. With `expandoChar: _`, `_NAME`
-    # works too.
-    # expandoChar: _
 ```
+
+Leave `expandoChar` unset. `$` is an identifier character in TSRX, so `$NAME`
+meta-variables already parse. With `expandoChar: _`, ast-grep replaces every `$`
+in a pattern, so the pattern can no longer match TSRX's own `$` names, such as
+`theme.$class`.
 
 ### Search and rewrite
 
@@ -55,10 +56,10 @@ shell.
 ast-grep run --custom-languages allow -l tsrx \
   -p '@if ($COND) { $$$THEN } @else { $$$ELSE }' src
 
-# Rename a prop, in place
+# Rename a prop wherever it sits among the attributes, in place
 ast-grep run --custom-languages allow -l tsrx \
-  -p '<Button label={$LABEL} $$$REST />' \
-  -r '<Button text={$LABEL} $$$REST />' -U src
+  -p '<Button $$$BEFORE label={$LABEL} $$$AFTER />' \
+  -r '<Button $$$BEFORE text={$LABEL} $$$AFTER />' -U src
 ```
 
 Patterns are TSRX code, so they can contain directives, `@{ … }` statement
@@ -88,6 +89,7 @@ fix: |-
   }
 ```
 
-ast-grep re-indents the lines of a multi-line `fix` only in files indented with
-spaces. In a tab-indented file, format it afterwards, for example with Prettier
-and `@tsrx/prettier-plugin`.
+ast-grep doesn't reformat what it writes. An empty `$$$BEFORE` or `$$$AFTER`
+leaves a double space, and in a tab-indented file the lines of a multi-line `fix`
+aren't re-indented. Format the files afterwards, for example with Prettier and
+`@tsrx/prettier-plugin`.

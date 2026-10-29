@@ -409,6 +409,54 @@ const withComponent = () => {
 			expect(range_contains(module_script.range, child.range), child.name).toBe(true);
 		}
 	});
+
+	it('takes each `<script>` symbol from its element, whatever the text around the tags', async () => {
+		// `</script >` closes an element too, and `<script` can appear in an attribute value or
+		// in the body.
+		const source = `export function App() @{
+	<>
+		<script type="module" data-note="<script>">
+			const first = '<script';
+		</script >
+		<script>
+			const second = 2;
+		</script>
+		<script>
+			const third = 3;
+		</script >
+	</>
+}
+`;
+
+		const { document, service, uri } = create_symbol_harness(source, 'react/script-tags.tsrx');
+		const symbols = await service.getDocumentSymbols(uri);
+		const scripts = symbols?.filter((symbol) => symbol.name === '<script>') ?? [];
+
+		expect(scripts.map((script) => script.children?.map((child) => child.name))).toEqual([
+			['first'],
+			['second'],
+			['third'],
+		]);
+		// From the tag name to the closing tag name, each within its own element.
+		expect(scripts.map((script) => get_range_text(document, script.range))).toEqual([
+			'script type="module" data-note="<script>">\n\t\t\tconst first = \'<script\';\n\t\t</script',
+			'script>\n\t\t\tconst second = 2;\n\t\t</script',
+			'script>\n\t\t\tconst third = 3;\n\t\t</script',
+		]);
+		// The opening tag's name selects each one.
+		const lines = source.split('\n');
+		expect(
+			scripts.map(({ selectionRange }) => [
+				selectionRange.start.line,
+				lines[selectionRange.start.line].slice(0, selectionRange.start.character).trim(),
+				get_range_text(document, selectionRange),
+			]),
+		).toEqual([
+			[2, '<', 'script'],
+			[5, '<', 'script'],
+			[8, '<', 'script'],
+		]);
+	});
 });
 
 /**

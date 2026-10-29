@@ -23,6 +23,15 @@ import { builders as b, parseModule as parse_module } from '@tsrx/core';
  */
 
 /**
+ * A raw-text `<script>` element, its body verbatim in `content`.
+ * @typedef {{
+ * 	openingElement: { name: { start: number, end: number }, end: number },
+ * 	closingElement: { name: { end: number } } | null,
+ * 	content: string,
+ * }} ScriptElement;
+ */
+
+/**
  * @typedef {[
  * Omit<DocumentSymbol, 'children'> & { children: SymbolInfo[] }, {
  * 	rangeNode: AST.Node;
@@ -301,10 +310,13 @@ function isSymbolMapping(data) {
 export function collectDocumentSymbols(ast, document, scriptRegions = []) {
 	const body = Array.isArray(ast.body) ? ast.body : [];
 	const symbols = collectSymbolsFromStatements(body, document);
-	for (const region of scriptRegions) {
-		const symbol = createScriptSymbol(region, document);
-		if (symbol) {
-			symbols.push(symbol);
+	if (scriptRegions.length > 0) {
+		const elements = findScriptElements(ast);
+		for (const region of scriptRegions) {
+			const element = elements.get(region.start);
+			if (element) {
+				symbols.push(createScriptSymbol(element, region, document));
+			}
 		}
 	}
 	// Top-level and in source order, like the CSS rules of `<style>` blocks: the generated JSX
@@ -319,45 +331,76 @@ export function collectDocumentSymbols(ast, document, scriptRegions = []) {
 }
 
 /**
+ * The `<script>` elements of a source AST, by the offset where their body starts (the end of
+ * the opening tag), which is where the compiler's script regions start.
+ * @param {AST.Node} ast
+ * @returns {Map<number, ScriptElement>}
+ */
+function findScriptElements(ast) {
+	/** @type {Map<number, ScriptElement>} */
+	const elements = new Map();
+	/** @param {any} node */
+	const visit = (node) => {
+		if (
+			node.type === 'JSXElement' &&
+			node.openingElement?.name?.type === 'JSXIdentifier' &&
+			node.openingElement.name.name === 'script' &&
+			typeof node.content === 'string'
+		) {
+			elements.set(node.openingElement.end, node);
+		}
+		for (const key in node) {
+			if (key === 'loc' || key === 'metadata' || key === 'css') continue;
+			const value = node[key];
+			for (const child of Array.isArray(value) ? value : [value]) {
+				if (child && typeof child === 'object' && typeof child.type === 'string') {
+					visit(child);
+				}
+			}
+		}
+	};
+	visit(ast);
+	return elements;
+}
+
+/**
  * A `<script>` symbol spanning the element from its tag name to its closing tag name (the
- * parts of it that map to the generated TSX), with the top-level declarations of its body as
- * children. The transform appends each body to the generated TSX as a bare block, which
- * TypeScript's navigation tree skips, so the body is parsed here, where it stands in the
- * source: the rest of the file is blanked, which keeps every offset a source offset.
+ * parts of it that map to the generated TSX), selected by the opening tag's name, with the
+ * top-level declarations of its body as children. The transform appends each body to the
+ * generated TSX as a bare block, which TypeScript's navigation tree skips, so the body is
+ * parsed here, where it stands in the source: the rest of the file is blanked, which keeps
+ * every offset a source offset.
+ * @param {ScriptElement} element
  * @param {{ start: number, content: string }} region
  * @param {TextDocument} document
- * @returns {SymbolInfo | null}
+ * @returns {SymbolInfo}
  */
-function createScriptSymbol(region, document) {
-	const text = document.getText();
-	const start = text.lastIndexOf('<script', region.start);
-	const close = text.indexOf('</script>', region.start + region.content.length);
-	if (start === -1 || close === -1) {
-		return null;
-	}
+function createScriptSymbol(element, region, document) {
 	/** @type {AST.Node[]} */
 	let statements = [];
 	try {
-		const blanked = text.slice(0, region.start).replace(/[^\r\n]/g, ' ') + region.content;
+		const blanked =
+			document
+				.getText()
+				.slice(0, region.start)
+				.replace(/[^\r\n]/g, ' ') + region.content;
 		statements = parse_module(blanked, document.uri, { loose: true }).body;
 	} catch (error) {
 		logError(`Unable to read a <script> body: ${/** @type {Error} */ (error).message}`);
 	}
-	const element = /** @type {AST.Node} */ (
+	const name = element.openingElement.name;
+	const range = /** @type {AST.Node} */ (
 		/** @type {unknown} */ ({
 			type: 'JSXElement',
-			start: start + 1,
-			end: close + '</script'.length,
+			start: name.start,
+			end: element.closingElement?.name.end ?? region.start + region.content.length,
 		})
-	);
-	const name = /** @type {AST.Node} */ (
-		/** @type {unknown} */ ({ type: 'JSXIdentifier', start: start + 1, end: start + 7 })
 	);
 	return createNamedNodeSymbol(
 		'<script>',
 		SymbolKind.Module,
-		element,
-		name,
+		range,
+		/** @type {AST.Node} */ (/** @type {unknown} */ (name)),
 		document,
 		collectSymbolsFromStatements(statements, document),
 	);

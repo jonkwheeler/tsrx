@@ -12735,6 +12735,10 @@ describe('mistakes that TypeScript reports only from its checker', () => {
 					'constructor() {} }',
 				],
 				['class A { m(public x) { throw\nx; } }', 'TS1142', '\nx'],
+				// Codes TypeScript's parser reports too, but its checker reports here.
+				['class A { async m(public x) { let await; } }', 'TS1359', 'await;'],
+				['class A { m(public x) { /(/; } }', 'TS1005', '(/;'],
+				['class A { m(public x) { ({ get a() {} } = y); } }', 'TS1136', 'a() {}'],
 			].map(
 				([source, code, at]) =>
 					/** @type {[string, string, Array<[string | undefined, string]>, [string, string]]} */ ([

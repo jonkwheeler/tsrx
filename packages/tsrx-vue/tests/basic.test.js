@@ -1172,6 +1172,64 @@ describe('@tsrx/vue basic', () => {
 			expect(component_start).toBeGreaterThan(-1);
 			expect(code.indexOf(helper)).toBeGreaterThan(component_start);
 		});
+
+		it.each([
+			[
+				'a static method that reads a private field',
+				`export function make() {
+					class Holder {
+						static #m = 'boom';
+						static App() @{
+							${try_block('Holder.#m')}
+						}
+					}
+					return Holder;
+				}`,
+				'class Holder {',
+			],
+			[
+				'a method of a named class expression that reads the class name',
+				`export function make() {
+					const K = class Inner {
+						static v = 'v';
+						App = function App() @{
+							${try_block('Inner.v')}
+						};
+					};
+					return K;
+				}`,
+				'class Inner {',
+			],
+		])('inside the class for a component in %s', (_label, source, class_start) => {
+			const { code } = compile(source, 'App.tsrx');
+
+			// A helper before the class can't read its private names or its own name.
+			expect(code.search(/const \w+__StatementBodyHook1 = /)).toBeGreaterThan(
+				code.indexOf(class_start),
+			);
+		});
+
+		it('beside the component in a static block of a class', () => {
+			const { code } = compile(
+				`export function make(label: string) {
+					let App;
+					class Holder {
+						static {
+							App = function App() @{
+								${try_block('label')}
+							};
+						}
+					}
+					return [Holder, App];
+				}`,
+				'App.tsrx',
+			);
+
+			// The static block has its own statement list, inside the class.
+			const helper_start = code.indexOf(helper);
+			expect(helper_start).toBeGreaterThan(code.indexOf('static {'));
+			expect(helper_start).toBeLessThan(code.indexOf('App = defineVaporComponent(function App('));
+		});
 	});
 
 	it('keeps try/pending/catch Suspense lowering valid in type-only output', () => {

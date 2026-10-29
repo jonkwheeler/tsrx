@@ -1366,7 +1366,8 @@ function create_helper_state(base_name, local = false, component) {
  * declaration put ahead of the statement that holds it sees every binding the
  * node sees outside its own scope. A component in an expression-bodied arrow,
  * in the body of a `for`, `while` or `if` without braces, in a labeled
- * statement or in a `switch` case's test has none.
+ * statement, in a class outside a static block, or in a `switch` case's test
+ * has none.
  *
  * @param {AST.Node} node
  * @param {AST.Node[]} path the node's ancestors, which can end with the node itself
@@ -1383,14 +1384,18 @@ function has_statement_list_beside(node, path) {
 			return ancestor.consequent.includes(/** @type {AST.Statement} */ (child));
 		}
 		if (is_statement_list_owner(ancestor, 'body')) return true;
-		if (is_function_node(ancestor) || SCOPE_STATEMENT_TYPES.has(ancestor.type)) return false;
+		if (is_function_node(ancestor) || HOIST_BARRIER_TYPES.has(ancestor.type)) return false;
 		child = ancestor;
 	}
 	return false;
 }
 
-/** Statements whose parts aren't statement lists of the enclosing function. */
-const SCOPE_STATEMENT_TYPES = new Set([
+/**
+ * Nodes a helper can't be moved out of: statements whose parts aren't
+ * statement lists of the enclosing function, and classes, whose private names
+ * and own name are bound only inside them.
+ */
+const HOIST_BARRIER_TYPES = new Set([
 	'IfStatement',
 	'ForStatement',
 	'ForInStatement',
@@ -1400,6 +1405,9 @@ const SCOPE_STATEMENT_TYPES = new Set([
 	'LabeledStatement',
 	'WithStatement',
 	'CatchClause',
+	'ClassDeclaration',
+	'ClassExpression',
+	'ClassBody',
 ]);
 
 /**

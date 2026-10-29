@@ -238,9 +238,7 @@ export function List({ items =${whitespace}EMPTY_ARRAY as string[] }: { items?: 
 		});
 	});
 
-	// Solid and Vue report some of these as TSRX2034 (#259); their own tests say
-	// which.
-	describe.skipIf(rejectsTemplateYield)(`[${name}] yield in lowered expressions (#246)`, () => {
+	describe(`[${name}] yield in lowered expressions (#246)`, () => {
 		/** @type {Record<string, string>} */
 		const SOURCES = {
 			'host spread beside a ref in a ternary arm': `export function* makeInput(enabled: boolean) {
@@ -254,16 +252,21 @@ export function List({ items =${whitespace}EMPTY_ARRAY as string[] }: { items?: 
 }`,
 		};
 
-		it.each(Object.keys(SOURCES))('keeps the yield inside a generator for the %s', (label) => {
-			const runtime = compile(SOURCES[label], 'App.tsrx').code;
-			const type_only = compile_to_volar_mappings(SOURCES[label], 'App.tsrx', { loose: true });
-			expect(type_only.errors).toEqual([]);
-			for (const code of [runtime, type_only.code]) {
-				expect(() =>
-					parseModule(code, 'App.tsx', { preserveParens: true, errors: [], comments: [] }),
-				).not.toThrow();
-			}
-		});
+		// Solid and Vue report some of these as TSRX2034 (#259); their own tests
+		// say which.
+		it.skipIf(rejectsTemplateYield).each(Object.keys(SOURCES))(
+			'keeps the yield inside a generator for the %s',
+			(label) => {
+				const runtime = compile(SOURCES[label], 'App.tsrx').code;
+				const type_only = compile_to_volar_mappings(SOURCES[label], 'App.tsrx', { loose: true });
+				expect(type_only.errors).toEqual([]);
+				for (const code of [runtime, type_only.code]) {
+					expect(() =>
+						parseModule(code, 'App.tsx', { preserveParens: true, errors: [], comments: [] }),
+					).not.toThrow();
+				}
+			},
+		);
 
 		it.each(Object.keys(SOURCES))('maps the yielded value in the %s', (label) => {
 			const source = SOURCES[label];

@@ -57,6 +57,11 @@ diagnostic text shows the authored name.
 
 ## Post-processing in `span-mappings.js`
 
+Everything below applies to `mappings`, the spans TypeScript 7 reads. The opt-in
+`verificationMappings` output (`to_verification_mappings`) skips all of it: it
+keeps every index of every mapping with `verification`, zero-length points
+included, overlapping or not, as the transform emitted it.
+
 - Container spans lose to the token spans they enclose (Verbatim first, then
   shorter before longer, disjoint in generated space).
 - Neighbouring Verbatim spans with equal feature bits whose gap is identical text

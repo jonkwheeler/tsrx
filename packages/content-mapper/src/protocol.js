@@ -58,6 +58,21 @@ export const DiagnosticDirectivePolicy = /** @type {const} */ ({ Ignore: 0, Expe
  */
 
 /**
+ * Not part of the TypeScript 7 protocol: what the `verificationMappings` mapper
+ * option adds to a transform result for command-line checkers. One entry per
+ * index of every compiler mapping marked for diagnostics, as the transform
+ * emitted it: no selection, coalescing or whitespace extension, so entries may
+ * overlap. A zero-length entry is a point: the transform maps that exact
+ * position (the start or end of a statement or literal) and nothing around it.
+ * @typedef {[
+ * 	generatedStart: number,
+ * 	generatedLength: number,
+ * 	originalStart: number,
+ * 	originalLength: number,
+ * ]} VerificationMapping
+ */
+
+/**
  * @typedef {object} MapperDiagnostic
  * @property {number} start Offset into the original text (UTF-16 code units).
  * @property {number} length
@@ -94,6 +109,7 @@ export const DiagnosticDirectivePolicy = /** @type {const} */ ({ Ignore: 0, Expe
  * 	diagnostics?: MapperDiagnostic[],
  * 	diagnosticDirectives?: DiagnosticDirectives,
  * 	supplemental?: MappedOutput[],
+ * 	verificationMappings?: VerificationMapping[],
  * }} TransformResult
  */
 

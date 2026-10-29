@@ -1,5 +1,5 @@
 /** @import {CodeMapping} from '@tsrx/core/types' */
-/** @import {SpanMapping} from './protocol.js' */
+/** @import {SpanMapping, VerificationMapping} from './protocol.js' */
 
 import { SpanMapFeature, SpanMapKind } from './protocol.js';
 
@@ -243,6 +243,54 @@ function is_position_only(data) {
 		!data.navigation &&
 		!data.structure &&
 		!data.format
+	);
+}
+
+/**
+ * The transform's own segments for diagnostics, for command-line checkers (the
+ * `verificationMappings` mapper option): one
+ * `[generatedStart, generatedLength, originalStart, originalLength]` entry per
+ * index of every mapping whose `data.verification` is set, in generated order.
+ * Unlike {@link to_span_mappings}, nothing is selected, coalesced or extended,
+ * so entries may overlap, and zero-length points (a statement's or a
+ * literal's start and end) are kept. Negative lengths and ranges outside
+ * either text are skipped.
+ * @param {readonly CodeMapping[]} mappings
+ * @param {string} generated_text
+ * @param {string} original_text
+ * @returns {VerificationMapping[]}
+ */
+export function to_verification_mappings(mappings, generated_text, original_text) {
+	/** @type {VerificationMapping[]} */
+	const result = [];
+	for (const mapping of mappings) {
+		if (!mapping.data?.verification) continue;
+		const count = Math.min(mapping.sourceOffsets.length, mapping.generatedOffsets.length);
+		for (let index = 0; index < count; index++) {
+			const original_start = mapping.sourceOffsets[index];
+			const generated_start = mapping.generatedOffsets[index];
+			const original_length = mapping.lengths[index] ?? mapping.lengths[0];
+			const generated_length =
+				mapping.generatedLengths?.[index] ?? mapping.generatedLengths?.[0] ?? original_length;
+			if (
+				!Number.isInteger(original_start) ||
+				!Number.isInteger(generated_start) ||
+				!Number.isInteger(original_length) ||
+				!Number.isInteger(generated_length) ||
+				original_start < 0 ||
+				generated_start < 0 ||
+				original_length < 0 ||
+				generated_length < 0 ||
+				generated_start + generated_length > generated_text.length ||
+				original_start + original_length > original_text.length
+			) {
+				continue;
+			}
+			result.push([generated_start, generated_length, original_start, original_length]);
+		}
+	}
+	return result.sort(
+		(left, right) => left[0] - right[0] || left[1] - right[1] || left[2] - right[2],
 	);
 }
 

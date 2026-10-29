@@ -19,7 +19,7 @@ import { transform_tsrx } from '@tsrx/typescript-plugin/src/transform.js';
 import { DIAGNOSTIC_SOURCE, MAPPER_CODES, TYPESCRIPT_CODE_PREFIX } from '@tsrx/core/diagnostics';
 import { ignore_directives } from './diagnostic-directives.js';
 import { build_export_stub } from './export-stub.js';
-import { to_span_mappings } from './span-mappings.js';
+import { to_span_mappings, to_verification_mappings } from './span-mappings.js';
 
 const require = createRequire(import.meta.url);
 const bare_package_specifier_pattern =
@@ -32,6 +32,7 @@ const bare_package_specifier_pattern =
  * @property {string} [compiler] Bare package specifier of the TSRX compiler. Takes precedence over `tsrx.compiler` in the tsconfig chain.
  * @property {'web' | 'ios' | 'android'} [platform] Platform for `import.meta.env.platform` flags. Takes precedence over `tsrx.platform`.
  * @property {boolean} [languageFeatures] `false` clears every editor feature bit while keeping spans for diagnostics (CLI-only projects).
+ * @property {boolean} [verificationMappings] `true` adds `verificationMappings` to each transform result: the transform's own diagnostics segments, for command-line checkers. Off by default; TypeScript ignores the field.
  */
 
 /**
@@ -207,6 +208,11 @@ export function create_tsrx_content_mapper(context = {}) {
 			mappings,
 			...(diagnostics.length > 0 ? { diagnostics } : null),
 			...(diagnosticDirectives ? { diagnosticDirectives } : null),
+			...(state.options.verificationMappings
+				? {
+						verificationMappings: to_verification_mappings(result.mappings, result.text, content),
+					}
+				: null),
 		};
 	}
 
@@ -324,6 +330,7 @@ export function create_tsrx_content_mapper(context = {}) {
 			extension: '.ts',
 			mappings: [],
 			diagnostics: [clamp_diagnostic(diagnostic, content.length)],
+			...(state.options.verificationMappings ? { verificationMappings: [] } : null),
 		};
 	}
 
@@ -377,12 +384,13 @@ export function validate_options(raw) {
 				}
 				break;
 			case 'languageFeatures':
+			case 'verificationMappings':
 				if (typeof value === 'boolean') {
-					options.languageFeatures = value;
+					options[key] = value;
 				} else {
 					optionDiagnostics.push({
 						path: [key],
-						messageText: '"languageFeatures" must be a boolean.',
+						messageText: `"${key}" must be a boolean.`,
 						code: MAPPER_CODES.INVALID_CONFIG,
 					});
 				}

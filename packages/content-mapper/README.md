@@ -69,14 +69,30 @@ script therefore serves every supported TypeScript
 
 The mapper entry accepts an `options` object:
 
-| Option             | Type                          | Meaning                                                                                |
-| ------------------ | ----------------------------- | -------------------------------------------------------------------------------------- |
-| `compiler`         | bare package specifier        | The TSRX target compiler to use, for example `@tsrx/react` or a third-party compiler.  |
-| `platform`         | `"web"`, `"ios"`, `"android"` | Platform for `import.meta.env.platform` flags.                                         |
-| `languageFeatures` | boolean, default `true`       | `false` keeps spans for diagnostics but drops editor feature bits (CLI-only projects). |
+| Option                 | Type                          | Meaning                                                                                                               |
+| ---------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `compiler`             | bare package specifier        | The TSRX target compiler to use, for example `@tsrx/react` or a third-party compiler.                                 |
+| `platform`             | `"web"`, `"ios"`, `"android"` | Platform for `import.meta.env.platform` flags.                                                                        |
+| `languageFeatures`     | boolean, default `true`       | `false` keeps spans for diagnostics but drops editor feature bits (CLI-only projects).                                |
+| `verificationMappings` | boolean, default `false`      | `true` adds the transform's own diagnostics segments to each transform result, for command-line checkers (see below). |
 
 Invalid options are reported by TypeScript as option diagnostics on the mapper
 entry.
+
+With `verificationMappings: true`, each transform result also has
+`verificationMappings`: one
+`[generatedStart, generatedLength, originalStart, originalLength]` entry per index
+of every compiler mapping marked for diagnostics, in generated order. It is for a
+checker that runs TypeScript (or another checker) on the generated text itself,
+through `create_tsrx_content_mapper` from `@tsrx/content-mapper/mapper`, and maps
+every diagnostic back exactly or not at all. Unlike `mappings`, the entries are
+the transform's segments as emitted: nothing is selected, coalesced or extended
+over whitespace, so entries may overlap. A zero-length entry is a point: the
+transform maps that exact position, such as the start or end of a statement or a
+literal, and nothing around it. A range maps through it only when one of its ends
+is that position. The field is outside the TypeScript 7 protocol
+(`VerificationMapping` in `@tsrx/content-mapper/protocol`); TypeScript ignores it,
+and `mappings` is the same with or without the option.
 
 ### Compiler selection
 

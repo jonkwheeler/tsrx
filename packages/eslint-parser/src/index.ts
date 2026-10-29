@@ -30,14 +30,16 @@ const visitorKeys: Record<string, string[]> = {
 	JSXNamespacedName: ['namespace', 'name'],
 	JSXText: [],
 	JSXStyleElement: ['openingElement', 'children', 'closingElement'],
-	JSXIfExpression: ['test', 'consequent', 'alternate'],
+	JSXIfExpression: ['statement'],
 	JSXForExpression: ['index', 'key', 'loop', 'empty'],
 	JSXSwitchExpression: ['discriminant', 'cases'],
 	JSXSwitchCase: ['test', 'consequent'],
-	JSXTryExpression: ['block', 'handler', 'finalizer', 'pending'],
+	JSXTryExpression: ['block', 'pending', 'statement'],
 	JSXCodeBlock: ['body', 'render'],
 	StyleSheet: [],
 	ForOfStatement: ['left', 'right', 'body'],
+	IfStatement: ['test', 'consequent', 'alternate'],
+	TryStatement: ['block', 'pending', 'handler', 'finalizer'],
 };
 
 /**
@@ -123,6 +125,11 @@ const LOOP_FIELDS: Record<string, string[]> = {
 	ForOfStatement: ['await', 'left', 'right', 'body'],
 };
 
+const STATEMENT_FIELDS: Record<string, { keyword: string; fields: string[] }> = {
+	JSXIfExpression: { keyword: 'if', fields: ['test', 'consequent', 'alternate'] },
+	JSXTryExpression: { keyword: 'try', fields: ['block', 'pending', 'handler'] },
+};
+
 const SIGNATURE_TYPES = new Set([
 	'TSFunctionType',
 	'TSConstructorType',
@@ -183,6 +190,27 @@ function normalize_tsrx_ast_for_eslint(ast: any, code: string): Span[] {
 				delete node[key];
 			}
 			node.loop = loop;
+		}
+
+		// An `@if` or `@try` likewise keeps its if or try statement in `statement`,
+		// so code path analysis gives each arm a path of its own, as it does the
+		// branches of an `if` and the blocks of a `try`. A `@pending` block stays
+		// in source order, after the `try` block. Code path analysis throws on a
+		// `try` without a `catch` or `finally`, so a `@try` with no `@catch` keeps
+		// its blocks. `@switch` keeps its cases: a `switch` would fall through
+		// from each case into the next.
+		if (node.type in STATEMENT_FIELDS && (node.type !== 'JSXTryExpression' || node.handler)) {
+			const { keyword, fields } = STATEMENT_FIELDS[node.type];
+			const statement: any = {
+				type: node.statementType,
+				start: code.indexOf(keyword, node.start),
+				end: node.end,
+			};
+			for (const key of fields) {
+				statement[key] = node[key];
+				delete node[key];
+			}
+			node.statement = statement;
 		}
 
 		// typescript-eslint names the parameters of a function type or signature

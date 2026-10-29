@@ -303,6 +303,62 @@ export function A({ items }) @{
 		}
 	});
 
+	it('gives each arm of an @if or @try its own code path', () => {
+		const code = `export function A({ n }) @{
+	let x = 0;
+	<div>
+		@if (n) { throw new Error('a'); } @else if (n > 1) { <i /> } @else { <u /> }
+		@if (n > 2) { x = 1; <b /> } @else { x = 2; <s /> }
+		@try { throw new Error('b'); } @catch (e) { <p>{String(e)}</p> }
+		@try { <Child /> } @pending { <p /> } @catch (e) { <p>{String(e)}</p> }
+		@try { <Child /> } @pending { <p /> }
+		@if (n > 3) { throw new Error('c'); const late = 1; <p>{late}</p> }
+		{x}
+	</div>
+}
+export const B = ({ ok }) => @if (ok) { throw new Error('d'); } @else { <i /> };`;
+		// Only `x = 0` is overwritten on every path, and only `late` follows a
+		// `throw` in its own arm. (ESLint 9 words the first message differently.)
+		expect(
+			lint(code, {
+				rules: { 'no-unreachable': 'error', 'no-useless-assignment': 'error' },
+			}).map((message) => message.split(': ', 2).join(': ')),
+		).toEqual(['2: no-useless-assignment', '9: no-unreachable']);
+	});
+
+	it('shows ESLint the if or try statement of an @if or @try', () => {
+		const code = `export function A({ n }) @{
+	<div>
+		@if (n) { <i /> } @else { <u /> }
+		@try { <b /> } @pending { <p /> } @catch (e) { <s /> }
+		@try { <b /> } @pending { <p /> }
+	</div>
+}`;
+		const [, tsrx_if, , tsrx_try, , pending_only] = (
+			parseForESLint(code, { filePath: 'App.tsrx' }).ast as any
+		).body[0].declaration.body.render.children;
+		expect(tsrx_if.type).toBe('JSXIfExpression');
+		expect(tsrx_if.statement).toMatchObject({
+			type: 'IfStatement',
+			loc: { start: { line: 3, column: 3 }, end: { line: 3, column: 35 } },
+			test: { name: 'n' },
+			consequent: { type: 'BlockStatement' },
+			alternate: { type: 'BlockStatement' },
+		});
+		expect(tsrx_try.type).toBe('JSXTryExpression');
+		expect(tsrx_try.statement).toMatchObject({
+			type: 'TryStatement',
+			loc: { start: { line: 4, column: 3 }, end: { line: 4, column: 56 } },
+			block: { type: 'BlockStatement' },
+			pending: { type: 'BlockStatement' },
+			handler: { type: 'CatchClause' },
+		});
+		// A `try` needs a `catch` or `finally`.
+		expect(pending_only.statement).toBeUndefined();
+		expect(pending_only.block.type).toBe('BlockStatement');
+		expect(pending_only.pending.type).toBe('BlockStatement');
+	});
+
 	it('gives TypeScript function types the params ESLint reads', () => {
 		const code = `type Fn = (a: number, b: string, c: boolean) => void;
 type Ctor = new (a, b, c) => object;

@@ -125,6 +125,13 @@ Other rules built on code paths still treat every `@switch` arm as always runnin
 For example, `react-hooks/rules-of-hooks` doesn't report a hook called in a
 `@case` body. The arms of `@if` and `@try` get their own code paths.
 
+These have no TSRX version:
+
+- `curly` with `multi` or `multi-or-nest` removes the braces from an `@if`,
+  `@else`, `@else if` or `@for` body that holds a single statement, such as
+  `@if (n) { throw error; }`. TSRX needs them, so `--fix` leaves a file that
+  doesn't parse. Use `all` or `multi-line`, which leave these bodies alone.
+
 ## Related Packages
 
 - [@tsrx/eslint-plugin](https://www.npmjs.com/package/@tsrx/eslint-plugin) -

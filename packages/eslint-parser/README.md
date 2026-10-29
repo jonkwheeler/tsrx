@@ -105,16 +105,17 @@ The parser will successfully parse this and allow ESLint rules (like those from
 ## Known Limitations
 
 Some core ESLint rules miss part of what TSRX syntax does, and the parser can't
-change that without misdescribing the source to other rules. For `.tsrx` files,
-the recommended configuration of
-[`@tsrx/eslint-plugin`](https://www.npmjs.com/package/@tsrx/eslint-plugin) uses
-TSRX versions of these rules instead:
+change that without misdescribing the source to other rules.
+[`@tsrx/eslint-plugin`](https://www.npmjs.com/package/@tsrx/eslint-plugin) has
+TSRX versions of these rules, and its recommended configuration uses
+`tsrx/no-unused-vars` and `tsrx/no-unreachable` for `.tsrx` files:
 
 - `no-unused-vars` reports an unused `@for` index, but its "Remove unused
   variable" suggestion deletes only the name, and `index )` doesn't parse.
   `tsrx/no-unused-vars` removes the whole `; index i` clause.
 - `no-await-in-loop` doesn't report an `await` in a `@for` key, though the key
-  runs once per item. `tsrx/no-await-in-loop` does.
+  runs once per item. `tsrx/no-await-in-loop` does: use it for `.tsrx` files if
+  you turn on `no-await-in-loop`.
 - Code path analysis runs the arms of a `@switch` one after another, not as
   alternatives. After an arm that ends in `throw`, `no-unreachable` reports the
   arms and code that follow it. `tsrx/no-unreachable` treats the arms as

@@ -3,7 +3,8 @@ import { Linter } from 'eslint';
 import * as parser from '@tsrx/eslint-parser';
 import plugin from '../src/index.ts';
 
-const REPLACED_CORE_RULES = ['no-unused-vars', 'no-await-in-loop', 'no-unreachable'];
+// The core rules `js.configs.recommended` turns on that have a TSRX version.
+const REPLACED_CORE_RULES = ['no-unused-vars', 'no-unreachable'];
 
 describe('eslint-plugin configs', () => {
 	it('includes .tsrx files in TSRX configs', () => {
@@ -20,7 +21,7 @@ describe('eslint-plugin configs', () => {
 		}
 	});
 
-	it('swaps in the TSRX versions of core rules for .tsrx files only', () => {
+	it('swaps in the TSRX versions of recommended core rules for .tsrx files only', () => {
 		for (const configs of [plugin.configs.recommended, plugin.configs.strict]) {
 			const [tsrx_files, typescript_files] = configs;
 			for (const name of REPLACED_CORE_RULES) {
@@ -29,11 +30,15 @@ describe('eslint-plugin configs', () => {
 				expect(typescript_files.rules).not.toHaveProperty(name);
 				expect(typescript_files.rules).not.toHaveProperty(`tsrx/${name}`);
 			}
+			// `js.configs.recommended` leaves `no-await-in-loop` off.
+			for (const config of configs) {
+				expect(config.rules ?? {}).not.toHaveProperty('no-await-in-loop');
+				expect(config.rules ?? {}).not.toHaveProperty('tsrx/no-await-in-loop');
+			}
 		}
 	});
 
-	it('reports each problem once when listed after a config that enables the core rules', () => {
-		const code = `export async function List({ items, n, load }) @{
+	const code = `export async function List({ items, n, load }) @{
 	<ul>
 		@for (const item of items; index i; key await load(item)) { <li>{item}</li> }
 		@switch (n) {
@@ -42,19 +47,30 @@ describe('eslint-plugin configs', () => {
 		}
 	</ul>
 }`;
-		const messages = new Linter().verify(
-			code,
-			[
-				// The rules `js.configs.recommended` enables, and `no-await-in-loop`.
-				{ rules: Object.fromEntries(REPLACED_CORE_RULES.map((name) => [name, 'error'])) },
-				...plugin.configs.recommended,
-				{ files: ['**/*.tsrx'], languageOptions: { parser } },
-			],
-			'App.tsrx',
-		);
+	const lint = (configs: Linter.Config[]) =>
+		new Linter()
+			.verify(code, [...configs, { files: ['**/*.tsrx'], languageOptions: { parser } }], 'App.tsrx')
+			.map((message) => `${message.line}:${message.column} ${message.ruleId}`);
+	// The rules `js.configs.recommended` turns on.
+	const base: Linter.Config = {
+		rules: Object.fromEntries(REPLACED_CORE_RULES.map((name) => [name, 'error'])),
+	};
 
+	it('reports each problem once when listed after a config that enables the core rules', () => {
+		expect(lint([base, ...plugin.configs.recommended])).toEqual(['3:36 tsrx/no-unused-vars']);
+	});
+
+	it('takes tsrx/no-await-in-loop in place of no-await-in-loop as the README shows', () => {
 		expect(
-			messages.map((message) => `${message.line}:${message.column} ${message.ruleId}`),
+			lint([
+				base,
+				...plugin.configs.recommended,
+				{ rules: { 'no-await-in-loop': 'error' } },
+				{
+					files: ['**/*.tsrx'],
+					rules: { 'no-await-in-loop': 'off', 'tsrx/no-await-in-loop': 'error' },
+				},
+			]),
 		).toEqual(['3:36 tsrx/no-unused-vars', '3:43 tsrx/no-await-in-loop']);
 	});
 });

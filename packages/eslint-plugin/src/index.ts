@@ -44,7 +44,9 @@ try {
 	tsParser = null;
 }
 
-const CORE_RULE_REPLACEMENTS = ['no-unused-vars', 'no-await-in-loop', 'no-unreachable'];
+// The core rules `js.configs.recommended` turns on that have a TSRX version.
+// `tsrx/no-await-in-loop` stays opt-in, as `no-await-in-loop` is.
+const CORE_RULE_REPLACEMENTS = ['no-unused-vars', 'no-unreachable'];
 
 // Helper to create config objects
 function createConfig(name: string, files: string[], parser: any, isTsrx: boolean) {

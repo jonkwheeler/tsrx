@@ -15,10 +15,11 @@ export function get_core_rule(name: string): Rule.RuleModule {
 }
 
 /**
- * The core rule's meta, with the TSRX rule's description.
+ * The core rule's meta, with the TSRX rule's description. No wrapper is in the
+ * `recommended` configuration: `tsrx.configs.js` swaps them in.
  */
 export function wrapper_meta(core: Rule.RuleModule, description: string): Rule.RuleMetaData {
-	return { ...core.meta, docs: { description, recommended: true } };
+	return { ...core.meta, docs: { ...core.meta?.docs, description, recommended: false } };
 }
 
 /**

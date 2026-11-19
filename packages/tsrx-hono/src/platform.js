@@ -165,6 +165,12 @@ function create_hono_platform(mode) {
 			// text; `dangerouslySetInnerHTML` renders the body as written in both
 			// modes.
 			scriptBody: 'dangerouslySetInnerHTML',
+			// The server `Suspense` renders its fallback only while its children
+			// suspend, so a fallback component runs only then, and a throw in
+			// it reaches the enclosing `ErrorBoundary`. Hono's DOM renderer
+			// can't render a fallback component that throws, so the DOM output
+			// keeps the fallback inline.
+			...(is_dom ? {} : { pendingFallback: /** @type {const} */ ('try-body') }),
 		},
 		validation: {
 			// Server JSX supports async function components. The DOM renderer is

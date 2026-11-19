@@ -256,6 +256,13 @@ synchronous; use Hono's async and Suspense APIs for asynchronous work. The DOM
 validator reports explicit async components when they can be identified safely
 in the same module, but does not infer arbitrary Promise returns.
 
+On the server, a `@pending` body renders through a `TsrxTryBody` component, so
+it runs only while the `@try` body suspends, and a throw in it reaches `@catch`.
+A body that uses `await` stays inline. The DOM target keeps every `@pending`
+body inline in the component that contains the `@try`, where it runs on every
+render: Hono's DOM renderer can't render a `Suspense` fallback component that
+throws.
+
 For an application that has both server and browser entrypoints, keep one Vite
 config and run two builds. Map Vite's explicit `client` mode to the DOM target:
 

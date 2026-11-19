@@ -110,24 +110,32 @@ describe('removed lazy destructuring', () => {
 });
 
 describe('@tsrx/hono @pending fallback', () => {
-	// Hono's DOM renderer can't recover from a `Suspense` fallback component
-	// that throws, so Hono keeps the fallback an expression the parent
-	// evaluates while rendering, where an enclosing `@catch` catches the throw.
-	it.each([
-		['server', compileServer],
-		['dom', compileDom],
-	])('%s compiler keeps the @pending body inline', (_name, compile) => {
-		const { code } = compile(
-			`export function App() @{
-				@try {
-					<Child />
-				} @pending {
-					const label = loadLabel();
-					<p>{label}</p>
-				}
-			}`,
-			'App.tsrx',
+	const source = `export function App() @{
+		@try {
+			<Child />
+		} @pending {
+			const label = loadLabel();
+			<p>{label}</p>
+		}
+	}`;
+
+	// Hono's server `Suspense` renders the fallback only while its children
+	// suspend, so the body runs only then, and a throw in it reaches `@catch`.
+	it('server compiler renders the @pending body as a TsrxTryBody fallback', () => {
+		const { code } = compileServer(source, 'App.tsrx');
+
+		expect(code).toMatch(
+			/<__Suspense fallback=\{<TsrxTryBody render=\{\(\) => \{\s*const label = loadLabel\(\);/,
 		);
+		expect(code).toContain("import { TsrxTryBody } from '@tsrx/hono/try-body';");
+	});
+
+	// Hono's DOM renderer can't recover from a `Suspense` fallback component
+	// that throws, so the DOM compiler keeps the fallback an expression the
+	// parent evaluates while rendering, where an enclosing `@catch` catches the
+	// throw.
+	it('dom compiler keeps the @pending body inline', () => {
+		const { code } = compileDom(source, 'App.tsrx');
 
 		expect(code).toMatch(/<__Suspense fallback=\{\(\(\) => \{\s*const label = loadLabel\(\);/);
 	});
